@@ -25,6 +25,8 @@ class AgyEngine:
     ) -> None:
         if agy_bin:
             self._agy_bin = agy_bin
+        elif os.environ.get("AGY_BIN"):
+            self._agy_bin = os.environ["AGY_BIN"]
         elif shutil.which("agy"):
             self._agy_bin = shutil.which("agy") or "agy"
         elif os.path.exists(self.DEFAULT_AGY_PATH):

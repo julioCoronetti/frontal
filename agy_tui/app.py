@@ -431,6 +431,7 @@ class TUIApp(App):
         renderer: MarkdownRenderer | None = None,
         clipboard: ClipboardManager | None = None,
         console: Console | None = None,
+        session_manager: SessionManager | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -439,7 +440,7 @@ class TUIApp(App):
         self.renderer = renderer or MarkdownRenderer()
         self._clipboard_manager: ClipboardManager = clipboard or ClipboardManager(output_stream=self.console.file)
         self.history = InputHistory()
-        self.session_manager = SessionManager()
+        self.session_manager = session_manager or SessionManager()
         self.diff_registry = DiffRegistry()
 
         self.running: bool = False

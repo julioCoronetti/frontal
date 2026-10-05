@@ -20,7 +20,7 @@ class SessionManager:
     DEFAULT_STORAGE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".sessions.json")
 
     def __init__(self, storage_path: str | None = None) -> None:
-        self.storage_path = storage_path or self.DEFAULT_STORAGE
+        self.storage_path = storage_path or os.environ.get("AGY_SESSIONS_FILE") or self.DEFAULT_STORAGE
         self._sessions: dict[str, SessionRecord] = {}
         self._load()
 
