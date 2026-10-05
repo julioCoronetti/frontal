@@ -15,3 +15,4 @@ venv/
 .test_sessions.json
 .DS_Store
 .agents/
+.wiki/
