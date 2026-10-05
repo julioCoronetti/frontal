@@ -25,6 +25,7 @@ frontal/
 │   ├── protocol.py           # Parser tipado do protocolo JSON stream-json (StreamEvent)
 │   ├── widgets.py            # Componentes visuais Textual (ChatInput, Sidebar, sub-barras, popups)
 │   ├── session.py            # SessionManager: persistência de histórico em JSON (suporta AGY_SESSIONS_FILE)
+│   ├── input.py              # InputHistory: histórico de comandos e navegação do buffer
 │   ├── renderer.py           # MarkdownRenderer: renderização Rich e blocos de código
 │   ├── clipboard.py          # ClipboardManager: suporte multiplataforma (OSC 52, utilitários do sistema)
 │   └── diff.py               # DiffRegistry e visualizador de diffs estruturados
