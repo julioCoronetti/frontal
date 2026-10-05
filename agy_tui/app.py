@@ -73,14 +73,59 @@ class TUIApp(App):
     }
 
     #sidebar {
-        width: 34;
+        width: 32;
         height: 100%;
-        background: #1e1e2e;
-        border-left: solid #313244;
-        padding: 1 1;
+        background: #141414;
+        border-left: solid #222222;
+        padding: 1 2;
     }
 
     #sidebar.collapsed {
+        display: none;
+    }
+
+    #sidebar-container {
+        height: 100%;
+    }
+
+    #sidebar-main {
+        height: 1fr;
+    }
+
+    .sidebar-session-title {
+        text-style: bold;
+        color: #ffffff;
+        margin-bottom: 1;
+    }
+
+    #sidebar-context-group {
+        height: auto;
+    }
+
+    .sidebar-context-title {
+        text-style: bold;
+        color: #ffffff;
+        margin-bottom: 0;
+    }
+
+    .sidebar-context-tokens {
+        color: #888888;
+    }
+
+    .sidebar-context-percent {
+        color: #888888;
+    }
+
+    #sidebar-footer {
+        dock: bottom;
+        height: auto;
+    }
+
+    .sidebar-workspace-text {
+        color: #666666;
+    }
+
+    .sidebar-compat-hidden {
         display: none;
     }
 
@@ -398,6 +443,9 @@ class TUIApp(App):
             sidebar.model_name = self.engine.model or "gemini-3.8-flash-high"
             sidebar.mode_name = self.engine.mode or "code"
             sidebar.effort_level = self.engine.effort or "medium"
+            rec = self.session_manager.get(self.engine.conversation_id)
+            if rec and rec.last_prompt:
+                sidebar.session_title = rec.last_prompt.splitlines()[0][:28]
             yield sidebar
 
         with Vertical(id="footer-area"):
@@ -1210,6 +1258,13 @@ class TUIApp(App):
             mv = self.query_one("#messages-view", VerticalScroll)
             await mv.mount(MessageCard("user", prompt))
             mv.scroll_end(animate=False)
+        except Exception:
+            pass
+
+        try:
+            sb = self.query_one("#sidebar", SidebarInspector)
+            if sb.session_title in ("Nova sessão", "default", ""):
+                sb.session_title = prompt.splitlines()[0][:28]
         except Exception:
             pass
 

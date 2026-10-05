@@ -121,49 +121,57 @@ class StepCard(Static):
 
 
 class SidebarInspector(Vertical):
+    session_title: reactive[str] = reactive("Nova sessão")
+    tokens_used: reactive[int] = reactive(0)
+    context_limit: reactive[int] = reactive(200000)
+    workspace_path: reactive[str] = reactive("")
+
     agent_status: reactive[str] = reactive("Idle")
     model_name: reactive[str] = reactive("gemini-3.8-flash-high")
     mode_name: reactive[str] = reactive("code")
     effort_level: reactive[str] = reactive("medium")
-    tokens_used: reactive[int] = reactive(0)
-    context_limit: reactive[int] = reactive(200000)
     tool_steps_count: reactive[int] = reactive(0)
     subagents_count: reactive[int] = reactive(0)
     conversation_id: reactive[str] = reactive("")
 
     def compose(self):
-        yield Static("SIDEBAR INSPECTOR", classes="sidebar-header")
+        with Vertical(id="sidebar-container"):
+            with Vertical(id="sidebar-main"):
+                yield Static(self.session_title, id="sidebar-session-title", classes="sidebar-session-title")
+                with Vertical(id="sidebar-context-group"):
+                    yield Static("Context", classes="sidebar-context-title")
+                    yield Static(self._format_token_count(), id="sidebar-tokens-count", classes="sidebar-context-tokens")
+                    yield Static(self._format_token_percent(), id="sidebar-tokens-pct", classes="sidebar-context-percent")
+            with Vertical(id="sidebar-footer"):
+                yield Static(self._get_workspace_path(), id="sidebar-workspace-path", classes="sidebar-workspace-text")
 
-        with Vertical(classes="sidebar-section"):
-            yield Static("Agent Status", classes="sidebar-label")
-            yield Static("● Idle", id="status-indicator", classes="sidebar-status-idle")
-
-        with Vertical(classes="sidebar-section"):
-            yield Static("Active Model", classes="sidebar-label")
-            yield Static(self.model_name, id="model-indicator", classes="sidebar-value")
-
-        with Vertical(classes="sidebar-section"):
-            yield Static("Execution Profile", classes="sidebar-label")
-            yield Static(f"Mode: {self.mode_name} | Effort: {self.effort_level}", id="profile-indicator", classes="sidebar-value")
-
-        with Vertical(classes="sidebar-section"):
-            yield Static("Context & Tokens", classes="sidebar-label")
-            yield Static(self._build_token_meter(), id="token-meter", classes="sidebar-meter")
-
-        with Vertical(classes="sidebar-section"):
-            yield Static("Tool Steps", classes="sidebar-label")
-            yield Static("Steps: 0", id="steps-indicator", classes="sidebar-value")
-            yield Static("None recorded yet", id="steps-list", classes="sidebar-subtext")
-
-        with Vertical(classes="sidebar-section"):
-            yield Static("Subagents", classes="sidebar-label")
-            yield Static("Active: 0", id="subagents-indicator", classes="sidebar-value")
-            yield Static("None", id="subagents-list", classes="sidebar-subtext")
-
-        with Vertical(classes="sidebar-section"):
-            yield Static("Session ID", classes="sidebar-label")
+        with Vertical(id="sidebar-compat", classes="sidebar-compat-hidden"):
+            yield Static("● Idle", id="status-indicator")
+            yield Static(self.model_name, id="model-indicator")
+            yield Static(f"Mode: {self.mode_name} | Effort: {self.effort_level}", id="profile-indicator")
+            yield Static(self._build_token_meter(), id="token-meter")
+            yield Static("Steps: 0", id="steps-indicator")
+            yield Static("None recorded yet", id="steps-list")
+            yield Static("Active: 0", id="subagents-indicator")
+            yield Static("None", id="subagents-list")
             disp = (self.conversation_id[:18] + "...") if len(self.conversation_id) > 18 else (self.conversation_id or "default")
-            yield Static(disp, id="session-indicator", classes="sidebar-session-text")
+            yield Static(disp, id="session-indicator")
+
+    def _format_token_count(self) -> str:
+        return f"{self.tokens_used:,} tokens"
+
+    def _format_token_percent(self) -> str:
+        pct = (self.tokens_used / max(1, self.context_limit)) * 100
+        return f"{int(pct)}% used"
+
+    def _get_workspace_path(self) -> str:
+        target = self.workspace_path or os.getcwd()
+        home = os.path.expanduser("~")
+        if target == home:
+            return "~"
+        if target.startswith(home + "/"):
+            return "~/" + os.path.relpath(target, home)
+        return target
 
     def _build_token_meter(self, ascii_fallback: bool = False) -> str:
         pct = min(100, int((self.tokens_used / max(1, self.context_limit)) * 100))
@@ -179,6 +187,33 @@ class SidebarInspector(Vertical):
         meter = fill_char * bars + empty_char * (10 - bars)
         return f"[{meter}] {pct}%\n{self.tokens_used:,} / {self.context_limit:,} tokens"
 
+    def watch_tokens_used(self, new_val: int) -> None:
+        try:
+            self.query_one("#sidebar-tokens-count", Static).update(self._format_token_count())
+            self.query_one("#sidebar-tokens-pct", Static).update(self._format_token_percent())
+            self.query_one("#token-meter", Static).update(self._build_token_meter())
+        except Exception:
+            pass
+
+    def watch_context_limit(self, new_val: int) -> None:
+        try:
+            self.query_one("#sidebar-tokens-pct", Static).update(self._format_token_percent())
+            self.query_one("#token-meter", Static).update(self._build_token_meter())
+        except Exception:
+            pass
+
+    def watch_session_title(self, new_val: str) -> None:
+        try:
+            self.query_one("#sidebar-session-title", Static).update(new_val)
+        except Exception:
+            pass
+
+    def watch_workspace_path(self, new_val: str) -> None:
+        try:
+            self.query_one("#sidebar-workspace-path", Static).update(self._get_workspace_path())
+        except Exception:
+            pass
+
     def update_telemetry(
         self,
         status: str | None = None,
@@ -190,7 +225,15 @@ class SidebarInspector(Vertical):
         subagents: list[str] | int | None = None,
         conversation_id: str | None = None,
         context_limit: int | None = None,
+        session_title: str | None = None,
+        workspace_path: str | None = None,
     ) -> None:
+        if session_title:
+            self.session_title = session_title
+
+        if workspace_path:
+            self.workspace_path = workspace_path
+
         if status:
             self.agent_status = status
             try:

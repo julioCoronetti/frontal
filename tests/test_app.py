@@ -523,3 +523,21 @@ def test_turn_duration_and_throughput_calculation():
     assert "999.00s" not in output
     assert "tok/s" in output
     assert app._turn_start_time is None
+
+
+def test_sidebar_minimal_context_formatting():
+    from agy_tui.widgets import SidebarInspector
+
+    sb = SidebarInspector()
+    sb.tokens_used = 4554
+    sb.context_limit = 200000
+    sb.workspace_path = "/home/julio_regino/workspace"
+
+    assert sb._format_token_count() == "4,554 tokens"
+    assert sb._format_token_percent() == "2% used"
+    assert sb._get_workspace_path() == "~/workspace"
+
+    sb.update_telemetry(tokens=0, context_limit=1000000, session_title="Saudação casual")
+    assert sb.session_title == "Saudação casual"
+    assert sb._format_token_count() == "0 tokens"
+    assert sb._format_token_percent() == "0% used"

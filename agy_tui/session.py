@@ -119,6 +119,9 @@ class SessionManager:
                 return rec
         return None
 
+    def get(self, conversation_id: str) -> SessionRecord | None:
+        return self._sessions.get(conversation_id)
+
     def clear(self) -> None:
         self._sessions.clear()
         if os.path.exists(self.storage_path):

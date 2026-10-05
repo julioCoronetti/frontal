@@ -1,5 +1,45 @@
 [
   {
+    "conversation_id": "bc82a005-4988-473f-ad58-20a4cf0e7566",
+    "timestamp": "2026-10-05 14:39:09",
+    "model": "default",
+    "mode": "code",
+    "effort": "medium",
+    "last_prompt": "calculate 42",
+    "turns": 2,
+    "updated_at": 1791221949.5494952
+  },
+  {
+    "conversation_id": "9ff6572a-46e9-4443-8bcf-603b88376150",
+    "timestamp": "2026-10-05 14:22:20",
+    "model": "default",
+    "mode": "code",
+    "effort": "medium",
+    "last_prompt": "calculate 42",
+    "turns": 2,
+    "updated_at": 1791220940.0417812
+  },
+  {
+    "conversation_id": "597c55fd-ab09-417c-a16f-65ad44a07906",
+    "timestamp": "2026-10-05 12:54:16",
+    "model": "default",
+    "mode": "code",
+    "effort": "medium",
+    "last_prompt": "calculate 42",
+    "turns": 2,
+    "updated_at": 1791215656.2946956
+  },
+  {
+    "conversation_id": "cb8002c1-6545-47f7-8beb-1e459ba8d6c9",
+    "timestamp": "2026-10-05 12:51:23",
+    "model": "default",
+    "mode": "code",
+    "effort": "medium",
+    "last_prompt": "calculate 42",
+    "turns": 2,
+    "updated_at": 1791215483.7536228
+  },
+  {
     "conversation_id": "test-integration-conv-1",
     "timestamp": "2026-10-05 12:08:12",
     "model": "default",
