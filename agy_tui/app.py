@@ -22,7 +22,10 @@ from agy_tui.renderer import MarkdownRenderer
 from agy_tui.session import SessionManager
 from agy_tui.widgets import (
     AutocompletePopup,
+    ChatFooterBar,
     ChatInput,
+    ChatInputContainer,
+    ChatInputSubBar,
     CodeBlockWidget,
     DiffViewWidget,
     MessageCard,
@@ -181,7 +184,7 @@ class TUIApp(App):
         height: auto;
         background: #11111b;
         border-top: solid #313244;
-        padding: 0 1;
+        padding: 1 1 0 1;
     }
 
     #autocomplete-popup {
@@ -196,32 +199,69 @@ class TUIApp(App):
         display: none;
     }
 
-    #input-bar {
+    #chat-input-container {
         height: auto;
         min-height: 3;
-        max-height: 10;
+        max-height: 11;
+        background: #141414;
+        border-left: solid #89b4fa;
+        padding: 0 1;
+        margin-bottom: 0;
     }
 
     #chat-input {
         width: 1fr;
         height: auto;
-        min-height: 3;
-        max-height: 9;
-        background: #181825;
-        border: solid #45475a;
+        min-height: 2;
+        max-height: 8;
+        background: #141414;
+        border: none;
+        padding: 0;
     }
 
     #chat-input:focus {
-        border: solid #89b4fa;
+        border: none;
+    }
+
+    #chat-input-subbar {
+        height: 1;
+        background: #141414;
+        color: #6c7086;
+        padding: 0;
+        margin-top: 0;
+        margin-bottom: 0;
+    }
+
+    #subbar-text {
+        width: 100%;
+        color: #6c7086;
+    }
+
+    #chat-footer-bar {
+        height: 1;
+        width: 100%;
+        margin-top: 0;
+        margin-bottom: 0;
+        padding: 0 1;
+    }
+
+    #footer-workspace-path {
+        width: auto;
+        color: #6c7086;
+    }
+
+    #footer-context-shortcuts {
+        width: 1fr;
+        text-align: right;
+        color: #6c7086;
     }
 
     #send-btn {
-        width: 10;
-        height: 3;
-        margin-left: 1;
-        background: #89b4fa;
-        color: #11111b;
-        text-style: bold;
+        display: none;
+    }
+
+    #input-bar {
+        display: none;
     }
 
     .code-header {
@@ -450,9 +490,14 @@ class TUIApp(App):
 
         with Vertical(id="footer-area"):
             yield AutocompletePopup(id="autocomplete-popup", classes="hidden")
-            with Horizontal(id="input-bar"):
-                yield ChatInput(id="chat-input")
-                yield Button("Send", id="send-btn")
+            input_container = ChatInputContainer(id="chat-input-container")
+            input_container.mode_name = self.engine.mode or "code"
+            input_container.model_name = self.engine.model or "gemini-3.8-flash-high"
+            input_container.effort_level = self.engine.effort or "medium"
+            yield input_container
+            footer_bar = ChatFooterBar(id="chat-footer-bar")
+            yield footer_bar
+            yield Button("Send", id="send-btn", classes="hidden")
 
     async def on_mount(self) -> None:
         self.running = True
@@ -806,6 +851,11 @@ class TUIApp(App):
                     hdr.update(f"Model: {arg}  |  Session: {self.engine.conversation_id[:12]}...")
                 except Exception:
                     pass
+                try:
+                    subbar = self.query_one("#chat-input-subbar", ChatInputSubBar)
+                    subbar.model_name = arg
+                except Exception:
+                    pass
                 await self._add_system_message(f"Active model switched to: {arg}", style="green")
             return True
 
@@ -830,6 +880,11 @@ class TUIApp(App):
                         sb.update_telemetry(mode=arg)
                     except Exception:
                         pass
+                    try:
+                        subbar = self.query_one("#chat-input-subbar", ChatInputSubBar)
+                        subbar.mode_name = arg
+                    except Exception:
+                        pass
                     await self._add_system_message(f"Execution mode set to: {arg}", style="green")
             return True
 
@@ -852,6 +907,11 @@ class TUIApp(App):
                     try:
                         sb = self.query_one("#sidebar", SidebarInspector)
                         sb.update_telemetry(effort=arg)
+                    except Exception:
+                        pass
+                    try:
+                        subbar = self.query_one("#chat-input-subbar", ChatInputSubBar)
+                        subbar.effort_level = arg
                     except Exception:
                         pass
                     await self._add_system_message(f"Reasoning effort set to: {arg}", style="green")
@@ -926,6 +986,11 @@ class TUIApp(App):
                     sb.update_telemetry(conversation_id=target_id, model=self.engine.model, mode=self.engine.mode, effort=self.engine.effort)
                     hdr = self.query_one("#header-session", Static)
                     hdr.update(f"Model: {self.engine.model or 'default'}  |  Session: {target_id[:12]}...")
+                except Exception:
+                    pass
+                try:
+                    subbar = self.query_one("#chat-input-subbar", ChatInputSubBar)
+                    subbar.update_info(mode=self.engine.mode, model=self.engine.model, effort=self.engine.effort)
                 except Exception:
                     pass
                 await self._add_system_message(f"✓ Resumed session: {target_id}", style="green")
@@ -1176,6 +1241,11 @@ class TUIApp(App):
                     try:
                         sb = self.query_one("#sidebar", SidebarInspector)
                         sb.update_telemetry(tokens=tokens)
+                    except Exception:
+                        pass
+                    try:
+                        fb = self.query_one("#chat-footer-bar", ChatFooterBar)
+                        fb.tokens_used = tokens
                     except Exception:
                         pass
 

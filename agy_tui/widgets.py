@@ -5,6 +5,7 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 from textual import events
+from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.reactive import reactive
@@ -120,6 +121,29 @@ class StepCard(Static):
         yield Static(Panel(text, border_style="yellow", expand=False), classes="step-panel")
 
 
+def format_workspace_path(target_path: str = "") -> str:
+    target = target_path or os.getcwd()
+    home = os.path.expanduser("~")
+    if target == home:
+        return "~"
+    if target.startswith(home + "/"):
+        return "~/" + os.path.relpath(target, home)
+    return target
+
+
+def format_compact_tokens(tokens: int, limit: int = 200000) -> str:
+    pct = int((tokens / max(1, limit)) * 100)
+    if tokens >= 1_000_000:
+        val = tokens / 1_000_000
+        tok_str = f"{val:.1f}M".replace(".0M", "M")
+    elif tokens >= 1_000:
+        val = tokens / 1_000
+        tok_str = f"{val:.1f}K".replace(".0K", "K")
+    else:
+        tok_str = str(tokens)
+    return f"{tok_str} ({pct}%)"
+
+
 class SidebarInspector(Vertical):
     session_title: reactive[str] = reactive("Nova sessão")
     tokens_used: reactive[int] = reactive(0)
@@ -165,13 +189,7 @@ class SidebarInspector(Vertical):
         return f"{int(pct)}% used"
 
     def _get_workspace_path(self) -> str:
-        target = self.workspace_path or os.getcwd()
-        home = os.path.expanduser("~")
-        if target == home:
-            return "~"
-        if target.startswith(home + "/"):
-            return "~/" + os.path.relpath(target, home)
-        return target
+        return format_workspace_path(self.workspace_path)
 
     def _build_token_meter(self, ascii_fallback: bool = False) -> str:
         pct = min(100, int((self.tokens_used / max(1, self.context_limit)) * 100))
@@ -431,6 +449,151 @@ class ChatInput(TextArea):
             event.stop()
             self.post_message(self.HistoryNavigation("down"))
             return
+
+
+class ChatInputSubBar(Horizontal):
+    mode_name: reactive[str] = reactive("code")
+    model_name: reactive[str] = reactive("gemini-3.8-flash-high")
+    effort_level: reactive[str] = reactive("medium")
+
+    def compose(self) -> ComposeResult:
+        yield Static(self._build_text(), id="subbar-text")
+
+    def _build_text(self) -> str:
+        mode = (self.mode_name or "code").capitalize()
+        model = self.model_name or "gemini-3.8-flash-high"
+        effort = (self.effort_level or "medium").capitalize()
+        return f"[bold #89b4fa]{mode}[/] [dim #6c7086]·[/] [#cdd6f4]{model}[/] [dim #a6adc8]{effort}[/]"
+
+    def get_plain_text(self) -> str:
+        mode = (self.mode_name or "code").capitalize()
+        model = self.model_name or "gemini-3.8-flash-high"
+        effort = (self.effort_level or "medium").capitalize()
+        return f"{mode} · {model} {effort}"
+
+    def watch_mode_name(self, new_val: str) -> None:
+        try:
+            self.query_one("#subbar-text", Static).update(self._build_text())
+        except Exception:
+            pass
+
+    def watch_model_name(self, new_val: str) -> None:
+        try:
+            self.query_one("#subbar-text", Static).update(self._build_text())
+        except Exception:
+            pass
+
+    def watch_effort_level(self, new_val: str) -> None:
+        try:
+            self.query_one("#subbar-text", Static).update(self._build_text())
+        except Exception:
+            pass
+
+    def update_info(
+        self,
+        mode: str | None = None,
+        model: str | None = None,
+        effort: str | None = None,
+    ) -> None:
+        if mode:
+            self.mode_name = mode
+        if model:
+            self.model_name = model
+        if effort:
+            self.effort_level = effort
+
+
+class ChatFooterBar(Horizontal):
+    workspace_path: reactive[str] = reactive("")
+    tokens_used: reactive[int] = reactive(0)
+    context_limit: reactive[int] = reactive(200000)
+    shortcuts_text: reactive[str] = reactive("tab /help · ctrl+b sidebar")
+
+    def compose(self) -> ComposeResult:
+        yield Static(self._get_workspace_path(), id="footer-workspace-path", classes="footer-path")
+        yield Static(self._build_context_and_shortcuts(), id="footer-context-shortcuts", classes="footer-info")
+
+    def _get_workspace_path(self) -> str:
+        return format_workspace_path(self.workspace_path)
+
+    def _format_compact_tokens(self) -> str:
+        return format_compact_tokens(self.tokens_used, self.context_limit)
+
+    def _build_context_and_shortcuts(self) -> str:
+        tok_summary = self._format_compact_tokens()
+        return f"[dim #888888]{tok_summary}[/]  [dim #585b70]{self.shortcuts_text}[/]"
+
+    def get_plain_context(self) -> str:
+        return self._format_compact_tokens()
+
+    def watch_workspace_path(self, new_val: str) -> None:
+        try:
+            self.query_one("#footer-workspace-path", Static).update(self._get_workspace_path())
+        except Exception:
+            pass
+
+    def watch_tokens_used(self, new_val: int) -> None:
+        try:
+            self.query_one("#footer-context-shortcuts", Static).update(self._build_context_and_shortcuts())
+        except Exception:
+            pass
+
+    def watch_context_limit(self, new_val: int) -> None:
+        try:
+            self.query_one("#footer-context-shortcuts", Static).update(self._build_context_and_shortcuts())
+        except Exception:
+            pass
+
+    def watch_shortcuts_text(self, new_val: str) -> None:
+        try:
+            self.query_one("#footer-context-shortcuts", Static).update(self._build_context_and_shortcuts())
+        except Exception:
+            pass
+
+    def update_telemetry(
+        self,
+        tokens: int | None = None,
+        limit: int | None = None,
+        workspace: str | None = None,
+    ) -> None:
+        if tokens is not None:
+            self.tokens_used = tokens
+        if limit is not None:
+            self.context_limit = limit
+        if workspace:
+            self.workspace_path = workspace
+
+
+class ChatInputContainer(Vertical):
+    mode_name: reactive[str] = reactive("code")
+    model_name: reactive[str] = reactive("gemini-3.8-flash-high")
+    effort_level: reactive[str] = reactive("medium")
+
+    def compose(self) -> ComposeResult:
+        yield ChatInput(id="chat-input")
+        subbar = ChatInputSubBar(id="chat-input-subbar")
+        subbar.mode_name = self.mode_name
+        subbar.model_name = self.model_name
+        subbar.effort_level = self.effort_level
+        yield subbar
+
+    def watch_mode_name(self, new_val: str) -> None:
+        try:
+            self.query_one("#chat-input-subbar", ChatInputSubBar).mode_name = new_val
+        except Exception:
+            pass
+
+    def watch_model_name(self, new_val: str) -> None:
+        try:
+            self.query_one("#chat-input-subbar", ChatInputSubBar).model_name = new_val
+        except Exception:
+            pass
+
+    def watch_effort_level(self, new_val: str) -> None:
+        try:
+            self.query_one("#chat-input-subbar", ChatInputSubBar).effort_level = new_val
+        except Exception:
+            pass
 
 
 class AutocompletePopup(OptionList):

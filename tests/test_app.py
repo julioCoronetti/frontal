@@ -541,3 +541,73 @@ def test_sidebar_minimal_context_formatting():
     assert sb.session_title == "Saudação casual"
     assert sb._format_token_count() == "0 tokens"
     assert sb._format_token_percent() == "0% used"
+
+
+def test_chat_input_subbar_formatting():
+    from agy_tui.widgets import ChatInputSubBar
+
+    subbar = ChatInputSubBar()
+    subbar.mode_name = "code"
+    subbar.model_name = "gemini-3.8-flash-high"
+    subbar.effort_level = "medium"
+
+    assert subbar.get_plain_text() == "Code · gemini-3.8-flash-high Medium"
+    assert "Code" in subbar._build_text()
+    assert "gemini-3.8-flash-high" in subbar._build_text()
+    assert "Medium" in subbar._build_text()
+
+    subbar.update_info(mode="plan", effort="high")
+    assert subbar.get_plain_text() == "Plan · gemini-3.8-flash-high High"
+
+
+def test_chat_footer_bar_formatting():
+    from agy_tui.widgets import ChatFooterBar, format_compact_tokens, format_workspace_path
+
+    assert format_workspace_path("/home/julio_regino/workspace") == "~/workspace"
+    assert format_compact_tokens(4600, 1000000) == "4.6K (0%)"
+    assert format_compact_tokens(4600, 200000) == "4.6K (2%)"
+    assert format_compact_tokens(0, 200000) == "0 (0%)"
+    assert format_compact_tokens(1500000, 2000000) == "1.5M (75%)"
+
+    fb = ChatFooterBar()
+    fb.workspace_path = "/home/julio_regino/workspace"
+    fb.tokens_used = 4600
+    fb.context_limit = 1000000
+
+    assert fb._get_workspace_path() == "~/workspace"
+    assert fb._format_compact_tokens() == "4.6K (0%)"
+    assert "tab /help" in fb._build_context_and_shortcuts()
+
+    fb.update_telemetry(tokens=0)
+    assert fb._format_compact_tokens() == "0 (0%)"
+
+
+def test_chat_input_container_composition():
+    from agy_tui.widgets import ChatInput, ChatInputContainer, ChatInputSubBar
+
+    container = ChatInputContainer()
+    container.mode_name = "plan"
+    container.model_name = "gemini-2.5-pro"
+    container.effort_level = "high"
+
+    children = list(container.compose())
+    assert len(children) == 2
+    assert isinstance(children[0], ChatInput)
+    assert isinstance(children[1], ChatInputSubBar)
+    assert children[1].mode_name == "plan"
+    assert children[1].model_name == "gemini-2.5-pro"
+    assert children[1].effort_level == "high"
+
+
+def test_app_compose_layout_chat_input_and_footer():
+    from agy_tui.widgets import ChatFooterBar, ChatInputContainer
+
+    container = ChatInputContainer()
+    assert container.mode_name == "code"
+    assert container.model_name == "gemini-3.8-flash-high"
+    assert container.effort_level == "medium"
+
+    fb = ChatFooterBar()
+    assert fb.tokens_used == 0
+    assert fb.context_limit == 200000
+    assert "tab /help" in fb.shortcuts_text
