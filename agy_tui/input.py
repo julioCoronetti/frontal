@@ -1,8 +1,3 @@
-import sys
-import termios
-import tty
-
-
 class InputHistory:
     def __init__(self, max_size: int = 1000) -> None:
         self.max_size = max_size
@@ -47,32 +42,3 @@ class InputHistory:
 
     def get_all(self) -> list[str]:
         return list(self._entries)
-
-
-class TerminalReader:
-    def __init__(self) -> None:
-        self.is_tty = sys.stdin.isatty()
-        self._old_settings = None
-
-    def enable_cbreak(self) -> None:
-        if not self.is_tty:
-            return
-        try:
-            self._old_settings = termios.tcgetattr(sys.stdin.fileno())
-            tty.setcbreak(sys.stdin.fileno())
-        except Exception:
-            self._old_settings = None
-
-    def restore(self) -> None:
-        if not self.is_tty or self._old_settings is None:
-            return
-        try:
-            termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, self._old_settings)
-        except Exception:
-            pass
-        self._old_settings = None
-
-    def read_char(self) -> str:
-        if not self.is_tty:
-            return sys.stdin.read(1)
-        return sys.stdin.read(1)
