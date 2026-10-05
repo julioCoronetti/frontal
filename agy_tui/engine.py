@@ -10,7 +10,7 @@ from agy_tui.protocol import StreamEvent, format_user_message, parse_stream_line
 
 
 class AgyEngine:
-    DEFAULT_AGY_PATH = "/home/julio_regino/.local/bin/agy"
+    DEFAULT_AGY_PATH = os.path.expanduser("~/.local/bin/agy")
 
     def __init__(
         self,

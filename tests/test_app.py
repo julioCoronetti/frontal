@@ -1,4 +1,5 @@
 import io
+import os
 import time
 
 from rich.console import Console
@@ -528,10 +529,13 @@ def test_turn_duration_and_throughput_calculation():
 def test_sidebar_minimal_context_formatting():
     from agy_tui.widgets import SidebarInspector
 
+    home = os.path.expanduser("~")
+    test_workspace = os.path.join(home, "workspace")
+
     sb = SidebarInspector()
     sb.tokens_used = 4554
     sb.context_limit = 200000
-    sb.workspace_path = "/home/julio_regino/workspace"
+    sb.workspace_path = test_workspace
 
     assert sb._format_token_count() == "4,554 tokens"
     assert sb._format_token_percent() == "2% used"
@@ -563,14 +567,17 @@ def test_chat_input_subbar_formatting():
 def test_chat_footer_bar_formatting():
     from agy_tui.widgets import ChatFooterBar, format_compact_tokens, format_workspace_path
 
-    assert format_workspace_path("/home/julio_regino/workspace") == "~/workspace"
+    home = os.path.expanduser("~")
+    test_workspace = os.path.join(home, "workspace")
+
+    assert format_workspace_path(test_workspace) == "~/workspace"
     assert format_compact_tokens(4600, 1000000) == "4.6K (0%)"
     assert format_compact_tokens(4600, 200000) == "4.6K (2%)"
     assert format_compact_tokens(0, 200000) == "0 (0%)"
     assert format_compact_tokens(1500000, 2000000) == "1.5M (75%)"
 
     fb = ChatFooterBar()
-    fb.workspace_path = "/home/julio_regino/workspace"
+    fb.workspace_path = test_workspace
     fb.tokens_used = 4600
     fb.context_limit = 1000000
 
