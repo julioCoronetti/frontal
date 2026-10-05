@@ -1,6 +1,7 @@
 import asyncio
 import readline
 import sys
+import time
 from typing import Any
 
 from rich.console import Console
@@ -367,6 +368,7 @@ class TUIApp(App):
         self._current_thought_text: str = ""
         self._event_task: asyncio.Task | None = None
         self._turn_done_event: asyncio.Event = asyncio.Event()
+        self._turn_start_time: float | None = None
 
         self._active_stream_widget: Static | None = None
         self._active_thought_card: ThoughtCard | None = None
@@ -1109,17 +1111,25 @@ class TUIApp(App):
                 self._finalize_agent_response()
 
             duration = None
-            if event.result_data:
+            if self._turn_start_time is not None:
+                duration = max(0.0, time.monotonic() - self._turn_start_time)
+                self._turn_start_time = None
+            elif event.result_data:
                 duration = event.result_data.get("duration_seconds")
 
             usage = event.usage
-            if usage and self.is_running:
-                tokens = usage.get("total_tokens") or (usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0))
-                try:
-                    sb = self.query_one("#sidebar", SidebarInspector)
-                    sb.update_telemetry(tokens=tokens)
-                except Exception:
-                    pass
+            tokens_per_sec = None
+            if usage:
+                completion_tokens = usage.get("completion_tokens") or 0
+                if duration and duration > 0 and completion_tokens > 0:
+                    tokens_per_sec = completion_tokens / duration
+                if self.is_running:
+                    tokens = usage.get("total_tokens") or (usage.get("prompt_tokens", 0) + completion_tokens)
+                    try:
+                        sb = self.query_one("#sidebar", SidebarInspector)
+                        sb.update_telemetry(tokens=tokens)
+                    except Exception:
+                        pass
 
             if self.is_running:
                 try:
@@ -1128,6 +1138,7 @@ class TUIApp(App):
                         status=event.result_status or "SUCCESS",
                         duration=duration,
                         error_message=event.result_error,
+                        tokens_per_sec=tokens_per_sec,
                     )
                     mv.mount(Static(rendered_res))
                 except Exception:
@@ -1138,6 +1149,7 @@ class TUIApp(App):
                         status=event.result_status or "SUCCESS",
                         duration=duration,
                         error_message=event.result_error,
+                        tokens_per_sec=tokens_per_sec,
                     )
                 )
 
@@ -1202,6 +1214,7 @@ class TUIApp(App):
             pass
 
         self._update_sidebar_status("Thinking...")
+        self._turn_start_time = time.monotonic()
 
         try:
             await self.engine.send_prompt(prompt)

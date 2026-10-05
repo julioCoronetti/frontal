@@ -1,5 +1,55 @@
 [
   {
+    "conversation_id": "test-integration-conv-1",
+    "timestamp": "2026-10-05 12:08:12",
+    "model": "default",
+    "mode": "code",
+    "effort": "medium",
+    "last_prompt": "echo test message",
+    "turns": 37,
+    "updated_at": 1791212892.6212816
+  },
+  {
+    "conversation_id": "6173552f-476d-483e-9958-4f7220726694",
+    "timestamp": "2026-10-05 12:07:49",
+    "model": "default",
+    "mode": "code",
+    "effort": "medium",
+    "last_prompt": "prompt_line",
+    "turns": 1,
+    "updated_at": 1791212869.0068965
+  },
+  {
+    "conversation_id": "2c033c37-9958-4f67-8472-4da1a3c1c56e",
+    "timestamp": "2026-10-05 12:07:00",
+    "model": "default",
+    "mode": "code",
+    "effort": "medium",
+    "last_prompt": "line1",
+    "turns": 1,
+    "updated_at": 1791212820.6147883
+  },
+  {
+    "conversation_id": "abdc01c3-6ba5-4011-8aa2-8258289fcdb8",
+    "timestamp": "2026-10-05 12:06:07",
+    "model": "default",
+    "mode": "code",
+    "effort": "medium",
+    "last_prompt": "calculate 42",
+    "turns": 2,
+    "updated_at": 1791212767.41755
+  },
+  {
+    "conversation_id": "41e3f048-e654-45ec-817c-53f11b3d01c8",
+    "timestamp": "2026-10-05 12:03:13",
+    "model": "default",
+    "mode": "code",
+    "effort": "medium",
+    "last_prompt": "calculate 42",
+    "turns": 2,
+    "updated_at": 1791212593.9752722
+  },
+  {
     "conversation_id": "0c59c0da-b748-4b45-87c9-8a18b9c7e41b",
     "timestamp": "2026-10-02 14:31:19",
     "model": "gemini-3.8-flash-high",
@@ -18,16 +68,6 @@
     "last_prompt": "calculate 42",
     "turns": 2,
     "updated_at": 1790961337.45942
-  },
-  {
-    "conversation_id": "test-integration-conv-1",
-    "timestamp": "2026-10-02 13:38:35",
-    "model": "default",
-    "mode": "code",
-    "effort": "medium",
-    "last_prompt": "echo test message",
-    "turns": 36,
-    "updated_at": 1790959115.2184193
   },
   {
     "conversation_id": "9c3be44e-50ca-40ad-8390-b0007a7c80d7",

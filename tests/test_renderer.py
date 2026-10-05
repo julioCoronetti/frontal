@@ -86,6 +86,12 @@ def test_render_result_panel():
     assert isinstance(panel_error, Panel)
     assert panel_error.border_style == "red"
 
+    panel_tps = renderer.render_result(status="SUCCESS", duration=1.5, tokens_per_sec=42.0)
+    assert isinstance(panel_tps, Panel)
+    rendered_plain = str(panel_tps.renderable)
+    assert "1.50s" in rendered_plain
+    assert "42.0 tok/s" in rendered_plain
+
 
 def test_render_markdown_with_multiple_blocks():
     md = (

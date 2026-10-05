@@ -156,8 +156,12 @@ class MarkdownRenderer:
         status: str,
         duration: float | None = None,
         error_message: str | None = None,
+        tokens_per_sec: float | None = None,
     ) -> Panel:
         dur_str = f" in {duration:.2f}s" if duration is not None else ""
+        if tokens_per_sec is not None:
+            tps_str = f" · {tokens_per_sec:.1f} tok/s"
+            dur_str = f"{dur_str}{tps_str}" if dur_str else f" ({tokens_per_sec:.1f} tok/s)"
         if status == "SUCCESS":
             text = Text.assemble(
                 ("Completed successfully", "bold green"),

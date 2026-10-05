@@ -1,4 +1,5 @@
 import io
+import time
 
 from rich.console import Console
 
@@ -494,3 +495,31 @@ def test_single_line_slash_prompts_vs_commands():
     assert is_command("/usr/bin/python") is False
     assert is_command("/home/julio/test.py") is False
     assert is_command("/ 10") is False
+
+
+def test_turn_duration_and_throughput_calculation():
+    out = io.StringIO()
+    console = Console(file=out, width=100)
+    app = TUIApp(console=console)
+
+    app._turn_start_time = time.monotonic() - 2.5
+    ev_result = StreamEvent(
+        event_type="result",
+        raw={
+            "event": "result",
+            "result": {
+                "status": "SUCCESS",
+                "duration_seconds": 999.0,
+                "usage": {
+                    "completion_tokens": 100,
+                    "prompt_tokens": 50,
+                    "total_tokens": 150,
+                },
+            },
+        },
+    )
+    app._dispatch_event(ev_result)
+    output = out.getvalue()
+    assert "999.00s" not in output
+    assert "tok/s" in output
+    assert app._turn_start_time is None
