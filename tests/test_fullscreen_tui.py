@@ -13,6 +13,7 @@ from agy_tui.widgets import (
     ChatInput,
     CodeBlockWidget,
     DiffViewWidget,
+    ModelSelectModal,
     SidebarInspector,
 )
 
@@ -528,7 +529,41 @@ def test_active_turn_guards_config_commands():
             await pilot.pause()
             assert pilot.app.engine.effort == orig_effort
 
+            pilot.app.action_select_model()
+            await pilot.pause()
+            assert not isinstance(pilot.app.screen, ModelSelectModal)
+
             pilot.app.turn_active = False
+
+    asyncio.run(_run())
+
+
+def test_model_select_modal_hotkey_and_esc_backtrack():
+    async def _run():
+        app = TUIApp()
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.press("ctrl+m")
+            await pilot.pause()
+            assert isinstance(pilot.app.screen, ModelSelectModal)
+            modal = pilot.app.screen
+            assert modal._step == 1
+
+            opt_list = modal.query_one("#model-modal-options")
+            opt_list.highlighted = 2
+            opt_list.action_select()
+            await pilot.pause()
+            assert modal._step == 2
+            assert modal._selected_model == "gemini-3.6-flash"
+
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(pilot.app.screen, ModelSelectModal)
+            assert modal._step == 1
+            assert modal._selected_model is None
+
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(pilot.app.screen, ModelSelectModal)
 
     asyncio.run(_run())
 

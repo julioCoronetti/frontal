@@ -25,6 +25,7 @@ class ClipboardManager:
         self._enable_osc52 = enable_osc52
         self._output_stream = output_stream or sys.stdout
         self._fallback_buffer: str = ""
+        self._clip_written: bool = False
 
     @property
     def clip_exe_available(self) -> bool:
@@ -77,6 +78,9 @@ class ClipboardManager:
         copied = False
         if self.clip_exe_available:
             copied = self.copy_clip_exe(text)
+            self._clip_written = copied
+        else:
+            self._clip_written = False
         if self._enable_osc52:
             osc_ok = self.copy_osc52(text)
             copied = copied or osc_ok
@@ -108,7 +112,7 @@ class ClipboardManager:
         return copied or (self._fallback_buffer is not None)
 
     def read_clipboard(self, normalize_newlines: bool = False) -> str:
-        if self.clip_exe_available:
+        if self.clip_exe_available and (self._clip_written or not self._fallback_buffer):
             powershell_bin = shutil.which("powershell.exe") or "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
             if os.path.exists(powershell_bin):
                 ps_script = (
