@@ -524,7 +524,7 @@ def test_active_turn_guards_config_commands():
             assert pilot.app.engine.mode == orig_mode
 
             orig_effort = pilot.app.engine.effort
-            await pilot.app._handle_command("/effort max")
+            await pilot.app._handle_command("/effort high")
             await pilot.pause()
             assert pilot.app.engine.effort == orig_effort
 

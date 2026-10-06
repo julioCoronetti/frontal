@@ -45,8 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--effort",
         type=str,
         default=None,
-        choices=["low", "medium", "high", "max"],
-        help="Reasoning effort level",
+        choices=["low", "medium", "high"],
+        help="Reasoning effort level (low, medium, high)",
     )
     parser.add_argument(
         "--cwd",

@@ -6,9 +6,11 @@ from rich.syntax import Syntax
 from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.reactive import reactive
+from textual.screen import ModalScreen
 from textual.widgets import Button, OptionList, Static, TextArea
 
 from agy_tui.diff import DiffRecord, format_diff_text
@@ -635,3 +637,105 @@ class AutocompletePopup(OptionList):
             raw = str(opt.prompt)
             return raw.split()[0]
         return None
+
+
+class ModelSelectModal(ModalScreen[tuple[str, str] | None]):
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    MODELS = [
+        ("gemini-3.8-flash", "Gemini 3.8 Flash", "Google DeepMind · Default high-speed reasoning"),
+        ("gemini-3.7-flash", "Gemini 3.7 Flash", "Google DeepMind · Fast hybrid reasoning"),
+        ("gemini-3.6-flash", "Gemini 3.6 Flash", "Google DeepMind · Lightweight fast model"),
+        ("gemini-3.1-pro", "Gemini 3.1 Pro", "Google DeepMind · Advanced complex reasoning"),
+        ("claude-sonnet-5-5", "Claude Sonnet 5.5", "Anthropic · Advanced coding & reasoning"),
+        ("claude-opus-5-5", "Claude Opus 5.5", "Anthropic · Deep strategic reasoning"),
+        ("gpt-oss-120b-medium", "GPT-OSS 120B", "Open source · Open weights model"),
+    ]
+
+    EFFORTS = [
+        ("high", "High", "Maximum depth reasoning (Recommended)"),
+        ("medium", "Medium", "Balanced reasoning and latency"),
+        ("low", "Low", "Fast response with minimal thinking"),
+    ]
+
+    def __init__(
+        self,
+        current_model: str | None = None,
+        current_effort: str | None = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.current_model = current_model or "gemini-3.8-flash"
+        self.current_effort = current_effort or "medium"
+        self._selected_model: str | None = None
+        self._step: int = 1
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="model-modal-container"):
+            yield Static("Select Model & Reasoning Effort", id="model-modal-title")
+            yield Static("Step 1/2 · Choose Model", id="model-modal-step")
+            yield OptionList(id="model-modal-options")
+            yield Static("↑/↓ Navigate · Enter Select · Esc Cancel", id="model-modal-footer")
+
+    def on_mount(self) -> None:
+        self._populate_models()
+
+    def _populate_models(self) -> None:
+        self._step = 1
+        self._selected_model = None
+        try:
+            self.query_one("#model-modal-step", Static).update("Step 1/2 · Choose Model")
+            opt_list = self.query_one("#model-modal-options", OptionList)
+            opt_list.clear_options()
+            initial_idx = 0
+            for idx, (model_id, name, desc) in enumerate(self.MODELS):
+                is_active = model_id in self.current_model.lower()
+                prefix = "● " if is_active else "  "
+                opt_list.add_option(f"{prefix}{name:<20} [dim]({model_id}) - {desc}[/]")
+                if is_active:
+                    initial_idx = idx
+            opt_list.highlighted = initial_idx
+            opt_list.focus()
+        except Exception:
+            pass
+
+    def _populate_efforts(self, chosen_name: str) -> None:
+        self._step = 2
+        try:
+            self.query_one("#model-modal-step", Static).update(f"Step 2/2 · Choose Reasoning Effort for [bold cyan]{chosen_name}[/]")
+            opt_list = self.query_one("#model-modal-options", OptionList)
+            opt_list.clear_options()
+            initial_idx = 0
+            for idx, (eff_id, name, desc) in enumerate(self.EFFORTS):
+                is_active = eff_id == self.current_effort.lower()
+                prefix = "● " if is_active else "  "
+                opt_list.add_option(f"{prefix}{name:<10} [dim]- {desc}[/]")
+                if is_active:
+                    initial_idx = idx
+            opt_list.highlighted = initial_idx
+            opt_list.focus()
+        except Exception:
+            pass
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if self._step == 1:
+            idx = event.option_index
+            if 0 <= idx < len(self.MODELS):
+                model_id, display_name, _ = self.MODELS[idx]
+                self._selected_model = model_id
+                self._populate_efforts(display_name)
+        elif self._step == 2:
+            idx = event.option_index
+            if 0 <= idx < len(self.EFFORTS):
+                eff_id, _, _ = self.EFFORTS[idx]
+                model = self._selected_model or self.current_model
+                self.dismiss((model, eff_id))
+
+    def action_cancel(self) -> None:
+        if self._step == 2:
+            self._populate_models()
+        else:
+            self.dismiss(None)
+

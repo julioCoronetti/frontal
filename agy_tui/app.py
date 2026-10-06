@@ -29,6 +29,7 @@ from agy_tui.widgets import (
     CodeBlockWidget,
     DiffViewWidget,
     MessageCard,
+    ModelSelectModal,
     SidebarInspector,
     StepCard,
     ThoughtCard,
@@ -376,10 +377,50 @@ class TUIApp(App):
     .step-panel {
         margin-bottom: 1;
     }
+
+    ModelSelectModal {
+        align: center middle;
+    }
+
+    #model-modal-container {
+        width: 72;
+        height: auto;
+        max-height: 24;
+        background: #181825;
+        border: round #89b4fa;
+        padding: 1 2;
+    }
+
+    #model-modal-title {
+        text-style: bold;
+        color: #89b4fa;
+        text-align: center;
+        margin-bottom: 0;
+    }
+
+    #model-modal-step {
+        color: #cdd6f4;
+        text-align: center;
+        margin-bottom: 1;
+    }
+
+    #model-modal-options {
+        height: auto;
+        max-height: 14;
+        background: #11111b;
+        border: solid #313244;
+        margin-bottom: 1;
+    }
+
+    #model-modal-footer {
+        color: #6c7086;
+        text-align: center;
+    }
     """
 
     BINDINGS = [
         Binding("ctrl+b", "toggle_sidebar", "Toggle Sidebar", priority=True),
+        Binding("ctrl+m", "select_model", "Select Model", priority=True),
         Binding("ctrl+c", "interrupt_turn", "Interrupt Turn", priority=True),
         Binding("pageup", "scroll_page_up", "Scroll Up", show=False),
         Binding("pagedown", "scroll_page_down", "Scroll Down", show=False),
@@ -413,14 +454,16 @@ class TUIApp(App):
         "gemini-3.7-flash",
         "gemini-3.6-flash",
         "gemini-3.1-pro",
+        "claude-sonnet-5-5",
+        "claude-opus-5-5",
+        "gpt-oss-120b-medium",
         "claude-sonnet-4-6",
         "claude-opus-4-6-thinking",
-        "gpt-oss-120b-medium",
         "gemini-3.8-flash-high",
     ]
 
     AVAILABLE_MODES = ["code", "plan", "architect", "ask", "accept-edits"]
-    AVAILABLE_EFFORTS = ["low", "medium", "high", "max"]
+    AVAILABLE_EFFORTS = ["low", "medium", "high"]
 
     def __init__(
         self,
@@ -456,8 +499,6 @@ class TUIApp(App):
         self._active_stream_widget: Static | None = None
         self._active_thought_card: ThoughtCard | None = None
         self._mounted_code_blocks: set[int] = set()
-        self._model_selection_step: int = 0
-        self._pending_model: str | None = None
 
     @property
     def clipboard(self) -> Any:
@@ -525,6 +566,24 @@ class TUIApp(App):
     def action_toggle_sidebar(self) -> None:
         sidebar = self.query_one("#sidebar", SidebarInspector)
         sidebar.display = not sidebar.display
+
+    def action_select_model(self) -> None:
+        if self.turn_active:
+            self.run_worker(self._add_system_message("Cannot change model while a turn is active. Interrupt first with Ctrl+C.", style="yellow"))
+            return
+
+        def _on_model_selected(result: tuple[str, str] | None) -> None:
+            if result:
+                model, effort = result
+                self.run_worker(self._apply_model_and_effort(model, effort))
+
+        self.push_screen(
+            ModelSelectModal(
+                current_model=self.engine.model,
+                current_effort=self.engine.effort,
+            ),
+            _on_model_selected,
+        )
 
     def action_scroll_page_up(self) -> None:
         try:
@@ -715,12 +774,6 @@ class TUIApp(App):
         if not stripped:
             return
 
-        if stripped.lower() == "/cancel" and self._model_selection_step > 0:
-            self._model_selection_step = 0
-            self._pending_model = None
-            await self._add_system_message("Model selection cancelled.", style="yellow")
-            return
-
         first_token = stripped.split(maxsplit=1)[0].lower() if stripped else ""
         is_path_or_code = (
             stripped.startswith("//")
@@ -730,15 +783,8 @@ class TUIApp(App):
         )
 
         if stripped.startswith("/") and not is_path_or_code:
-            self._model_selection_step = 0
-            self._pending_model = None
             await self._handle_command(stripped)
             return
-
-        if self._model_selection_step > 0:
-            handled = await self._handle_model_selection_flow(stripped)
-            if handled:
-                return
 
         await self._execute_turn(user_line)
 
@@ -859,8 +905,6 @@ class TUIApp(App):
                         style="yellow",
                     )
                     return True
-                self._model_selection_step = 0
-                self._pending_model = None
                 await self._apply_model_and_effort(target_model, target_effort)
                 return True
 
@@ -868,30 +912,9 @@ class TUIApp(App):
                 target_model = self._resolve_model_name(tokens[0])
                 current_eff = self.engine.effort or "medium"
                 await self._apply_model_and_effort(target_model, current_eff)
-                self._pending_model = target_model
-                self._model_selection_step = 2
-                efforts_list = "\n".join(f"  [{i+1}] {eff}" for i, eff in enumerate(self.AVAILABLE_EFFORTS))
-                msg = (
-                    f"Selected model: [bold]{target_model}[/bold]\n"
-                    f"[bold cyan]Step 2/2: Select Reasoning Effort[/bold cyan]\n"
-                    f"{efforts_list}\n"
-                    f"Enter effort number (1-{len(self.AVAILABLE_EFFORTS)}) or name [low, medium, high, max] (or /cancel):"
-                )
-                await self._add_system_message(msg, style="cyan")
                 return True
 
-            self._model_selection_step = 1
-            self._pending_model = None
-            active_m = self.engine.model or "default (gemini-3.8-flash)"
-            active_e = self.engine.effort or "medium"
-            models_list = "\n".join(f"  [{i+1}] {m}" for i, m in enumerate(self.AVAILABLE_MODELS))
-            msg = (
-                f"Active Model: {active_m} (Effort: {active_e})\n"
-                f"[bold cyan]Step 1/2: Select Model[/bold cyan]\n"
-                f"{models_list}\n"
-                f"Enter model number (1-{len(self.AVAILABLE_MODELS)}) or name (or /cancel):"
-            )
-            await self._add_system_message(msg, style="cyan")
+            self.action_select_model()
             return True
 
         if cmd == "/mode":
@@ -1061,38 +1084,6 @@ class TUIApp(App):
             if eff.lower() == raw_strip:
                 return eff
         return None
-
-    async def _handle_model_selection_flow(self, user_input: str) -> bool:
-        if self._model_selection_step == 1:
-            target_model = self._resolve_model_name(user_input)
-            self._pending_model = target_model
-            self._model_selection_step = 2
-            efforts_list = "\n".join(f"  [{i+1}] {eff}" for i, eff in enumerate(self.AVAILABLE_EFFORTS))
-            msg = (
-                f"Selected model: [bold]{target_model}[/bold]\n"
-                f"[bold cyan]Step 2/2: Select Reasoning Effort[/bold cyan]\n"
-                f"{efforts_list}\n"
-                f"Enter effort number (1-{len(self.AVAILABLE_EFFORTS)}) or name [low, medium, high, max] (or /cancel):"
-            )
-            await self._add_system_message(msg, style="cyan")
-            return True
-
-        if self._model_selection_step == 2:
-            target_model = self._pending_model or self.engine.model or "gemini-3.8-flash"
-            target_effort = self._resolve_effort_name(user_input)
-            if not target_effort:
-                await self._add_system_message(
-                    f"Unknown effort '{user_input}'. Available efforts: {', '.join(self.AVAILABLE_EFFORTS)}. (Type /cancel to abort)",
-                    style="yellow",
-                )
-                return True
-
-            self._model_selection_step = 0
-            self._pending_model = None
-            await self._apply_model_and_effort(target_model, target_effort)
-            return True
-
-        return False
 
     async def _apply_model_and_effort(self, model: str, effort: str) -> None:
         self.engine.model = model

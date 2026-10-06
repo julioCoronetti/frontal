@@ -623,22 +623,32 @@ def test_app_compose_layout_chat_input_and_footer():
 def test_two_stage_model_and_effort_selection_flow():
     import asyncio
 
+    from textual.widgets import OptionList
+
+    from agy_tui.widgets import ModelSelectModal
+
     async def _run():
         app = TUIApp()
         async with app.run_test(size=(100, 30)) as pilot:
             await pilot.app._handle_command("/model")
             await pilot.pause()
-            assert pilot.app._model_selection_step == 1
+            assert isinstance(pilot.app.screen, ModelSelectModal)
+            modal = pilot.app.screen
+            assert modal._step == 1
 
-            await pilot.app._handle_input_submission("1")
+            opt_list = modal.query_one("#model-modal-options", OptionList)
+            opt_list.highlighted = 1
+            opt_list.action_select()
             await pilot.pause()
-            assert pilot.app._model_selection_step == 2
-            assert pilot.app._pending_model == "gemini-3.8-flash"
+            assert modal._step == 2
+            assert modal._selected_model == "gemini-3.7-flash"
 
-            await pilot.app._handle_input_submission("3")
+            opt_list = modal.query_one("#model-modal-options", OptionList)
+            opt_list.highlighted = 0
+            opt_list.action_select()
             await pilot.pause()
-            assert pilot.app._model_selection_step == 0
-            assert pilot.app.engine.model == "gemini-3.8-flash"
+            assert not isinstance(pilot.app.screen, ModelSelectModal)
+            assert pilot.app.engine.model == "gemini-3.7-flash"
             assert pilot.app.engine.effort == "high"
 
     asyncio.run(_run())
@@ -646,6 +656,10 @@ def test_two_stage_model_and_effort_selection_flow():
 
 def test_two_stage_model_selection_cancel():
     import asyncio
+
+    from textual.widgets import OptionList
+
+    from agy_tui.widgets import ModelSelectModal
 
     async def _run():
         app = TUIApp()
@@ -655,23 +669,37 @@ def test_two_stage_model_selection_cancel():
 
             await pilot.app._handle_command("/model")
             await pilot.pause()
-            assert pilot.app._model_selection_step == 1
+            assert isinstance(pilot.app.screen, ModelSelectModal)
+            modal = pilot.app.screen
 
-            await pilot.app._handle_input_submission("/cancel")
+            modal.action_cancel()
             await pilot.pause()
-            assert pilot.app._model_selection_step == 0
+            assert not isinstance(pilot.app.screen, ModelSelectModal)
             assert pilot.app.engine.model == orig_model
             assert pilot.app.engine.effort == orig_effort
 
-            await pilot.app._handle_command("/model")
+            pilot.app.action_select_model()
             await pilot.pause()
-            await pilot.app._handle_input_submission("claude-sonnet-4-6")
+            assert isinstance(pilot.app.screen, ModelSelectModal)
+            modal = pilot.app.screen
+            opt_list = modal.query_one("#model-modal-options", OptionList)
+            opt_list.highlighted = 4
+            opt_list.action_select()
             await pilot.pause()
-            assert pilot.app._model_selection_step == 2
+            assert modal._step == 2
+            assert modal._selected_model == "claude-sonnet-5-5"
 
-            await pilot.app._handle_input_submission("/cancel")
+            modal.action_cancel()
             await pilot.pause()
-            assert pilot.app._model_selection_step == 0
+            assert modal._step == 1
+            assert modal._selected_model is None
+            assert isinstance(pilot.app.screen, ModelSelectModal)
+
+            modal.action_cancel()
+            await pilot.pause()
+            assert not isinstance(pilot.app.screen, ModelSelectModal)
+            assert pilot.app.engine.model == orig_model
+            assert pilot.app.engine.effort == orig_effort
 
     asyncio.run(_run())
 
@@ -691,9 +719,9 @@ def test_model_command_direct_dual_args():
             await pilot.pause()
             assert pilot.app.engine.effort == "low"
 
-            await pilot.app._handle_command("/effort max")
+            await pilot.app._handle_command("/effort medium")
             await pilot.pause()
-            assert pilot.app.engine.effort == "max"
+            assert pilot.app.engine.effort == "medium"
 
     asyncio.run(_run())
 
