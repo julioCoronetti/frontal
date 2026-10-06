@@ -645,19 +645,19 @@ class ModelSelectModal(ModalScreen[tuple[str, str] | None]):
     ]
 
     MODELS = [
-        ("gemini-3.8-flash", "Gemini 3.8 Flash", "Google DeepMind · Default high-speed reasoning"),
-        ("gemini-3.7-flash", "Gemini 3.7 Flash", "Google DeepMind · Fast hybrid reasoning"),
-        ("gemini-3.6-flash", "Gemini 3.6 Flash", "Google DeepMind · Lightweight fast model"),
-        ("gemini-3.1-pro", "Gemini 3.1 Pro", "Google DeepMind · Advanced complex reasoning"),
-        ("claude-sonnet-5-5", "Claude Sonnet 5.5", "Anthropic · Advanced coding & reasoning"),
-        ("claude-opus-5-5", "Claude Opus 5.5", "Anthropic · Deep strategic reasoning"),
-        ("gpt-oss-120b-medium", "GPT-OSS 120B", "Open source · Open weights model"),
+        ("gemini-3.8-flash", "Gemini 3.8 Flash"),
+        ("gemini-3.7-flash", "Gemini 3.7 Flash"),
+        ("gemini-3.6-flash", "Gemini 3.6 Flash"),
+        ("gemini-3.1-pro", "Gemini 3.1 Pro"),
+        ("claude-sonnet-5-5", "Claude Sonnet 5.5"),
+        ("claude-opus-5-5", "Claude Opus 5.5"),
+        ("gpt-oss-120b-medium", "GPT-OSS 120B"),
     ]
 
     EFFORTS = [
-        ("high", "High", "Maximum depth reasoning (Recommended)"),
-        ("medium", "Medium", "Balanced reasoning and latency"),
-        ("low", "Low", "Fast response with minimal thinking"),
+        ("high", "High", "Recommended"),
+        ("medium", "Medium", "Balanced"),
+        ("low", "Low", "Fast response"),
     ]
 
     def __init__(
@@ -690,10 +690,10 @@ class ModelSelectModal(ModalScreen[tuple[str, str] | None]):
             opt_list = self.query_one("#model-modal-options", OptionList)
             opt_list.clear_options()
             initial_idx = 0
-            for idx, (model_id, name, desc) in enumerate(self.MODELS):
+            for idx, (model_id, name) in enumerate(self.MODELS):
                 is_active = model_id in self.current_model.lower()
                 prefix = "● " if is_active else "  "
-                opt_list.add_option(f"{prefix}{name:<20} [dim]({model_id}) - {desc}[/]")
+                opt_list.add_option(f"{prefix}{name:<20} [dim]{model_id}[/]")
                 if is_active:
                     initial_idx = idx
             opt_list.highlighted = initial_idx
@@ -704,14 +704,14 @@ class ModelSelectModal(ModalScreen[tuple[str, str] | None]):
     def _populate_efforts(self, chosen_name: str) -> None:
         self._step = 2
         try:
-            self.query_one("#model-modal-step", Static).update(f"Step 2/2 · Choose Reasoning Effort for [bold cyan]{chosen_name}[/]")
+            self.query_one("#model-modal-step", Static).update(f"Step 2/2 · Effort for [bold cyan]{chosen_name}[/]")
             opt_list = self.query_one("#model-modal-options", OptionList)
             opt_list.clear_options()
             initial_idx = 0
-            for idx, (eff_id, name, desc) in enumerate(self.EFFORTS):
+            for idx, (eff_id, name, hint) in enumerate(self.EFFORTS):
                 is_active = eff_id == self.current_effort.lower()
                 prefix = "● " if is_active else "  "
-                opt_list.add_option(f"{prefix}{name:<10} [dim]- {desc}[/]")
+                opt_list.add_option(f"{prefix}{name:<10} [dim]({hint})[/]")
                 if is_active:
                     initial_idx = idx
             opt_list.highlighted = initial_idx
@@ -723,7 +723,7 @@ class ModelSelectModal(ModalScreen[tuple[str, str] | None]):
         if self._step == 1:
             idx = event.option_index
             if 0 <= idx < len(self.MODELS):
-                model_id, display_name, _ = self.MODELS[idx]
+                model_id, display_name = self.MODELS[idx]
                 self._selected_model = model_id
                 self._populate_efforts(display_name)
         elif self._step == 2:

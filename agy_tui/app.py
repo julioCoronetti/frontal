@@ -380,14 +380,15 @@ class TUIApp(App):
 
     ModelSelectModal {
         align: center middle;
+        background: rgba(0, 0, 0, 0.75);
     }
 
     #model-modal-container {
-        width: 72;
+        width: 60;
         height: auto;
-        max-height: 24;
+        max-height: 20;
         background: #181825;
-        border: round #89b4fa;
+        border: heavy #89b4fa;
         padding: 1 2;
     }
 
@@ -399,14 +400,14 @@ class TUIApp(App):
     }
 
     #model-modal-step {
-        color: #cdd6f4;
+        color: #a6adc8;
         text-align: center;
         margin-bottom: 1;
     }
 
     #model-modal-options {
         height: auto;
-        max-height: 14;
+        max-height: 10;
         background: #11111b;
         border: solid #313244;
         margin-bottom: 1;
