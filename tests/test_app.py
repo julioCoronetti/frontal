@@ -618,3 +618,82 @@ def test_app_compose_layout_chat_input_and_footer():
     assert fb.tokens_used == 0
     assert fb.context_limit == 200000
     assert "tab /help" in fb.shortcuts_text
+
+
+def test_two_stage_model_and_effort_selection_flow():
+    import asyncio
+
+    async def _run():
+        app = TUIApp()
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.app._handle_command("/model")
+            await pilot.pause()
+            assert pilot.app._model_selection_step == 1
+
+            await pilot.app._handle_input_submission("1")
+            await pilot.pause()
+            assert pilot.app._model_selection_step == 2
+            assert pilot.app._pending_model == "gemini-3.8-flash"
+
+            await pilot.app._handle_input_submission("3")
+            await pilot.pause()
+            assert pilot.app._model_selection_step == 0
+            assert pilot.app.engine.model == "gemini-3.8-flash"
+            assert pilot.app.engine.effort == "high"
+
+    asyncio.run(_run())
+
+
+def test_two_stage_model_selection_cancel():
+    import asyncio
+
+    async def _run():
+        app = TUIApp()
+        async with app.run_test(size=(100, 30)) as pilot:
+            orig_model = pilot.app.engine.model
+            orig_effort = pilot.app.engine.effort
+
+            await pilot.app._handle_command("/model")
+            await pilot.pause()
+            assert pilot.app._model_selection_step == 1
+
+            await pilot.app._handle_input_submission("/cancel")
+            await pilot.pause()
+            assert pilot.app._model_selection_step == 0
+            assert pilot.app.engine.model == orig_model
+            assert pilot.app.engine.effort == orig_effort
+
+            await pilot.app._handle_command("/model")
+            await pilot.pause()
+            await pilot.app._handle_input_submission("claude-sonnet-4-6")
+            await pilot.pause()
+            assert pilot.app._model_selection_step == 2
+
+            await pilot.app._handle_input_submission("/cancel")
+            await pilot.pause()
+            assert pilot.app._model_selection_step == 0
+
+    asyncio.run(_run())
+
+
+def test_model_command_direct_dual_args():
+    import asyncio
+
+    async def _run():
+        app = TUIApp()
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.app._handle_command("/model gemini-3.7-flash high")
+            await pilot.pause()
+            assert pilot.app.engine.model == "gemini-3.7-flash"
+            assert pilot.app.engine.effort == "high"
+
+            await pilot.app._handle_command("/effort 1")
+            await pilot.pause()
+            assert pilot.app.engine.effort == "low"
+
+            await pilot.app._handle_command("/effort max")
+            await pilot.pause()
+            assert pilot.app.engine.effort == "max"
+
+    asyncio.run(_run())
+

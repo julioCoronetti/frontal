@@ -409,17 +409,14 @@ class TUIApp(App):
     }
 
     AVAILABLE_MODELS = [
-        "gemini-3.8-flash-high",
-        "gemini-3.8-flash-medium",
-        "gemini-3.8-flash-low",
-        "gemini-3.7-flash-high",
-        "gemini-3.7-flash-medium",
-        "gemini-3.7-flash-low",
-        "gemini-3.6-flash-high",
-        "gemini-3.1-pro-high",
+        "gemini-3.8-flash",
+        "gemini-3.7-flash",
+        "gemini-3.6-flash",
+        "gemini-3.1-pro",
         "claude-sonnet-4-6",
         "claude-opus-4-6-thinking",
         "gpt-oss-120b-medium",
+        "gemini-3.8-flash-high",
     ]
 
     AVAILABLE_MODES = ["code", "plan", "architect", "ask", "accept-edits"]
@@ -459,6 +456,8 @@ class TUIApp(App):
         self._active_stream_widget: Static | None = None
         self._active_thought_card: ThoughtCard | None = None
         self._mounted_code_blocks: set[int] = set()
+        self._model_selection_step: int = 0
+        self._pending_model: str | None = None
 
     @property
     def clipboard(self) -> Any:
@@ -716,6 +715,12 @@ class TUIApp(App):
         if not stripped:
             return
 
+        if stripped.lower() == "/cancel" and self._model_selection_step > 0:
+            self._model_selection_step = 0
+            self._pending_model = None
+            await self._add_system_message("Model selection cancelled.", style="yellow")
+            return
+
         first_token = stripped.split(maxsplit=1)[0].lower() if stripped else ""
         is_path_or_code = (
             stripped.startswith("//")
@@ -725,8 +730,15 @@ class TUIApp(App):
         )
 
         if stripped.startswith("/") and not is_path_or_code:
+            self._model_selection_step = 0
+            self._pending_model = None
             await self._handle_command(stripped)
             return
+
+        if self._model_selection_step > 0:
+            handled = await self._handle_model_selection_flow(stripped)
+            if handled:
+                return
 
         await self._execute_turn(user_line)
 
@@ -836,28 +848,50 @@ class TUIApp(App):
             if self.turn_active:
                 await self._add_system_message("Cannot change model while a turn is active. Interrupt first with Ctrl+C.", style="yellow")
                 return True
-            if not arg:
-                active = self.engine.model or "default (gemini-3.8-flash-high)"
-                models_str = ", ".join(self.AVAILABLE_MODELS)
-                msg = f"Active Model: {active}\nAvailable Models:\n{models_str}\n\nSwitch with /model <name>"
+
+            tokens = arg.split()
+            if len(tokens) >= 2:
+                target_model = self._resolve_model_name(tokens[0])
+                target_effort = self._resolve_effort_name(tokens[1])
+                if not target_effort:
+                    await self._add_system_message(
+                        f"Unknown effort '{tokens[1]}'. Available efforts: {', '.join(self.AVAILABLE_EFFORTS)}",
+                        style="yellow",
+                    )
+                    return True
+                self._model_selection_step = 0
+                self._pending_model = None
+                await self._apply_model_and_effort(target_model, target_effort)
+                return True
+
+            if len(tokens) == 1:
+                target_model = self._resolve_model_name(tokens[0])
+                current_eff = self.engine.effort or "medium"
+                await self._apply_model_and_effort(target_model, current_eff)
+                self._pending_model = target_model
+                self._model_selection_step = 2
+                efforts_list = "\n".join(f"  [{i+1}] {eff}" for i, eff in enumerate(self.AVAILABLE_EFFORTS))
+                msg = (
+                    f"Selected model: [bold]{target_model}[/bold]\n"
+                    f"[bold cyan]Step 2/2: Select Reasoning Effort[/bold cyan]\n"
+                    f"{efforts_list}\n"
+                    f"Enter effort number (1-{len(self.AVAILABLE_EFFORTS)}) or name [low, medium, high, max] (or /cancel):"
+                )
                 await self._add_system_message(msg, style="cyan")
-            else:
-                self.engine.model = arg
-                if self.engine.is_running and not self.turn_active:
-                    await self.engine.restart()
-                try:
-                    sb = self.query_one("#sidebar", SidebarInspector)
-                    sb.update_telemetry(model=arg)
-                    hdr = self.query_one("#header-session", Static)
-                    hdr.update(f"Model: {arg}  |  Session: {self.engine.conversation_id[:12]}...")
-                except Exception:
-                    pass
-                try:
-                    subbar = self.query_one("#chat-input-subbar", ChatInputSubBar)
-                    subbar.model_name = arg
-                except Exception:
-                    pass
-                await self._add_system_message(f"Active model switched to: {arg}", style="green")
+                return True
+
+            self._model_selection_step = 1
+            self._pending_model = None
+            active_m = self.engine.model or "default (gemini-3.8-flash)"
+            active_e = self.engine.effort or "medium"
+            models_list = "\n".join(f"  [{i+1}] {m}" for i, m in enumerate(self.AVAILABLE_MODELS))
+            msg = (
+                f"Active Model: {active_m} (Effort: {active_e})\n"
+                f"[bold cyan]Step 1/2: Select Model[/bold cyan]\n"
+                f"{models_list}\n"
+                f"Enter model number (1-{len(self.AVAILABLE_MODELS)}) or name (or /cancel):"
+            )
+            await self._add_system_message(msg, style="cyan")
             return True
 
         if cmd == "/mode":
@@ -899,23 +933,29 @@ class TUIApp(App):
                 msg = f"Active Effort: {active}\nAvailable Efforts: {efforts_str}\nSet with /effort <level>"
                 await self._add_system_message(msg, style="cyan")
             else:
-                if arg not in self.AVAILABLE_EFFORTS:
+                target_effort = self._resolve_effort_name(arg)
+                if not target_effort:
                     await self._add_system_message(f"Unknown effort '{arg}'. Available: {', '.join(self.AVAILABLE_EFFORTS)}", style="yellow")
                 else:
-                    self.engine.effort = arg
+                    self.engine.effort = target_effort
                     if self.engine.is_running and not self.turn_active:
                         await self.engine.restart()
                     try:
                         sb = self.query_one("#sidebar", SidebarInspector)
-                        sb.update_telemetry(effort=arg)
+                        sb.update_telemetry(effort=target_effort)
                     except Exception:
                         pass
                     try:
                         subbar = self.query_one("#chat-input-subbar", ChatInputSubBar)
-                        subbar.effort_level = arg
+                        subbar.effort_level = target_effort
                     except Exception:
                         pass
-                    await self._add_system_message(f"Reasoning effort set to: {arg}", style="green")
+                    try:
+                        container = self.query_one("#chat-input-container", ChatInputContainer)
+                        container.effort_level = target_effort
+                    except Exception:
+                        pass
+                    await self._add_system_message(f"Reasoning effort set to: {target_effort}", style="green")
             return True
 
         if cmd == "/diff":
@@ -999,6 +1039,85 @@ class TUIApp(App):
 
         await self._add_system_message(f"Unknown command: {cmd}. Type /help for available commands.", style="yellow")
         return True
+
+    def _resolve_model_name(self, raw: str) -> str:
+        raw_strip = raw.strip()
+        if raw_strip.isdigit():
+            idx = int(raw_strip) - 1
+            if 0 <= idx < len(self.AVAILABLE_MODELS):
+                return self.AVAILABLE_MODELS[idx]
+        for m in self.AVAILABLE_MODELS:
+            if m.lower() == raw_strip.lower():
+                return m
+        return raw_strip
+
+    def _resolve_effort_name(self, raw: str) -> str | None:
+        raw_strip = raw.strip().lower()
+        if raw_strip.isdigit():
+            idx = int(raw_strip) - 1
+            if 0 <= idx < len(self.AVAILABLE_EFFORTS):
+                return self.AVAILABLE_EFFORTS[idx]
+        for eff in self.AVAILABLE_EFFORTS:
+            if eff.lower() == raw_strip:
+                return eff
+        return None
+
+    async def _handle_model_selection_flow(self, user_input: str) -> bool:
+        if self._model_selection_step == 1:
+            target_model = self._resolve_model_name(user_input)
+            self._pending_model = target_model
+            self._model_selection_step = 2
+            efforts_list = "\n".join(f"  [{i+1}] {eff}" for i, eff in enumerate(self.AVAILABLE_EFFORTS))
+            msg = (
+                f"Selected model: [bold]{target_model}[/bold]\n"
+                f"[bold cyan]Step 2/2: Select Reasoning Effort[/bold cyan]\n"
+                f"{efforts_list}\n"
+                f"Enter effort number (1-{len(self.AVAILABLE_EFFORTS)}) or name [low, medium, high, max] (or /cancel):"
+            )
+            await self._add_system_message(msg, style="cyan")
+            return True
+
+        if self._model_selection_step == 2:
+            target_model = self._pending_model or self.engine.model or "gemini-3.8-flash"
+            target_effort = self._resolve_effort_name(user_input)
+            if not target_effort:
+                await self._add_system_message(
+                    f"Unknown effort '{user_input}'. Available efforts: {', '.join(self.AVAILABLE_EFFORTS)}. (Type /cancel to abort)",
+                    style="yellow",
+                )
+                return True
+
+            self._model_selection_step = 0
+            self._pending_model = None
+            await self._apply_model_and_effort(target_model, target_effort)
+            return True
+
+        return False
+
+    async def _apply_model_and_effort(self, model: str, effort: str) -> None:
+        self.engine.model = model
+        self.engine.effort = effort
+        if self.engine.is_running and not self.turn_active:
+            await self.engine.restart()
+        try:
+            sb = self.query_one("#sidebar", SidebarInspector)
+            sb.update_telemetry(model=model, effort=effort)
+            hdr = self.query_one("#header-session", Static)
+            hdr.update(f"Model: {model}  |  Session: {self.engine.conversation_id[:12]}...")
+        except Exception:
+            pass
+        try:
+            subbar = self.query_one("#chat-input-subbar", ChatInputSubBar)
+            subbar.update_info(model=model, effort=effort)
+        except Exception:
+            pass
+        try:
+            container = self.query_one("#chat-input-container", ChatInputContainer)
+            container.model_name = model
+            container.effort_level = effort
+        except Exception:
+            pass
+        await self._add_system_message(f"Active model switched to: {model} (effort: {effort})", style="green")
 
     async def _process_events(self) -> None:
         try:
