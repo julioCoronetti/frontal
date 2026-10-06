@@ -43,27 +43,6 @@ class TUIApp(App):
         color: #cdd6f4;
     }
 
-    #header-bar {
-        dock: top;
-        height: 3;
-        background: #11111b;
-        color: #89b4fa;
-        border-bottom: solid #313244;
-        padding: 0 1;
-    }
-
-    #header-title {
-        width: auto;
-        text-style: bold;
-        color: #89dceb;
-    }
-
-    #header-session {
-        width: 1fr;
-        text-align: right;
-        color: #6c7086;
-    }
-
     #body-container {
         height: 1fr;
         width: 100%;
@@ -325,53 +304,49 @@ class TUIApp(App):
         margin-bottom: 1;
     }
 
-    .message-role {
-        text-style: bold;
+    .message-user {
+        border-left: solid #89b4fa;
+        background: #1e1e2e;
+        padding: 0 1;
         margin-top: 1;
+        margin-bottom: 1;
+        color: #cdd6f4;
     }
 
-    .role-user {
-        color: #89b4fa;
-    }
-
-    .role-assistant {
-        color: #a6e3a1;
+    .message-assistant {
+        padding: 0 1;
+        margin-bottom: 1;
+        color: #cdd6f4;
     }
 
     .message-body {
+        margin: 0;
+        padding: 0;
+    }
+
+    .thought-content {
+        color: #a6adc8;
+        padding: 0 1;
+        margin-bottom: 1;
+    }
+
+    .system-message {
+        margin-top: 1;
         margin-bottom: 1;
         padding-left: 1;
     }
 
-    .thought-header {
-        height: 3;
-        background: #1e1e2e;
-        border-top: solid #cba6f7;
-        border-left: solid #cba6f7;
-        border-right: solid #cba6f7;
-        padding: 0 1;
-    }
-
-    .thought-title {
-        width: 1fr;
-        text-style: bold italic;
-        color: #cba6f7;
-    }
-
-    .thought-btn {
-        width: 12;
-        height: 1;
-        background: #313244;
-        color: #cba6f7;
-    }
-
-    .thought-content {
-        border-bottom: solid #cba6f7;
-        border-left: solid #cba6f7;
-        border-right: solid #cba6f7;
-        color: #bac2de;
+    .turn-status-line {
+        margin-top: 1;
         margin-bottom: 1;
-        padding: 0 1;
+        padding-left: 1;
+        color: #6c7086;
+    }
+
+    .chat-welcome-banner {
+        padding: 1 1;
+        margin-bottom: 1;
+        color: #6c7086;
     }
 
     .step-panel {
@@ -384,11 +359,11 @@ class TUIApp(App):
     }
 
     #model-modal-container {
-        width: 60;
+        width: 56;
         height: auto;
-        max-height: 20;
+        max-height: 16;
         background: #181825;
-        border: heavy #89b4fa;
+        border: round #89b4fa;
         padding: 1 2;
     }
 
@@ -400,21 +375,21 @@ class TUIApp(App):
     }
 
     #model-modal-step {
-        color: #a6adc8;
+        color: #585b70;
         text-align: center;
         margin-bottom: 1;
     }
 
     #model-modal-options {
         height: auto;
-        max-height: 10;
-        background: #11111b;
-        border: solid #313244;
+        max-height: 8;
+        background: transparent;
+        border: none;
         margin-bottom: 1;
     }
 
     #model-modal-footer {
-        color: #6c7086;
+        color: #585b70;
         text-align: center;
     }
     """
@@ -500,6 +475,7 @@ class TUIApp(App):
         self._active_stream_widget: Static | None = None
         self._active_thought_card: ThoughtCard | None = None
         self._mounted_code_blocks: set[int] = set()
+        self._live_turn_status: Static | None = None
 
     @property
     def clipboard(self) -> Any:
@@ -513,11 +489,6 @@ class TUIApp(App):
             self._clipboard_manager = val
 
     def compose(self) -> ComposeResult:
-        with Horizontal(id="header-bar"):
-            yield Static("Antigravity CLI  |  OpenCode TUI", id="header-title")
-            model_info = self.engine.model or "gemini-3.8-flash-high"
-            yield Static(f"Model: {model_info}  |  Session: {self.engine.conversation_id[:12]}...", id="header-session")
-
         with Horizontal(id="body-container"):
             yield VerticalScroll(id="messages-view")
             sidebar = SidebarInspector(id="sidebar")
@@ -658,12 +629,13 @@ class TUIApp(App):
     async def _add_banner_to_chat(self) -> None:
         try:
             mv = self.query_one("#messages-view", VerticalScroll)
-            title = "Antigravity CLI  |  OpenCode TUI"
-            body = (
-                f"Session: {self.engine.conversation_id}\n"
-                "Type / to view available commands, Ctrl+B to toggle sidebar, Enter to submit."
+            text = Text.assemble(
+                ("Antigravity CLI ", "bold cyan"),
+                ("· ", "dim"),
+                (f"Session: {self.engine.conversation_id[:12]}...\n", "dim"),
+                ("Type / for commands, Ctrl+M to select model, Enter to submit.", "dim"),
             )
-            banner = Static(Panel(body, title=title, border_style="cyan"))
+            banner = Static(text, classes="chat-welcome-banner")
             await mv.mount(banner)
             mv.scroll_end(animate=False)
         except Exception:
@@ -672,11 +644,11 @@ class TUIApp(App):
     async def _add_system_message(self, message: str, style: str = "cyan") -> None:
         try:
             mv = self.query_one("#messages-view", VerticalScroll)
-            panel = Static(Panel(message, border_style=style, expand=False))
-            await mv.mount(panel)
+            line = Static(Text.from_markup(f"[{style}]● {message}[/{style}]"), classes="system-message")
+            await mv.mount(line)
             mv.scroll_end(animate=False)
         except Exception:
-            self.console.print(f"[{style}]{message}[/{style}]")
+            self.console.print(f"[{style}]● {message}[/{style}]")
 
     def _update_sidebar_status(self, status: str) -> None:
         try:
@@ -1143,6 +1115,12 @@ class TUIApp(App):
     def _render_stream_delta(self, delta: str) -> None:
         if not delta:
             return
+        if self._live_turn_status is not None:
+            try:
+                self._live_turn_status.remove()
+            except Exception:
+                pass
+            self._live_turn_status = None
         self.current_response_text += delta
         active_chunk = self.current_response_text[self._segment_start_idx:]
         if self.is_running:
@@ -1226,6 +1204,8 @@ class TUIApp(App):
                     mv = self.query_one("#messages-view", VerticalScroll)
                     card = ThoughtCard(self._current_thought_text, is_collapsed=self.collapse_thoughts)
                     mv.mount(card)
+                    if self._live_turn_status is not None:
+                        self._live_turn_status.update(Text.from_markup("[dim cyan]⠋ Responding...[/dim cyan]"))
                     mv.scroll_end(animate=False)
                 except Exception:
                     pass
@@ -1361,16 +1341,33 @@ class TUIApp(App):
                     except Exception:
                         pass
 
+            if self._live_turn_status is not None:
+                try:
+                    self._live_turn_status.remove()
+                except Exception:
+                    pass
+                self._live_turn_status = None
+
             if self.is_running:
                 try:
                     mv = self.query_one("#messages-view", VerticalScroll)
-                    rendered_res = self.renderer.render_result(
-                        status=event.result_status or "SUCCESS",
-                        duration=duration,
-                        error_message=event.result_error,
-                        tokens_per_sec=tokens_per_sec,
-                    )
-                    mv.mount(Static(rendered_res))
+                    mode_name = (self.engine.mode or "code").title()
+                    model_name = self.engine.model or "model"
+                    dur_text = f" · {duration:.2f}s" if duration is not None else ""
+                    tps_text = f" ({tokens_per_sec:.1f} tok/s)" if tokens_per_sec is not None else ""
+                    if (event.result_status or "SUCCESS") == "SUCCESS":
+                        line = Static(
+                            Text.from_markup(f"[bold green]▣[/bold green] [dim]{mode_name} · {model_name}{dur_text}{tps_text}[/dim]"),
+                            classes="turn-status-line",
+                        )
+                    else:
+                        err_text = event.result_error or "Execution failed"
+                        line = Static(
+                            Text.from_markup(f"[bold red]▣[/bold red] [red]{err_text}[/red][dim]{dur_text}[/dim]"),
+                            classes="turn-status-line",
+                        )
+                    mv.mount(line)
+                    mv.scroll_end(animate=False)
                 except Exception:
                     pass
             else:
@@ -1388,6 +1385,12 @@ class TUIApp(App):
         elif event.is_error:
             self.turn_active = False
             self._update_sidebar_status("Error")
+            if self._live_turn_status is not None:
+                try:
+                    self._live_turn_status.remove()
+                except Exception:
+                    pass
+                self._live_turn_status = None
             if self.is_running:
                 try:
                     sb = self.query_one("#sidebar", SidebarInspector)
@@ -1400,7 +1403,8 @@ class TUIApp(App):
             if self.is_running:
                 try:
                     mv = self.query_one("#messages-view", VerticalScroll)
-                    mv.mount(Static(Panel(f"Engine Error: {err_msg}", border_style="red")))
+                    mv.mount(Static(Text.from_markup(f"[bold red]▣ Engine Error:[/bold red] [red]{err_msg}[/red]"), classes="turn-status-line"))
+                    mv.scroll_end(animate=False)
                 except Exception:
                     pass
             else:
@@ -1439,6 +1443,8 @@ class TUIApp(App):
         try:
             mv = self.query_one("#messages-view", VerticalScroll)
             await mv.mount(MessageCard("user", prompt))
+            self._live_turn_status = Static(Text.from_markup("[dim cyan]⠋ Thinking...[/dim cyan]"), classes="turn-status-line")
+            await mv.mount(self._live_turn_status)
             mv.scroll_end(animate=False)
         except Exception:
             pass

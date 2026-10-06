@@ -773,7 +773,7 @@ def test_diff_command_deduplication_and_list_subcommand():
 
             await pilot.app._handle_command("/diff list")
             await pilot.pause()
-            assert any("Recorded Diffs" in str(getattr(getattr(w.render(), "_renderable", None), "renderable", "")) for w in mv.children if isinstance(w, Static))
+            assert any("Recorded Diffs" in str(getattr(getattr(w.render(), "_renderable", None), "renderable", str(w.render()))) for w in mv.children if isinstance(w, Static))
 
     asyncio.run(_run())
 

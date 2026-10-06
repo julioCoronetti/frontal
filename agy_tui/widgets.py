@@ -60,9 +60,8 @@ class MessageCard(Static):
         self.content_text = content
 
     def compose(self):
-        role_label = "USER ❯" if self.role == "user" else "ASSISTANT ❯"
-        role_class = "role-user" if self.role == "user" else "role-assistant"
-        yield Static(role_label, classes=f"message-role {role_class}")
+        css_class = "message-user" if self.role == "user" else "message-assistant"
+        self.add_class(css_class)
         yield Static(self.content_text, classes="message-body")
 
 
@@ -75,22 +74,16 @@ class ThoughtCard(Static):
         self.collapsed = is_collapsed
 
     def compose(self):
-        with Horizontal(classes="thought-header"):
-            yield Static("Thinking / Reasoning", classes="thought-title")
-            yield Button("Collapse" if not self.collapsed else "Expand", id="toggle-thought-btn", classes="thought-btn")
-        body_text = "[thought collapsed]" if self.collapsed else self.thought_text
+        body_text = "[dim #cba6f7]▣ Thought (collapsed)[/dim #cba6f7]" if self.collapsed else f"[dim #cba6f7]▣ Thought[/dim #cba6f7]\n[dim italic]{self.thought_text}[/dim italic]"
         yield Static(body_text, id="thought-body", classes="thought-content")
 
     def toggle(self) -> None:
         self.collapsed = not self.collapsed
         body = self.query_one("#thought-body", Static)
-        btn = self.query_one("#toggle-thought-btn", Button)
         if self.collapsed:
-            body.update("[thought collapsed]")
-            btn.label = "Expand"
+            body.update("[dim #cba6f7]▣ Thought (collapsed)[/dim #cba6f7]")
         else:
-            body.update(self.thought_text)
-            btn.label = "Collapse"
+            body.update(f"[dim #cba6f7]▣ Thought[/dim #cba6f7]\n[dim italic]{self.thought_text}[/dim italic]")
 
 
 class StepCard(Static):
@@ -674,10 +667,10 @@ class ModelSelectModal(ModalScreen[tuple[str, str] | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="model-modal-container"):
-            yield Static("Select Model & Reasoning Effort", id="model-modal-title")
-            yield Static("Step 1/2 · Choose Model", id="model-modal-step")
+            yield Static("Select model", id="model-modal-title")
+            yield Static("Step 1/2", id="model-modal-step")
             yield OptionList(id="model-modal-options")
-            yield Static("↑/↓ Navigate · Enter Select · Esc Cancel", id="model-modal-footer")
+            yield Static("esc cancel · enter select", id="model-modal-footer")
 
     def on_mount(self) -> None:
         self._populate_models()
@@ -686,7 +679,7 @@ class ModelSelectModal(ModalScreen[tuple[str, str] | None]):
         self._step = 1
         self._selected_model = None
         try:
-            self.query_one("#model-modal-step", Static).update("Step 1/2 · Choose Model")
+            self.query_one("#model-modal-step", Static).update("Step 1/2 · Model")
             opt_list = self.query_one("#model-modal-options", OptionList)
             opt_list.clear_options()
             initial_idx = 0
@@ -704,7 +697,7 @@ class ModelSelectModal(ModalScreen[tuple[str, str] | None]):
     def _populate_efforts(self, chosen_name: str) -> None:
         self._step = 2
         try:
-            self.query_one("#model-modal-step", Static).update(f"Step 2/2 · Effort for [bold cyan]{chosen_name}[/]")
+            self.query_one("#model-modal-step", Static).update(f"Step 2/2 · Effort for {chosen_name}")
             opt_list = self.query_one("#model-modal-options", OptionList)
             opt_list.clear_options()
             initial_idx = 0
