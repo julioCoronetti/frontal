@@ -38,7 +38,6 @@ frontal/
 │   ├── test_protocol.py      # Testes de serialização e parsing de eventos JSON
 │   ├── test_engine.py        # Testes de ciclo de vida do subprocesso
 │   └── test_clipboard.py     # Testes do gerenciador de clipboard
-├── .wiki/                    # Repositório da Wiki local (documentação técnica e ADRs)
 ├── .github/workflows/ci.yml  # Esteira de CI do GitHub Actions (ruff + pytest)
 ├── pyproject.toml            # Configuração do projeto, dependências e linter
 ├── README.md                 # Documentação pública principal
@@ -67,13 +66,7 @@ frontal/
 
 ## 5. Fontes de Informação e Documentação
 Para contexto aprofundado, regras de negócio e histórico técnico, consultar:
-1. **Wiki Local do Projeto (`.wiki/`):**
-   - `.wiki/Home.md`: Índice geral e status da documentação.
-   - `.wiki/Conceito.md`: Visão do produto, princípios de design e ergonomia no terminal.
-   - `.wiki/Arquitetura.md`: Topologia de camadas, ciclo de eventos `stream-json` e hierarquia Textual.
-   - `.wiki/Decisoes.md`: Registro histórico de decisões de arquitetura (ADRs).
-   - `.wiki/Operacao.md`: Comandos slash, atalhos de teclado e esteira de qualidade.
-2. **Rastreamento de Demandas e GitHub:**
+1. **Rastreamento de Demandas e GitHub:**
    - Repositório Git: `https://github.com/julioCoronetti/frontal`
    - Project Board: `https://github.com/users/julioCoronetti/projects/8` (Frontal)
    - Issues numeradas no GitHub para critérios de aceite detalhados.
@@ -86,4 +79,30 @@ Para cada issue ou funcionalidade concluída:
 2. Validar a ausência total de comentários no código-fonte.
 3. Executar a suíte completa de testes: `pytest`
 4. Criar commits descritivos seguindo Conventional Commits (`feat(...)`, `fix(...)`, `docs(...)`, `test(...)`, `refactor(...)`).
-5. Atualizar a documentação correspondente na Wiki (`.wiki/Decisoes.md`, `Arquitetura.md`, etc.) sempre que houver novas decisões técnicas ou mudanças arquiteturais.
+
+---
+
+## 7. Ciclo de Vida do Board e Governança de Tarefas (Workflow de Cards)
+O ciclo de vida dos cards no Project Board (`https://github.com/users/julioCoronetti/projects/8`) segue uma esteira rigorosa em quatro estados:
+
+1. **Seleção e Início (`Todo` -> `In Progress`):**
+   - Retirar o card prioritário do Backlog (`Todo`) e movê-lo para `In Progress`.
+   - Implementar estritamente o escopo demandado, sem comentários no código e com nomes descritivos.
+
+2. **Verificação Preliminar e Transição para Revisão (`In Progress` -> `In Review`):**
+   - Executar linter (`ruff check .`) e suíte de testes (`pytest`).
+   - Concluída a implementação e verificada sua funcionalidade inicial, mover o card para `In Review`.
+   - **Nunca mover diretamente para `Done`**.
+
+3. **Ciclo de Validação e Testes com Perspectiva Alternativa (`In Review`):**
+   - O usuário analisa e valida o comportamento da funcionalidade.
+   - O agente deve reexecutar testes adotando intencionalmente **perspectivas diferentes** (testes adversariais, casos de borda, estresse de entrada, comportamentos inesperados fora do escopo e busca ativa de falhas na entrega).
+   - Havendo qualquer inconsistência, bug ou necessidade de ajuste:
+     - Realizar a correção necessária.
+     - O card **permanece em `In Review`**.
+     - Repetir a bateria de testes sob novas perspectivas até que nenhuma nova alteração seja requerida.
+
+4. **Conclusão da Revisão e Transição para `Done`:**
+   - Quando todos os testes passarem sem necessidade de novas alterações, o agente emite um aviso simples e direto:
+     > *"Revisão completa. Nenhuma alteração pendente."*
+   - O card só pode ser movido para `Done` após a validação e autorização explícita do usuário.
