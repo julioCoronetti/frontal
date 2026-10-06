@@ -73,6 +73,7 @@ def test_sidebar_telemetry_live_updates():
         app = TUIApp()
         async with app.run_test(size=(100, 30)) as pilot:
             sidebar = pilot.app.query_one("#sidebar", SidebarInspector)
+            await pilot.pause()
             assert sidebar.agent_status == "Idle"
 
             sidebar.update_telemetry(

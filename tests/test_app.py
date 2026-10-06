@@ -725,3 +725,89 @@ def test_model_command_direct_dual_args():
 
     asyncio.run(_run())
 
+
+def test_action_interrupt_turn_copies_when_idle():
+    import asyncio
+
+    from agy_tui.widgets import ChatInput
+
+    async def _run():
+        app = TUIApp()
+        async with app.run_test(size=(100, 30)) as pilot:
+            pilot.app.turn_active = False
+            pilot.app.last_assistant_response = "Generated output test"
+            await pilot.app.action_interrupt_turn()
+            assert pilot.app.clipboard.read_clipboard() == "Generated output test"
+
+            chat_inp = pilot.app.query_one("#chat-input", ChatInput)
+            chat_inp.text = "Hello world selection"
+            chat_inp.select_all()
+            await pilot.app.action_interrupt_turn()
+            assert pilot.app.clipboard.read_clipboard() == "Hello world selection"
+
+            pilot.app.last_assistant_response = "New assistant answer"
+            await pilot.app._handle_command("/copy")
+            assert pilot.app.clipboard.read_clipboard() == "New assistant answer"
+
+    asyncio.run(_run())
+
+
+def test_chat_input_ctrl_a_select_all():
+    from textual.events import Key
+
+    from agy_tui.widgets import ChatInput
+
+    inp = ChatInput()
+    inp.text = "line one\nline two"
+    key_event = Key(key="ctrl+a", character="a")
+    inp._on_key(key_event)
+    assert inp.selected_text == "line one\nline two"
+
+
+def test_message_card_click_to_copy():
+    import asyncio
+
+    from agy_tui.widgets import MessageCard
+
+    async def _run():
+        app = TUIApp()
+        async with app.run_test(size=(100, 30)) as pilot:
+            card = MessageCard("user", "Text from user card")
+            mv = pilot.app.query_one("#messages-view")
+            await mv.mount(card)
+            card.on_click()
+            assert pilot.app.clipboard.read_clipboard() == "Text from user card"
+
+    asyncio.run(_run())
+
+
+def test_turn_status_line_simplified_rendering():
+    import asyncio
+
+    from textual.widgets import Static
+
+    from agy_tui.protocol import StreamEvent
+
+    async def _run():
+        app = TUIApp()
+        async with app.run_test(size=(100, 30)) as pilot:
+            raw_dict = {
+                "type": "result",
+                "status": "SUCCESS",
+                "result": "Response content",
+                "duration_seconds": 1.25,
+                "usage": {"completion_tokens": 50, "prompt_tokens": 10},
+            }
+            event = StreamEvent("result", raw_dict)
+            pilot.app.engine.events_queue.put_nowait(event)
+            await pilot.pause()
+            mv = pilot.app.query_one("#messages-view")
+            lines = [w for w in mv.children if isinstance(w, Static) and "turn-status-line" in w.classes]
+            assert len(lines) > 0
+            text_str = str(lines[-1].render())
+            assert "▣" not in text_str
+            assert "Code ·" not in text_str
+            assert "1.25s" in text_str
+
+    asyncio.run(_run())
+

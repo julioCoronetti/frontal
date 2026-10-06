@@ -462,6 +462,7 @@ class TUIApp(App):
         self.running: bool = False
         self.turn_active: bool = False
         self.current_response_text: str = ""
+        self.last_assistant_response: str = ""
         self.multiline_mode: bool = False
         self.multiline_buffer: list[str] = []
         self._continuation_mode: bool = False
@@ -584,6 +585,42 @@ class TUIApp(App):
                     pass
             self.turn_active = False
             self._turn_done_event.set()
+        else:
+            text_to_copy = ""
+            try:
+                chat_input = self.query_one("#chat-input", ChatInput)
+                if chat_input.selected_text:
+                    text_to_copy = chat_input.selected_text
+            except Exception:
+                pass
+            if not text_to_copy:
+                text_to_copy = self.last_assistant_response or self.current_response_text
+            if not text_to_copy:
+                try:
+                    chat_input = self.query_one("#chat-input", ChatInput)
+                    if chat_input.text.strip():
+                        text_to_copy = chat_input.text
+                except Exception:
+                    pass
+            if text_to_copy:
+                cb = getattr(self, "clipboard", None)
+                copied = False
+                if hasattr(cb, "copy"):
+                    copied = cb.copy(text_to_copy)
+                else:
+                    self.clipboard = text_to_copy
+                    copied = True
+                if self.is_running:
+                    if copied:
+                        self.notify("Copied to clipboard", timeout=2)
+                    else:
+                        self.notify("Failed to copy to clipboard", severity="error", timeout=2)
+                else:
+                    if copied:
+                        self.console.print("[green]Copied to clipboard[/green]")
+                    else:
+                        self.console.print("[red]Failed to copy to clipboard[/red]")
+
 
     def print_banner(self) -> None:
         title = Text.assemble(
@@ -799,8 +836,25 @@ class TUIApp(App):
             return True
 
         if cmd in ("/c", "/copy"):
+            if not arg:
+                target = self.last_assistant_response or self.current_response_text
+                if not target:
+                    await self._add_system_message("No response content available to copy.", style="yellow")
+                else:
+                    cb = getattr(self, "clipboard", None)
+                    success = cb.copy(target) if hasattr(cb, "copy") else True
+                    if not hasattr(cb, "copy"):
+                        self.clipboard = target
+                    if success:
+                        await self._add_system_message(
+                            f"✓ Copied last response to clipboard ({len(target)} bytes)",
+                            style="green",
+                        )
+                    else:
+                        await self._add_system_message("Failed to copy response to clipboard", style="red")
+                return True
             if not arg.isdigit():
-                await self._add_system_message("Usage: /c <block_id> (e.g., /c 1)", style="yellow")
+                await self._add_system_message("Usage: /c <block_id> (e.g., /c 1) or /copy without arguments", style="yellow")
                 return True
             block_id = int(arg)
             block = self.renderer.code_registry.get(block_id)
@@ -808,7 +862,10 @@ class TUIApp(App):
                 total = len(self.renderer.code_registry.all_blocks())
                 await self._add_system_message(f"Code block #{block_id} not found. Registered blocks: {total}", style="yellow")
             else:
-                success = self.clipboard.copy(block.code)
+                cb = getattr(self, "clipboard", None)
+                success = cb.copy(block.code) if hasattr(cb, "copy") else True
+                if not hasattr(cb, "copy"):
+                    self.clipboard = block.code
                 if success:
                     await self._add_system_message(
                         f"✓ Code Block #{block_id} ({block.language}) copied to clipboard ({len(block.code)} bytes)",
@@ -819,13 +876,17 @@ class TUIApp(App):
             return True
 
         if cmd in ("/ca", "/copyall"):
-            if not self.current_response_text:
+            target = self.last_assistant_response or self.current_response_text
+            if not target:
                 await self._add_system_message("No response content available to copy.", style="yellow")
             else:
-                success = self.clipboard.copy(self.current_response_text)
+                cb = getattr(self, "clipboard", None)
+                success = cb.copy(target) if hasattr(cb, "copy") else True
+                if not hasattr(cb, "copy"):
+                    self.clipboard = target
                 if success:
                     await self._add_system_message(
-                        f"✓ Full assistant response copied to clipboard ({len(self.current_response_text)} bytes)",
+                        f"✓ Full assistant response copied to clipboard ({len(target)} bytes)",
                         style="green",
                     )
                 else:
@@ -1182,6 +1243,8 @@ class TUIApp(App):
                 self.console.print(self.renderer.render_markdown_with_code_blocks(active_chunk))
             self.renderer.extract_and_register_code_blocks(self.current_response_text)
         self._segment_start_idx = len(self.current_response_text)
+        if self.current_response_text:
+            self.last_assistant_response = self.current_response_text
 
     def _mount_new_code_blocks(self) -> None:
         if not self.is_running:
@@ -1320,7 +1383,11 @@ class TUIApp(App):
                 duration = max(0.0, time.monotonic() - self._turn_start_time)
                 self._turn_start_time = None
             elif event.result_data:
-                duration = event.result_data.get("duration_seconds")
+                duration = event.result_data.get("duration_seconds") or (
+                    event.result_data.get("data", {}).get("duration_seconds")
+                    if isinstance(event.result_data.get("data"), dict)
+                    else None
+                )
 
             usage = event.usage
             tokens_per_sec = None
@@ -1351,19 +1418,18 @@ class TUIApp(App):
             if self.is_running:
                 try:
                     mv = self.query_one("#messages-view", VerticalScroll)
-                    mode_name = (self.engine.mode or "code").title()
                     model_name = self.engine.model or "model"
                     dur_text = f" · {duration:.2f}s" if duration is not None else ""
                     tps_text = f" ({tokens_per_sec:.1f} tok/s)" if tokens_per_sec is not None else ""
                     if (event.result_status or "SUCCESS") == "SUCCESS":
                         line = Static(
-                            Text.from_markup(f"[bold green]▣[/bold green] [dim]{mode_name} · {model_name}{dur_text}{tps_text}[/dim]"),
+                            Text.from_markup(f"[dim]{model_name}{dur_text}{tps_text}[/dim]"),
                             classes="turn-status-line",
                         )
                     else:
                         err_text = event.result_error or "Execution failed"
                         line = Static(
-                            Text.from_markup(f"[bold red]▣[/bold red] [red]{err_text}[/red][dim]{dur_text}[/dim]"),
+                            Text.from_markup(f"[red]{err_text}[/red][dim]{dur_text}[/dim]"),
                             classes="turn-status-line",
                         )
                     mv.mount(line)
@@ -1403,7 +1469,7 @@ class TUIApp(App):
             if self.is_running:
                 try:
                     mv = self.query_one("#messages-view", VerticalScroll)
-                    mv.mount(Static(Text.from_markup(f"[bold red]▣ Engine Error:[/bold red] [red]{err_msg}[/red]"), classes="turn-status-line"))
+                    mv.mount(Static(Text.from_markup(f"[bold red]Engine Error:[/bold red] [red]{err_msg}[/red]"), classes="turn-status-line"))
                     mv.scroll_end(animate=False)
                 except Exception:
                     pass

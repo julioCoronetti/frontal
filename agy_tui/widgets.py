@@ -64,6 +64,17 @@ class MessageCard(Static):
         self.add_class(css_class)
         yield Static(self.content_text, classes="message-body")
 
+    def on_click(self) -> None:
+        if self.content_text and hasattr(self.app, "clipboard"):
+            cb = getattr(self.app, "clipboard", None)
+            if hasattr(cb, "copy"):
+                if cb.copy(self.content_text):
+                    self.app.notify("Copied message to clipboard", timeout=2)
+            else:
+                setattr(self.app, "clipboard", self.content_text)
+                self.app.notify("Copied message to clipboard", timeout=2)
+
+
 
 class ThoughtCard(Static):
     collapsed: reactive[bool] = reactive(False)
@@ -402,6 +413,12 @@ class ChatInput(TextArea):
                 pass
             return
 
+        if event.key in ("ctrl+a",):
+            self.select_all()
+            event.prevent_default()
+            event.stop()
+            return
+
         if event.key in ("ctrl+enter",) or (event.key in ("ctrl+j", "newline") and self.multiline_submit_ctrl_enter):
             event.prevent_default()
             event.stop()
@@ -502,7 +519,7 @@ class ChatFooterBar(Horizontal):
     workspace_path: reactive[str] = reactive("")
     tokens_used: reactive[int] = reactive(0)
     context_limit: reactive[int] = reactive(200000)
-    shortcuts_text: reactive[str] = reactive("tab /help · ctrl+b sidebar")
+    shortcuts_text: reactive[str] = reactive("tab /help · ctrl+c copy · ctrl+b sidebar")
 
     def compose(self) -> ComposeResult:
         yield Static(self._get_workspace_path(), id="footer-workspace-path", classes="footer-path")
