@@ -1,19 +1,16 @@
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.pytest_cache/
-.ruff_cache/
-.coverage
-htmlcov/
-dist/
-build/
-*.egg-info/
+# General
+.DS_Store
+Thumbs.db
+
+# Environments & Caches
 .venv/
 env/
 venv/
-.test_sessions.json
+target/
+node_modules/
+dist/
+build/
+
+# Local session files
 .sessions.json*
-.DS_Store
-.agents/
-.wiki/
+.test_sessions.json
