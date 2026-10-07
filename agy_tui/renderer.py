@@ -68,6 +68,15 @@ class MarkdownRenderer:
             blocks.append(block)
         return blocks
 
+    @staticmethod
+    def _render_md_to_text(md_content: str) -> Text:
+        from rich.console import Console
+
+        console = Console(width=100)
+        with console.capture() as capture:
+            console.print(Markdown(md_content))
+        return Text.from_ansi(capture.get().rstrip("\n"))
+
     def render_markdown_with_code_blocks(self, text: str) -> RenderableType:
         renderables: list[RenderableType] = []
         last_idx = 0
@@ -77,7 +86,7 @@ class MarkdownRenderer:
             if start > last_idx:
                 md_part = text[last_idx:start].strip()
                 if md_part:
-                    renderables.append(Markdown(md_part))
+                    renderables.append(self._render_md_to_text(md_part))
 
             lang = self._parse_lang(match.group(2))
             code = match.group(3)
@@ -106,7 +115,7 @@ class MarkdownRenderer:
         if last_idx < len(text):
             trailing_part = text[last_idx:].strip()
             if trailing_part:
-                renderables.append(Markdown(trailing_part))
+                renderables.append(self._render_md_to_text(trailing_part))
 
         if not renderables:
             return Text("")

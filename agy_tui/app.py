@@ -43,14 +43,24 @@ class TUIApp(App):
         color: #cdd6f4;
     }
 
+    Screen > .screen--selection {
+        background: #364a82;
+        color: #ffffff;
+    }
+
     #body-container {
-        height: 1fr;
+        height: 100%;
         width: 100%;
     }
 
-    #messages-view {
+    #chat-column {
         height: 100%;
         width: 1fr;
+    }
+
+    #messages-view {
+        height: 1fr;
+        width: 100%;
         overflow-y: scroll;
         padding: 1 2;
     }
@@ -59,7 +69,7 @@ class TUIApp(App):
         width: 32;
         height: 100%;
         background: #141414;
-        border-left: solid #222222;
+        border: none;
         padding: 1 2;
     }
 
@@ -160,11 +170,10 @@ class TUIApp(App):
     }
 
     #footer-area {
-        dock: bottom;
         height: auto;
-        background: #11111b;
-        border-top: solid #313244;
-        padding: 1 1 0 1;
+        background: transparent;
+        border: none;
+        padding: 0 2 1 2;
     }
 
     #autocomplete-popup {
@@ -183,9 +192,9 @@ class TUIApp(App):
         height: auto;
         min-height: 3;
         max-height: 11;
-        background: #141414;
+        background: #1e1e2e;
         border-left: solid #89b4fa;
-        padding: 0 1;
+        padding: 1 2 0 2;
         margin-bottom: 0;
     }
 
@@ -194,7 +203,7 @@ class TUIApp(App):
         height: auto;
         min-height: 2;
         max-height: 8;
-        background: #141414;
+        background: transparent;
         border: none;
         padding: 0;
     }
@@ -205,11 +214,11 @@ class TUIApp(App):
 
     #chat-input-subbar {
         height: 1;
-        background: #141414;
+        background: transparent;
         color: #6c7086;
         padding: 0;
-        margin-top: 0;
-        margin-bottom: 0;
+        margin-top: 1;
+        margin-bottom: 1;
     }
 
     #subbar-text {
@@ -220,9 +229,10 @@ class TUIApp(App):
     #chat-footer-bar {
         height: 1;
         width: 100%;
-        margin-top: 0;
+        background: transparent;
+        margin-top: 1;
         margin-bottom: 0;
-        padding: 0 1;
+        padding: 0;
     }
 
     #footer-workspace-path {
@@ -307,7 +317,7 @@ class TUIApp(App):
     .message-user {
         border-left: solid #89b4fa;
         background: #1e1e2e;
-        padding: 0 1;
+        padding: 1 2;
         margin-top: 1;
         margin-bottom: 1;
         color: #cdd6f4;
@@ -491,7 +501,18 @@ class TUIApp(App):
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="body-container"):
-            yield VerticalScroll(id="messages-view")
+            with Vertical(id="chat-column"):
+                yield VerticalScroll(id="messages-view")
+                with Vertical(id="footer-area"):
+                    yield AutocompletePopup(id="autocomplete-popup", classes="hidden")
+                    input_container = ChatInputContainer(id="chat-input-container")
+                    input_container.mode_name = self.engine.mode or "code"
+                    input_container.model_name = self.engine.model or "gemini-3.8-flash-high"
+                    input_container.effort_level = self.engine.effort or "medium"
+                    yield input_container
+                    footer_bar = ChatFooterBar(id="chat-footer-bar")
+                    yield footer_bar
+                    yield Button("Send", id="send-btn", classes="hidden")
             sidebar = SidebarInspector(id="sidebar")
             sidebar.conversation_id = self.engine.conversation_id
             sidebar.model_name = self.engine.model or "gemini-3.8-flash-high"
@@ -501,17 +522,6 @@ class TUIApp(App):
             if rec and rec.last_prompt:
                 sidebar.session_title = rec.last_prompt.splitlines()[0][:28]
             yield sidebar
-
-        with Vertical(id="footer-area"):
-            yield AutocompletePopup(id="autocomplete-popup", classes="hidden")
-            input_container = ChatInputContainer(id="chat-input-container")
-            input_container.mode_name = self.engine.mode or "code"
-            input_container.model_name = self.engine.model or "gemini-3.8-flash-high"
-            input_container.effort_level = self.engine.effort or "medium"
-            yield input_container
-            footer_bar = ChatFooterBar(id="chat-footer-bar")
-            yield footer_bar
-            yield Button("Send", id="send-btn", classes="hidden")
 
     async def on_mount(self) -> None:
         self.running = True
@@ -588,11 +598,19 @@ class TUIApp(App):
         else:
             text_to_copy = ""
             try:
-                chat_input = self.query_one("#chat-input", ChatInput)
-                if chat_input.selected_text:
-                    text_to_copy = chat_input.selected_text
+                if hasattr(self.screen, "get_selected_text"):
+                    screen_sel = self.screen.get_selected_text()
+                    if screen_sel:
+                        text_to_copy = screen_sel
             except Exception:
                 pass
+            if not text_to_copy:
+                try:
+                    chat_input = self.query_one("#chat-input", ChatInput)
+                    if chat_input.selected_text:
+                        text_to_copy = chat_input.selected_text
+                except Exception:
+                    pass
             if not text_to_copy:
                 text_to_copy = self.last_assistant_response or self.current_response_text
             if not text_to_copy:

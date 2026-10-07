@@ -85,16 +85,16 @@ class ThoughtCard(Static):
         self.collapsed = is_collapsed
 
     def compose(self):
-        body_text = "[dim #cba6f7]▣ Thought (collapsed)[/dim #cba6f7]" if self.collapsed else f"[dim #cba6f7]▣ Thought[/dim #cba6f7]\n[dim italic]{self.thought_text}[/dim italic]"
+        body_text = "[bold #fab387]+ Thought[/bold #fab387]" if self.collapsed else f"[bold #fab387]- Thought[/bold #fab387]\n[dim italic]{self.thought_text}[/dim italic]"
         yield Static(body_text, id="thought-body", classes="thought-content")
 
     def toggle(self) -> None:
         self.collapsed = not self.collapsed
         body = self.query_one("#thought-body", Static)
         if self.collapsed:
-            body.update("[dim #cba6f7]▣ Thought (collapsed)[/dim #cba6f7]")
+            body.update("[bold #fab387]+ Thought[/bold #fab387]")
         else:
-            body.update(f"[dim #cba6f7]▣ Thought[/dim #cba6f7]\n[dim italic]{self.thought_text}[/dim italic]")
+            body.update(f"[bold #fab387]- Thought[/bold #fab387]\n[dim italic]{self.thought_text}[/dim italic]")
 
 
 class StepCard(Static):
