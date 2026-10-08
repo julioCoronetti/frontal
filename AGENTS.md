@@ -11,7 +11,7 @@
 ---
 
 ## 2. Princípios de Engenharia e Padrões de Código
-1. **Zero Comentários no Código:** É terminantemente proibido inserir comentários no código-fonte. Toda documentação, contexto e justificativas devem residir na Wiki local (`.wiki/`), na documentação formal ou nas mensagens de commit.
+1. **Zero Comentários no Código:** É terminantemente proibido inserir comentários no código-fonte. Toda documentação, contexto e justificativas devem residir na Wiki do GitHub, na documentação formal ou nas mensagens de commit.
 2. **Simplicidade e Modularidade:** Código limpo, desacoplado, modular e sem over-engineering. Nomes descritivos padronizados em inglês. Sem prints residuais, logs de depuração ad-hoc ou chamadas soltas.
 3. **Qualidade e Testes:** Todo código deve aderir às ferramentas de linting e suíte de testes estabelecidas para a stack adotada.
 
@@ -23,10 +23,11 @@ Para contexto aprofundado, regras de negócio e histórico técnico, consultar:
    - Repositório Git: `https://github.com/julioCoronetti/frontal`
    - Project Board: `https://github.com/users/julioCoronetti/projects/8` (Frontal)
    - Issues numeradas no GitHub para critérios de aceite detalhados.
-2. **Documentação Local:**
-   - `.wiki/Home.md`: Visão geral e objetivos atuais.
-   - `.wiki/Board-Roadmap.md`: Planejamento e fases de entrega.
-   - `.wiki/Legacy.md`: Registro da versão legada v0.1.
+2. **Documentação Oficial:**
+   - Wiki do GitHub: `https://github.com/julioCoronetti/frontal/wiki`
+   - Home da Wiki: `https://github.com/julioCoronetti/frontal/wiki/Home`
+   - Planejamento e Roadmap: `https://github.com/julioCoronetti/frontal/wiki/Board-Roadmap`
+   - Histórico do Legado: `https://github.com/julioCoronetti/frontal/wiki/Legacy`
 
 ---
 

@@ -8,5 +8,6 @@ O projeto está em processo de reestruturação arquitetural visando máxima per
 O protótipo inicial (Python / Textual) está preservado na branch [`legacy`](https://github.com/julioCoronetti/frontal/tree/legacy) para consulta e reaproveitamento de componentes desacoplados (protocolo, engine e testes).
 
 ## Documentação
-- Detalhes e histórico da versão legada: [Wiki: Legacy](.wiki/Legacy.md)
-- Planejamento e objetivos: [Wiki: Board Roadmap](.wiki/Board-Roadmap.md)
+- [Wiki do Projeto](https://github.com/julioCoronetti/frontal/wiki)
+  - [Histórico e Registro do Legado](https://github.com/julioCoronetti/frontal/wiki/Legacy)
+  - [Roadmap e Backlog](https://github.com/julioCoronetti/frontal/wiki/Board-Roadmap)
