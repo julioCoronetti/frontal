@@ -50,13 +50,15 @@ A arquitetura do Frontal foi definida para garantir execução determinística a
 ## 4. Roadmap de Implementação
 
 - **Fase 1: Fundação, Protocolo e IPC Headless (MVP Engine)**
-  - Workspace Cargo, tipagem do protocolo `stream-json`, orquestração assíncrona do subprocesso `agy` e tratamento de sinais POSIX.
-- **Fase 2: Viewport da Conversa e Streaming Reativo**
-  - Loop de renderização Ratatui a 60 FPS debounced, viewport com sticky scroll, streaming de Markdown e cards visuais de ferramentas.
-- **Fase 3: Editor de Prompt com Tokens Semânticos e Autocomplete**
-  - Buffer de texto sobre `ropey`, suporte a extmarks para menções (`@`, `/`), paste collapse e histórico persistente em SQLite.
+  - Workspace Cargo, multiplexação interna via `SessionId`, tipagem `stream-json`, abstração `EngineTransport` (`SubprocessEngine` e `FixtureReplayEngine`), orquestração assíncrona com `LinesCodec` (16 MB) e isolamento POSIX robusto (`setpgid`/`killpg`/`PR_SET_PDEATHSIG`).
+- **Fase 2A: Core TUI, Viewport da Conversa e Cache de 2 Níveis**
+  - Loop assíncrono Ratatui a 60 FPS debounced, *bracketed paste*, *panic hook* de restauração de TTY, sticky scroll determinístico, cache de 2 níveis (AST semântica imutável no Nível 1 e linhas indexadas por `(width, revision)` no Nível 2) e widget `MinimalInputStub` provisório para validação de múltiplos turnos.
+- **Fase 2B: Streaming de Markdown, Realce Incremental e Tool Cards**
+  - Pipeline incremental `pulldown-cmark` resiliente a cercas incompletas, realce `syntect` com checkpoints de estado por linha e cards dinâmicos colapsáveis para chamadas de ferramentas e raciocínio.
+- **Fase 3: Editor de Prompt com Tokens Semânticos, Autocomplete e Persistência**
+  - Buffer de edição multilinha sobre `ropey`, primitiva de overlay/popover com foco prioritário, extmarks atômicos para menções (`@`, `/`), colapso de pastes volumosos (`HashMap` externo), busca assíncrona de arquivos e histórico persistente em SQLite WAL (`rusqlite`).
 - **Fase 4: Abas Multissessão, Diálogos Modais e Ergonomia Avançada**
-  - Gerenciamento de múltiplas sessões (`Alt+1..9`), pilha de diálogos modais flutuantes, paleta de comandos (`Ctrl+P`) e visualizador de diffs.
+  - Multissessão (`Alt+1..9`) sobre `SessionManager`, pilha de diálogos modais flutuantes, alternância de modelos via *hot-respawn*, paleta de comandos (`Ctrl+P`) e visualizador de diffs integrado.
 
 ---
 
