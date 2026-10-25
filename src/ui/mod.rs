@@ -1,6 +1,8 @@
 pub mod app;
 pub mod cache;
+pub mod highlight;
 pub mod input_stub;
+pub mod markdown;
 pub mod terminal;
 pub mod viewport;
 

@@ -3,6 +3,8 @@ use ratatui::text::{Line, Span};
 use std::collections::HashMap;
 
 use crate::protocol::StepState;
+use crate::ui::highlight::IncrementalCodeHighlighter;
+use crate::ui::markdown::render_markdown_to_lines;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BlockKind {
@@ -13,13 +15,17 @@ pub enum BlockKind {
     Error,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct MessageBlock {
     pub id: u64,
     pub kind: BlockKind,
     pub content: String,
     pub revision: u64,
     pub consolidated: bool,
+    pub collapsed: bool,
+    pub tool_args: Option<String>,
+    pub step_index: Option<u64>,
+    pub code_highlighters: Vec<IncrementalCodeHighlighter>,
 }
 
 #[derive(Clone, Debug)]
@@ -87,6 +93,10 @@ impl RenderCache {
             content: text.to_string(),
             revision: 1,
             consolidated: true,
+            collapsed: false,
+            tool_args: None,
+            step_index: None,
+            code_highlighters: Vec::new(),
         });
         id
     }
@@ -107,39 +117,96 @@ impl RenderCache {
             content: delta.to_string(),
             revision: 1,
             consolidated: false,
+            collapsed: false,
+            tool_args: None,
+            step_index: None,
+            code_highlighters: Vec::new(),
+        });
+        id
+    }
+
+    pub fn upsert_tool_call(
+        &mut self,
+        step_index: Option<u64>,
+        name: &str,
+        state: StepState,
+        args: Option<&str>,
+        output: Option<&str>,
+    ) -> u64 {
+        for block in self.blocks.iter_mut().rev() {
+            if !block.consolidated {
+                let matches = if let Some(idx) = step_index {
+                    block.step_index == Some(idx)
+                } else if let BlockKind::Tool {
+                    name: ref n,
+                    state: ref s,
+                } = block.kind
+                {
+                    n == name && *s == StepState::Active
+                } else {
+                    false
+                };
+
+                if matches {
+                    block.kind = BlockKind::Tool {
+                        name: name.to_string(),
+                        state,
+                    };
+                    if let Some(a) = args {
+                        block.tool_args = Some(a.to_string());
+                    }
+                    if let Some(out) = output {
+                        block.content = out.to_string();
+                    }
+                    block.revision += 1;
+                    return block.id;
+                }
+            }
+        }
+
+        let id = self.next_block_id;
+        self.next_block_id += 1;
+        self.blocks.push(MessageBlock {
+            id,
+            kind: BlockKind::Tool {
+                name: name.to_string(),
+                state,
+            },
+            content: output.unwrap_or("").to_string(),
+            revision: 1,
+            consolidated: false,
+            collapsed: false,
+            tool_args: args.map(|s| s.to_string()),
+            step_index,
+            code_highlighters: Vec::new(),
         });
         id
     }
 
     pub fn update_tool_state(&mut self, name: &str, state: StepState, output: Option<&str>) -> u64 {
-        let kind = BlockKind::Tool {
-            name: name.to_string(),
-            state,
-        };
-        for block in self.blocks.iter_mut().rev() {
-            if !block.consolidated {
-                if let BlockKind::Tool { name: n, .. } = &block.kind {
-                    if n == name {
-                        block.kind = kind;
-                        if let Some(out) = output {
-                            block.content = out.to_string();
-                        }
-                        block.revision += 1;
-                        return block.id;
-                    }
-                }
+        self.upsert_tool_call(None, name, state, None, output)
+    }
+
+    pub fn toggle_block_collapsed(&mut self, block_id: u64) -> bool {
+        for block in &mut self.blocks {
+            if block.id == block_id {
+                block.collapsed = !block.collapsed;
+                block.revision += 1;
+                return block.collapsed;
             }
         }
-        let id = self.next_block_id;
-        self.next_block_id += 1;
-        self.blocks.push(MessageBlock {
-            id,
-            kind,
-            content: output.unwrap_or("").to_string(),
-            revision: 1,
-            consolidated: false,
-        });
-        id
+        false
+    }
+
+    pub fn toggle_latest_thought(&mut self) -> Option<u64> {
+        for block in self.blocks.iter_mut().rev() {
+            if matches!(block.kind, BlockKind::Thought) {
+                block.collapsed = !block.collapsed;
+                block.revision += 1;
+                return Some(block.id);
+            }
+        }
+        None
     }
 
     pub fn push_error(&mut self, text: &str) -> u64 {
@@ -151,6 +218,10 @@ impl RenderCache {
             content: text.to_string(),
             revision: 1,
             consolidated: true,
+            collapsed: false,
+            tool_args: None,
+            step_index: None,
+            code_highlighters: Vec::new(),
         });
         id
     }
@@ -176,6 +247,10 @@ impl RenderCache {
                         content: resp.to_string(),
                         revision: 1,
                         consolidated: true,
+                        collapsed: false,
+                        tool_args: None,
+                        step_index: None,
+                        code_highlighters: Vec::new(),
                     });
                 }
             }
@@ -187,7 +262,7 @@ impl RenderCache {
         self.last_width = safe_width;
         let mut total = 0;
 
-        for block in &self.blocks {
+        for block in &mut self.blocks {
             let hit = if let Some(entry) = self.l2_cache.get(&block.id) {
                 entry.width == safe_width && entry.revision == block.revision
             } else {
@@ -199,7 +274,7 @@ impl RenderCache {
                 total += self.l2_cache.get(&block.id).unwrap().lines.len();
             } else {
                 self.cache_misses += 1;
-                let generated_lines = self.format_block_lines(block, safe_width);
+                let generated_lines = Self::format_block_lines(block, safe_width);
                 total += generated_lines.len();
                 self.l2_cache.insert(
                     block.id,
@@ -215,7 +290,7 @@ impl RenderCache {
         total
     }
 
-    fn format_block_lines(&self, block: &MessageBlock, width: u16) -> Vec<Line<'static>> {
+    fn format_block_lines(block: &mut MessageBlock, width: u16) -> Vec<Line<'static>> {
         let mut result = Vec::new();
         match &block.kind {
             BlockKind::User => {
@@ -235,51 +310,93 @@ impl RenderCache {
                 result.push(Line::from(""));
             }
             BlockKind::Assistant => {
-                let wrapped = wrap_text_utf8(&block.content, width as usize);
-                for row in wrapped {
-                    result.push(Line::from(vec![Span::styled(
-                        row,
-                        Style::default().fg(Color::Gray),
-                    )]));
-                }
+                let lines = render_markdown_to_lines(
+                    &block.content,
+                    width as usize,
+                    block.consolidated,
+                    &mut block.code_highlighters,
+                );
+                result.extend(lines);
                 if block.consolidated {
                     result.push(Line::from(""));
                 }
             }
             BlockKind::Thought => {
-                let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
-                for (i, row) in wrapped.into_iter().enumerate() {
-                    let prefix = if i == 0 { "~ " } else { "  " };
-                    result.push(Line::from(vec![
-                        Span::styled(prefix.to_string(), Style::default().fg(Color::DarkGray)),
-                        Span::styled(
-                            row,
-                            Style::default()
-                                .fg(Color::DarkGray)
-                                .add_modifier(Modifier::ITALIC),
-                        ),
-                    ]));
-                }
-            }
-            BlockKind::Tool { name, state } => {
-                let state_str = match state {
-                    StepState::Active => "running",
-                    StepState::Done => "completed",
-                    StepState::Other => "pending",
-                };
-                let header = format!("[tool: {} ({})]", name, state_str);
-                result.push(Line::from(vec![Span::styled(
-                    header,
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                )]));
-                if !block.content.is_empty() {
+                if block.collapsed {
+                    let line_count = block.content.lines().count().max(1);
+                    result.push(Line::from(vec![Span::styled(
+                        format!("▸ Thought [collapsed - {} lines]", line_count),
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::ITALIC),
+                    )]));
+                } else {
+                    result.push(Line::from(vec![Span::styled(
+                        "▾ Thought",
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD),
+                    )]));
                     let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
                     for row in wrapped {
                         result.push(Line::from(vec![
-                            Span::styled("  ".to_string(), Style::default().fg(Color::Yellow)),
-                            Span::styled(row, Style::default().fg(Color::DarkGray)),
+                            Span::styled("  ▎ ", Style::default().fg(Color::DarkGray)),
+                            Span::styled(
+                                row,
+                                Style::default()
+                                    .fg(Color::DarkGray)
+                                    .add_modifier(Modifier::ITALIC),
+                            ),
+                        ]));
+                    }
+                }
+            }
+            BlockKind::Tool { name, state } => {
+                let (state_badge, state_style) = match state {
+                    StepState::Active => (
+                        "[RUNNING]",
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    StepState::Done => (
+                        "[DONE]",
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    StepState::Error => (
+                        "[ERROR]",
+                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    ),
+                    StepState::Other => (
+                        "[PENDING]",
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                };
+
+                let args_str = block
+                    .tool_args
+                    .as_deref()
+                    .map(|a| format!("({})", a))
+                    .unwrap_or_default();
+                let header = format!("{} {}{}", state_badge, name, args_str);
+
+                result.push(Line::from(vec![Span::styled(header, state_style)]));
+
+                if !block.content.is_empty() {
+                    let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
+                    for row in wrapped {
+                        let text_style = if matches!(state, StepState::Error) {
+                            Style::default().fg(Color::LightRed)
+                        } else {
+                            Style::default().fg(Color::DarkGray)
+                        };
+                        result.push(Line::from(vec![
+                            Span::styled("  ", Style::default()),
+                            Span::styled(row, text_style),
                         ]));
                     }
                 }

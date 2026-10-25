@@ -119,11 +119,13 @@ pub enum StepType {
     Other,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum StepState {
     Active,
     Done,
+    #[serde(alias = "FAILED")]
+    Error,
     #[serde(other)]
     Other,
 }
@@ -168,6 +170,24 @@ impl ToolInfo {
             other => other.to_string(),
         })
     }
+
+    pub fn parameters_text(&self) -> Option<String> {
+        self.parameters.as_ref().and_then(|val| {
+            if val.is_null() {
+                None
+            } else {
+                match val {
+                    serde_json::Value::String(s) => Some(s.clone()),
+                    serde_json::Value::Object(map) => {
+                        let pairs: Vec<String> =
+                            map.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
+                        Some(pairs.join(", "))
+                    }
+                    other => Some(other.to_string()),
+                }
+            }
+        })
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -210,6 +230,14 @@ pub struct StepUpdateData {
     pub duration_seconds: Option<f64>,
     #[serde(default)]
     pub usage: Option<TokenUsage>,
+}
+
+impl StepUpdateData {
+    pub fn resolved_tool_name(&self) -> Option<&str> {
+        self.tool_name
+            .as_deref()
+            .or_else(|| self.tool_info.as_ref().and_then(|t| t.name.as_deref()))
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

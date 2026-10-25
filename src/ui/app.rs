@@ -90,6 +90,14 @@ impl App {
                         self.input.backspace();
                         self.dirty = true;
                     }
+                    KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.cache.toggle_latest_thought();
+                        self.dirty = true;
+                    }
+                    KeyCode::Tab => {
+                        self.cache.toggle_latest_thought();
+                        self.dirty = true;
+                    }
                     KeyCode::Char(c) => {
                         self.input.insert_char(c);
                         self.dirty = true;
@@ -159,22 +167,34 @@ impl App {
                 }
                 StreamEvent::StepUpdate(update) => {
                     if let Some(data) = update.step_update {
-                        if let Some(delta) = data.text_delta {
+                        if let Some(ref delta) = data.text_delta {
                             self.cache
-                                .append_streaming_delta(BlockKind::Assistant, &delta);
+                                .append_streaming_delta(BlockKind::Assistant, delta);
+                            self.status_text = String::from("Streaming...");
                             self.dirty = true;
                         }
-                        if let Some(thought) = data.thought {
+                        if let Some(ref thought) = data.thought {
                             self.cache
-                                .append_streaming_delta(BlockKind::Thought, &thought);
+                                .append_streaming_delta(BlockKind::Thought, thought);
+                            self.status_text = String::from("Thinking...");
                             self.dirty = true;
                         }
-                        if let Some(tool_name) = data.tool_name {
+                        if let Some(tool_name) = data.resolved_tool_name() {
                             let state = data.state.unwrap_or(StepState::Active);
+                            let args = data
+                                .tool_info
+                                .as_ref()
+                                .and_then(|info| info.parameters_text());
                             let output =
                                 data.tool_info.as_ref().and_then(|info| info.output_text());
-                            self.cache
-                                .update_tool_state(&tool_name, state, output.as_deref());
+                            self.cache.upsert_tool_call(
+                                data.step_index,
+                                tool_name,
+                                state,
+                                args.as_deref(),
+                                output.as_deref(),
+                            );
+                            self.status_text = format!("Tool: {}", tool_name);
                             self.dirty = true;
                         }
                     }
