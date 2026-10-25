@@ -27,16 +27,17 @@ A arquitetura do Frontal foi definida para garantir execução determinística a
 | **Parsing de Markdown** | `pulldown-cmark` | Parser de eventos CommonMark de alto desempenho gerando árvore interna de blocos modulares (`MessageBlock`). |
 | **Realce de Sintaxe** | `syntect` | Destaque sintático incremental por linha com 150+ gramáticas embutidas sem necessidade de compilação de código C nativo. |
 | **Persistência Local** | `rusqlite` (WAL mode) | SQLite embutido leve para metadados de sessão, histórico de comandos e cache. |
-| **Terminal Virtual (PTY)** | `portable-pty` | Pseudo-terminais assíncronos multiplataforma para execução de comandos interativos. |
 | **Área de Transferência** | `arboard` + OSC 52 | Suporte nativo ao clipboard do sistema com fallback para escape sequences OSC 52 em sessões remotas (SSH). |
+| **Terminal Virtual (PTY)** | `portable-pty` | Pseudo-terminais assíncronos multiplataforma para execução de comandos interativos (extensão opcional futura). |
 
 ---
 
 ## 3. Diretrizes de Arquitetura
 
 1. **Cache de Renderização em Dois Níveis**:
-   - Mensagens de turnos consolidados são pré-renderizadas como `Vec<Line<'static>>` e armazenadas em cache imutável em memória.
-   - Apenas o turno ativo em streaming processa deltas, mantendo o custo de desenho em O(1) e a taxa de quadros estável em 60 FPS independentemente do tamanho da conversa.
+   - Mensagens de turnos consolidados são preservadas como AST semântica imutável (`MessageBlock` com spans destacados) no Nível 1.
+   - O Nível 2 mantém linhas visuais pré-formatadas indexadas por largura e revisão `(width, revision)`, invalidado preguiçosamente apenas em redimensionamentos (`SIGWINCH`) ou expansão/colapso de blocos.
+   - Apenas o turno ativo em streaming processa deltas, mantendo o custo de desenho em $O(1)$ e a taxa de quadros estável em 60 FPS independentemente do tamanho da conversa.
 2. **Sticky Scroll Inteligente**:
    - Viewport travado na borda inferior durante o streaming de tokens, com desancoragem imediata ao navegar para cima e reancoragem ao retornar ao rodapé.
 3. **Colapso de Pastes Volumosos**:
