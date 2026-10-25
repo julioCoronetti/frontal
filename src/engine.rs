@@ -1,6 +1,6 @@
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, ChildStdin, Command};
@@ -14,6 +14,40 @@ use crate::protocol::{
     format_user_message, parse_stream_line, EngineEvent, SessionEnvelope, SessionId, StreamEvent,
 };
 use crate::transport::{EngineConfig, EngineError};
+
+static ACTIVE_CHILD_PGIDS: OnceLock<StdMutex<HashSet<i32>>> = OnceLock::new();
+
+fn active_pgids() -> &'static StdMutex<HashSet<i32>> {
+    ACTIVE_CHILD_PGIDS.get_or_init(|| StdMutex::new(HashSet::new()))
+}
+
+pub fn register_child_pgid(pgid: i32) {
+    if pgid > 0 {
+        if let Ok(mut set) = active_pgids().lock() {
+            set.insert(pgid);
+        }
+    }
+}
+
+pub fn unregister_child_pgid(pgid: i32) {
+    if pgid > 0 {
+        if let Ok(mut set) = active_pgids().lock() {
+            set.remove(&pgid);
+        }
+    }
+}
+
+pub fn kill_registered_subprocesses() {
+    if let Ok(set) = active_pgids().lock() {
+        for &pgid in set.iter() {
+            if pgid > 0 {
+                unsafe {
+                    libc::killpg(pgid, libc::SIGTERM);
+                }
+            }
+        }
+    }
+}
 
 pub struct SubprocessEngine {
     session_id: SessionId,
@@ -70,6 +104,10 @@ impl SubprocessEngine {
                 EngineError::Io(e.to_string())
             }
         })?;
+
+        if let Some(pid) = child.id() {
+            register_child_pgid(pid as i32);
+        }
 
         let stdin = child.stdin.take();
         let stdout = child.stdout.take();
@@ -219,6 +257,9 @@ impl SubprocessEngine {
     }
 
     pub async fn shutdown(&mut self, grace: Duration) -> Result<Option<i32>, EngineError> {
+        if let Some(pid) = self.child.id() {
+            unregister_child_pgid(pid as i32);
+        }
         drop(self.stdin.take());
         let wait_result = timeout(grace, self.child.wait()).await;
         let exit_status = match wait_result {

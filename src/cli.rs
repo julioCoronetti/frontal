@@ -152,6 +152,15 @@ pub async fn run_from_env() -> Result<(), Box<dyn std::error::Error>> {
         session_manager.create_subprocess_session(config).await?
     };
 
+    if !args.headless {
+        let mut app = crate::ui::app::App::new(session_manager, session_id.clone());
+        for p in args.prompts {
+            let _ = app.session_manager.send_prompt(&session_id, &p).await;
+            app.cache.push_user_message(&p);
+        }
+        return crate::ui::run_tui(app).await;
+    }
+
     if args.prompts.is_empty() {
         println!("Session initialized: {}", session_id);
         if let Some(envelope) = session_manager.recv().await {
