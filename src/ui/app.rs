@@ -1,13 +1,16 @@
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind};
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::protocol::{EngineEvent, SessionEnvelope, SessionId, StepState, StreamEvent};
 use crate::session::{SessionManager, SessionStatus};
+use crate::ui::autocomplete::{AutocompletePopover, FileSearchWorker};
 use crate::ui::cache::{BlockKind, RenderCache};
+use crate::ui::editor::{ExtmarkKind, PromptEditor, TriggerKind};
+use crate::ui::history::PromptHistory;
 use crate::ui::input_stub::MinimalInputStub;
 use crate::ui::viewport::{ConversationViewport, ScrollMode};
 
@@ -24,22 +27,49 @@ pub struct App {
     pub cache: RenderCache,
     pub viewport: ConversationViewport,
     pub input: MinimalInputStub,
+    pub editor: PromptEditor,
+    pub popover: AutocompletePopover,
+    pub search_worker: FileSearchWorker,
+    pub history: PromptHistory,
     pub dirty: bool,
     pub should_quit: bool,
     pub status_text: String,
+    pub spinner_tick: u64,
+    pub waiting_for_response: bool,
 }
 
 impl App {
     pub fn new(session_manager: SessionManager, active_session: SessionId) -> Self {
+        let history = if let Ok(home) = std::env::var("HOME") {
+            let path = std::path::PathBuf::from(home)
+                .join(".frontal")
+                .join("history.db");
+            PromptHistory::open(&path).unwrap_or_else(|_| PromptHistory::open_in_memory().unwrap())
+        } else {
+            PromptHistory::open_in_memory().unwrap()
+        };
+
+        let mut search_worker = FileSearchWorker::new();
+        if let Ok(cwd) = std::env::current_dir() {
+            let files = FileSearchWorker::scan_dir(&cwd, 500);
+            search_worker.set_cached_files(files);
+        }
+
         Self {
             session_manager,
             active_session,
             cache: RenderCache::new(),
             viewport: ConversationViewport::new(),
             input: MinimalInputStub::new(),
+            editor: PromptEditor::new(),
+            popover: AutocompletePopover::new(),
+            search_worker,
+            history,
             dirty: true,
             should_quit: false,
             status_text: String::from("Ready"),
+            spinner_tick: 0,
+            waiting_for_response: false,
         }
     }
 
@@ -49,6 +79,7 @@ impl App {
                 if key.kind != KeyEventKind::Press {
                     return None;
                 }
+
                 if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
                     let is_running = self
                         .session_manager
@@ -58,6 +89,7 @@ impl App {
                     if is_running {
                         let _ = self.session_manager.interrupt_active();
                         self.status_text = String::from("Interrupted by user");
+                        self.waiting_for_response = false;
                         self.dirty = true;
                         return Some(AppAction::Interrupt);
                     } else {
@@ -71,44 +103,159 @@ impl App {
                     return Some(AppAction::Quit);
                 }
 
-                if key.code == KeyCode::Esc && self.input.content().is_empty() {
+                if self.popover.is_visible() {
+                    match key.code {
+                        KeyCode::Up => {
+                            self.popover.select_prev();
+                            self.dirty = true;
+                            return None;
+                        }
+                        KeyCode::Down => {
+                            self.popover.select_next();
+                            self.dirty = true;
+                            return None;
+                        }
+                        KeyCode::Esc => {
+                            self.popover.close();
+                            self.dirty = true;
+                            return None;
+                        }
+                        KeyCode::Tab | KeyCode::Enter => {
+                            if let Some(item) = self.popover.selected_item().cloned() {
+                                let start = self.popover.trigger_start_char;
+                                let end = self.editor.cursor_char();
+                                let kind = match item.kind {
+                                    TriggerKind::File => ExtmarkKind::FileMention {
+                                        path: item.label.clone(),
+                                    },
+                                    TriggerKind::Command => ExtmarkKind::SlashCommand {
+                                        cmd: item.insert_text.trim().to_string(),
+                                    },
+                                };
+                                self.editor.replace_range_with_extmark(
+                                    start,
+                                    end,
+                                    kind,
+                                    &item.insert_text,
+                                );
+                                self.input.clear();
+                                self.input.insert_str(&self.editor.text());
+                            }
+                            self.popover.close();
+                            self.dirty = true;
+                            return None;
+                        }
+                        _ => {}
+                    }
+                }
+
+                if key.code == KeyCode::Esc && self.editor.is_empty() && self.input.is_empty() {
                     self.should_quit = true;
                     return Some(AppAction::Quit);
                 }
 
+                if key.code == KeyCode::Char('t') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                    self.cache.toggle_latest_thought();
+                    self.dirty = true;
+                    return None;
+                }
+
+                if key.code == KeyCode::Tab {
+                    self.cache.toggle_latest_thought();
+                    self.dirty = true;
+                    return None;
+                }
+
+                let is_multiline_newline = (key.code == KeyCode::Enter
+                    && (key.modifiers.contains(KeyModifiers::SHIFT)
+                        || key.modifiers.contains(KeyModifiers::ALT)))
+                    || (key.code == KeyCode::Char('j')
+                        && key.modifiers.contains(KeyModifiers::CONTROL));
+
+                if is_multiline_newline {
+                    self.editor.insert_newline();
+                    self.input.insert_char('\n');
+                    self.dirty = true;
+                    self.update_autocomplete();
+                    return None;
+                }
+
                 match key.code {
                     KeyCode::Enter => {
-                        if let Some(prompt) = self.input.take_submitted() {
-                            self.cache.push_user_message(&prompt);
+                        let prompt = self
+                            .editor
+                            .take_submitted_expanded()
+                            .or_else(|| self.input.take_submitted());
+                        if let Some(p) = prompt {
+                            self.input.clear();
+                            self.history.record_prompt(&p);
+                            self.cache.push_user_message(&p);
                             self.viewport.scroll_to_bottom();
+                            self.waiting_for_response = true;
                             self.dirty = true;
-                            self.status_text = String::from("Running...");
-                            return Some(AppAction::SubmitPrompt(prompt));
+                            self.status_text = String::from("Waiting for response...");
+                            return Some(AppAction::SubmitPrompt(p));
                         }
                     }
                     KeyCode::Backspace => {
+                        self.editor.backspace();
                         self.input.backspace();
                         self.dirty = true;
+                        self.update_autocomplete();
                     }
-                    KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        self.cache.toggle_latest_thought();
+                    KeyCode::Delete => {
+                        self.editor.delete_forward();
+                        self.dirty = true;
+                        self.update_autocomplete();
+                    }
+                    KeyCode::Left => {
+                        self.editor.move_left();
+                        self.dirty = true;
+                        self.update_autocomplete();
+                    }
+                    KeyCode::Right => {
+                        self.editor.move_right();
+                        self.dirty = true;
+                        self.update_autocomplete();
+                    }
+                    KeyCode::Home => {
+                        self.editor.move_home();
                         self.dirty = true;
                     }
-                    KeyCode::Tab => {
-                        self.cache.toggle_latest_thought();
-                        self.dirty = true;
-                    }
-                    KeyCode::Char(c) => {
-                        self.input.insert_char(c);
+                    KeyCode::End => {
+                        self.editor.move_end();
                         self.dirty = true;
                     }
                     KeyCode::Up => {
-                        self.viewport.scroll_up(1);
-                        self.dirty = true;
+                        if self.editor.move_up() {
+                            self.dirty = true;
+                        } else {
+                            let draft = self.editor.text();
+                            if let Some(prev) = self.history.prev_history(&draft) {
+                                self.editor.clear();
+                                self.editor.insert_str(&prev);
+                                self.input.clear();
+                                self.input.insert_str(&prev);
+                                self.dirty = true;
+                            } else {
+                                self.viewport.scroll_up(1);
+                                self.dirty = true;
+                            }
+                        }
                     }
                     KeyCode::Down => {
-                        self.viewport.scroll_down(1);
-                        self.dirty = true;
+                        if self.editor.move_down() {
+                            self.dirty = true;
+                        } else if let Some(next) = self.history.next_history() {
+                            self.editor.clear();
+                            self.editor.insert_str(&next);
+                            self.input.clear();
+                            self.input.insert_str(&next);
+                            self.dirty = true;
+                        } else {
+                            self.viewport.scroll_down(1);
+                            self.dirty = true;
+                        }
                     }
                     KeyCode::PageUp => {
                         self.viewport.scroll_up(10);
@@ -118,13 +265,11 @@ impl App {
                         self.viewport.scroll_down(10);
                         self.dirty = true;
                     }
-                    KeyCode::Home => {
-                        self.viewport.scroll_up(usize::MAX / 2);
+                    KeyCode::Char(c) => {
+                        self.editor.insert_char(c);
+                        self.input.insert_char(c);
                         self.dirty = true;
-                    }
-                    KeyCode::End => {
-                        self.viewport.scroll_to_bottom();
-                        self.dirty = true;
+                        self.update_autocomplete();
                     }
                     _ => {}
                 }
@@ -141,8 +286,10 @@ impl App {
                 _ => {}
             },
             Event::Paste(text) => {
+                self.editor.insert_paste(&text);
                 self.input.insert_str(&text);
                 self.dirty = true;
+                self.update_autocomplete();
             }
             Event::Resize(_, _) => {
                 self.dirty = true;
@@ -150,6 +297,23 @@ impl App {
             _ => {}
         }
         None
+    }
+
+    pub fn update_autocomplete(&mut self) {
+        if let Some((kind, start_char, query)) = self.editor.active_trigger() {
+            match kind {
+                TriggerKind::Command => {
+                    let items = AutocompletePopover::filter_commands(&query);
+                    self.popover.show(kind, start_char, &query, items);
+                }
+                TriggerKind::File => {
+                    let items = self.search_worker.search(&query, 20);
+                    self.popover.show(kind, start_char, &query, items);
+                }
+            }
+        } else {
+            self.popover.close();
+        }
     }
 
     pub fn handle_engine_envelope(&mut self, envelope: SessionEnvelope) {
@@ -168,18 +332,21 @@ impl App {
                 StreamEvent::StepUpdate(update) => {
                     if let Some(data) = update.step_update {
                         if let Some(ref delta) = data.text_delta {
+                            self.waiting_for_response = false;
                             self.cache
                                 .append_streaming_delta(BlockKind::Assistant, delta);
                             self.status_text = String::from("Streaming...");
                             self.dirty = true;
                         }
                         if let Some(ref thought) = data.thought {
+                            self.waiting_for_response = false;
                             self.cache
                                 .append_streaming_delta(BlockKind::Thought, thought);
                             self.status_text = String::from("Thinking...");
                             self.dirty = true;
                         }
                         if let Some(tool_name) = data.resolved_tool_name() {
+                            self.waiting_for_response = false;
                             let state = data.state.unwrap_or(StepState::Active);
                             let args = data
                                 .tool_info
@@ -200,12 +367,14 @@ impl App {
                     }
                 }
                 StreamEvent::Result(res) => {
+                    self.waiting_for_response = false;
                     let fallback = res.result.as_ref().and_then(|r| r.response.as_deref());
                     self.cache.consolidate_active_turn(fallback);
                     self.status_text = String::from("Ready");
                     self.dirty = true;
                 }
                 StreamEvent::Error(err) => {
+                    self.waiting_for_response = false;
                     let msg = err
                         .error
                         .or(err.message)
@@ -221,12 +390,14 @@ impl App {
                 self.dirty = true;
             }
             EngineEvent::ProtocolError { message, .. } => {
+                self.waiting_for_response = false;
                 self.cache
                     .push_error(&format!("Protocol Error: {}", message));
                 self.status_text = String::from("Protocol Error");
                 self.dirty = true;
             }
             EngineEvent::ProcessExited { code, .. } => {
+                self.waiting_for_response = false;
                 self.status_text = format!("Process exited: {:?}", code);
                 self.dirty = true;
             }
@@ -235,23 +406,45 @@ impl App {
 
     pub fn render(&mut self, frame: &mut Frame) {
         let area = frame.area();
+        let input_lines = (self.editor.line_count() as u16).clamp(1, 8);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Min(3),
                 Constraint::Length(1),
-                Constraint::Length(3),
+                Constraint::Length(1),
+                Constraint::Length(input_lines + 2),
             ])
             .split(area);
 
         let viewport_area = chunks[0];
-        let status_area = chunks[1];
-        let input_area = chunks[2];
+        let status_area = chunks[2];
+        let input_area = chunks[3];
 
         let total_lines = self.cache.ensure_visual_lines(viewport_area.width);
         self.viewport
             .sync_dimensions(total_lines, viewport_area.height as usize);
-        let visible_lines = self.viewport.visible_slice(&self.cache);
+        let mut visible_lines = self.viewport.visible_slice(&self.cache);
+
+        if self.waiting_for_response {
+            const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+            let spinner = SPINNER_FRAMES[(self.spinner_tick as usize / 4) % SPINNER_FRAMES.len()];
+            visible_lines.push(Line::from(vec![
+                Span::styled(
+                    format!("{} ", spinner),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "Thinking / Waiting for response...",
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::ITALIC),
+                ),
+            ]));
+        }
+
         let viewport_widget = Paragraph::new(visible_lines);
         frame.render_widget(viewport_widget, viewport_area);
 
@@ -288,8 +481,14 @@ impl App {
         let status_widget = Paragraph::new(Line::from(status_spans));
         frame.render_widget(status_widget, status_area);
 
-        let input_title = " Input (Enter: submit, Ctrl+C: interrupt/exit) ";
-        let input_widget = Paragraph::new(self.input.content()).block(
+        let input_title = " Input (Enter: submit, Shift+Enter: newline, Ctrl+C: exit) ";
+        let display_content = if !self.editor.is_empty() {
+            self.editor.text()
+        } else {
+            self.input.content().to_string()
+        };
+
+        let input_widget = Paragraph::new(display_content).block(
             Block::default()
                 .borders(Borders::ALL)
                 .title(input_title)
@@ -297,19 +496,85 @@ impl App {
         );
         frame.render_widget(input_widget, input_area);
 
+        let (cur_line, cur_col) = if !self.editor.is_empty() {
+            self.editor.cursor_coordinates()
+        } else {
+            (0, self.input.cursor_char_idx())
+        };
+
         let cursor_x = input_area
             .x
             .saturating_add(1)
-            .saturating_add(self.input.cursor_char_idx() as u16);
-        let cursor_y = input_area.y.saturating_add(1);
+            .saturating_add(cur_col as u16);
+        let cursor_y = input_area
+            .y
+            .saturating_add(1)
+            .saturating_add(cur_line as u16);
         if cursor_x
             < input_area
                 .x
                 .saturating_add(input_area.width.saturating_sub(1))
+            && cursor_y
+                < input_area
+                    .y
+                    .saturating_add(input_area.height.saturating_sub(1))
         {
             frame.set_cursor_position((cursor_x, cursor_y));
         }
 
-        self.dirty = false;
+        if self.popover.is_visible() {
+            let item_count = self.popover.items.len().min(8) as u16;
+            let popover_height = item_count + 2;
+            let popover_width = (input_area.width.saturating_sub(4)).min(60);
+            let popover_y = input_area.y.saturating_sub(popover_height);
+            let popover_rect = Rect {
+                x: input_area.x.saturating_add(2),
+                y: popover_y,
+                width: popover_width,
+                height: popover_height,
+            }
+            .intersection(area);
+
+            frame.render_widget(Clear, popover_rect);
+
+            let mut popover_lines = Vec::new();
+            for (idx, item) in self
+                .popover
+                .items
+                .iter()
+                .enumerate()
+                .take(item_count as usize)
+            {
+                let is_sel = idx == self.popover.selected_idx;
+                let (prefix, style) = if is_sel {
+                    (
+                        " > ",
+                        Style::default()
+                            .bg(Color::Cyan)
+                            .fg(Color::Black)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                } else {
+                    ("   ", Style::default().fg(Color::White))
+                };
+                popover_lines.push(Line::from(vec![
+                    Span::styled(prefix, style),
+                    Span::styled(&item.label, style),
+                ]));
+            }
+
+            let title = match self.popover.kind {
+                TriggerKind::Command => " Commands (Tab/Enter: apply, Esc: close) ",
+                TriggerKind::File => " Files (Tab/Enter: apply, Esc: close) ",
+            };
+
+            let popover_widget = Paragraph::new(popover_lines).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(title)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
+            frame.render_widget(popover_widget, popover_rect);
+        }
     }
 }

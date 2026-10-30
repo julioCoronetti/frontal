@@ -1,6 +1,9 @@
 pub mod app;
+pub mod autocomplete;
 pub mod cache;
+pub mod editor;
 pub mod highlight;
+pub mod history;
 pub mod input_stub;
 pub mod markdown;
 pub mod terminal;
@@ -47,8 +50,13 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             _ = ticker.tick() => {
+                app.spinner_tick = app.spinner_tick.wrapping_add(1);
+                if app.waiting_for_response {
+                    app.dirty = true;
+                }
                 if app.dirty {
                     guard.terminal_mut().draw(|f| app.render(f))?;
+                    app.dirty = false;
                 }
             }
         }

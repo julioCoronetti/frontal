@@ -41,6 +41,10 @@ impl ConversationViewport {
     }
 
     pub fn scroll_up(&mut self, lines: usize) {
+        if self.total_lines <= self.viewport_height {
+            self.mode = ScrollMode::Anchored;
+            return;
+        }
         let current = self.effective_offset();
         let new_offset = current.saturating_sub(lines);
         self.mode = ScrollMode::Unanchored { offset: new_offset };

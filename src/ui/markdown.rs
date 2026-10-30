@@ -438,19 +438,28 @@ pub fn render_markdown_to_lines(
     for segment in segments {
         match segment {
             MarkdownSegment::Heading { level, spans } => {
-                let prefix_str = match level {
-                    1 => "# ",
-                    2 => "## ",
-                    3 => "### ",
-                    _ => "#### ",
-                };
-                let prefix = vec![Span::styled(
-                    prefix_str,
-                    Style::default()
+                let h_style = match level {
+                    1 => Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                        .add_modifier(Modifier::UNDERLINED),
+                    2 => Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
-                )];
-                let wrapped = wrap_styled_spans(&spans, width, &prefix, &prefix);
+                    3 => Style::default()
+                        .fg(Color::LightCyan)
+                        .add_modifier(Modifier::BOLD),
+                    _ => Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD)
+                        .add_modifier(Modifier::ITALIC),
+                };
+                let styled_spans: Vec<Span<'static>> = spans
+                    .into_iter()
+                    .map(|s| Span::styled(s.content, h_style))
+                    .collect();
+                let empty_prefix = vec![];
+                let wrapped = wrap_styled_spans(&styled_spans, width, &empty_prefix, &empty_prefix);
                 output_lines.extend(wrapped);
             }
             MarkdownSegment::Paragraph(spans) => {

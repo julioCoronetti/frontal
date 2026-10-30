@@ -52,6 +52,10 @@ impl MinimalInputStub {
         &self.buffer
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.buffer.is_empty()
+    }
+
     pub fn cursor_char_idx(&self) -> usize {
         self.cursor_char_idx
     }
