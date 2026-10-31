@@ -1,33 +1,20 @@
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-use ratatui::backend::TestBackend;
-use ratatui::Terminal;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use frontal::protocol::{
-    EngineEvent, SessionEnvelope, SessionId, StepUpdateData, StepUpdateEvent, StreamEvent,
+    EngineEvent, ResultData, ResultStatus, SessionEnvelope, SessionId, StepState, StepType,
+    StepUpdateData, StepUpdateEvent, StreamEvent,
 };
-use frontal::session::SessionManager;
-use frontal::ui::app::{App, AppAction};
+use frontal::ui::app::AppAction;
 use frontal::ui::diff::{DiffLineKind, DiffViewer};
 use frontal::ui::modal::{
-    CommandPaletteModal, DiffModal, HotRespawnModal, Modal, ModalAction, ModelEffortModal,
-    ModelEffortStep,
+    CommandPaletteModal, HotRespawnModal, ModalAction, ModelEffortModal, ModelEffortStep,
 };
-use frontal::ui::notify::{osc777_notification, osc9_notification, terminal_bell};
 
-fn press_key(code: KeyCode, modifiers: KeyModifiers) -> Event {
-    Event::Key(KeyEvent {
-        code,
-        modifiers,
-        kind: KeyEventKind::Press,
-        state: KeyEventState::empty(),
-    })
-}
+use crate::common::{press_key, test_app};
 
 #[test]
 fn test_tab_creation_and_switching_alt_keys() {
-    let sm = SessionManager::new();
-    let id1 = SessionId::new();
-    let mut app = App::new(sm, id1);
+    let (mut app, _id1) = test_app();
 
     assert_eq!(app.tab_count(), 1);
     assert_eq!(app.active_tab_index, 0);
@@ -65,9 +52,7 @@ fn test_tab_creation_and_switching_alt_keys() {
 
 #[test]
 fn test_background_tab_streaming_isolation_and_unread() {
-    let sm = SessionManager::new();
-    let id1 = SessionId::new();
-    let mut app = App::new(sm, id1.clone());
+    let (mut app, id1) = test_app();
 
     let id2 = SessionId::new();
     app.add_tab(id2.clone(), Some("Background Session".to_string()));
@@ -103,9 +88,7 @@ fn test_background_tab_streaming_isolation_and_unread() {
 
 #[test]
 fn test_modal_stack_push_pop_and_exclusive_focus() {
-    let sm = SessionManager::new();
-    let id = SessionId::new();
-    let mut app = App::new(sm, id);
+    let (mut app, _) = test_app();
 
     assert!(app.modals.is_empty());
 
@@ -239,24 +222,8 @@ index 1234..5678 100644
 }
 
 #[test]
-fn test_sensory_notifications_generation() {
-    assert_eq!(terminal_bell(), b"\x07");
-
-    let osc9 = osc9_notification("Turn completed successfully");
-    assert_eq!(osc9, b"\x1b]9;Turn completed successfully\x07");
-
-    let osc777 = osc777_notification("Frontal", "Model response done");
-    assert_eq!(osc777, b"\x1b]777;notify;Frontal;Model response done\x07");
-
-    let sanitized = osc9_notification("hello\x07world\x1btest");
-    assert_eq!(sanitized, b"\x1b]9;helloworldtest\x07");
-}
-
-#[test]
 fn test_close_tab_and_tab_lifecycle() {
-    let sm = SessionManager::new();
-    let id1 = SessionId::new();
-    let mut app = App::new(sm, id1.clone());
+    let (mut app, id1) = test_app();
 
     let id2 = SessionId::new();
     let id3 = SessionId::new();
@@ -291,64 +258,6 @@ fn test_close_tab_and_tab_lifecycle() {
         assert_eq!(closed, None);
     });
     assert_eq!(app.tab_count(), 1);
-}
-
-#[test]
-fn test_phase4_ui_rendering_on_test_backend() {
-    let sm = SessionManager::new();
-    let id1 = SessionId::new();
-    let mut app = App::new(sm, id1);
-
-    let id2 = SessionId::new();
-    app.add_tab(id2, Some("Secondary".to_string()));
-    app.tabs[1].has_unread = true;
-    app.switch_tab(0);
-
-    let backend = TestBackend::new(100, 25);
-    let mut terminal = Terminal::new(backend).unwrap();
-
-    terminal.draw(|f| app.render(f)).unwrap();
-    let buf = terminal.backend().buffer();
-    let rendered = buf
-        .content()
-        .iter()
-        .map(|c| c.symbol())
-        .collect::<Vec<_>>()
-        .join("");
-
-    assert!(rendered.contains("Session 1"));
-    assert!(rendered.contains("Secondary*"));
-    assert!(rendered.contains("Ctrl+P: Palette"));
-
-    app.modals
-        .push(Modal::CommandPalette(CommandPaletteModal::new()));
-    terminal.draw(|f| app.render(f)).unwrap();
-    let buf_modal = terminal.backend().buffer();
-    let rendered_modal = buf_modal
-        .content()
-        .iter()
-        .map(|c| c.symbol())
-        .collect::<Vec<_>>()
-        .join("");
-
-    assert!(rendered_modal.contains("Command Palette"));
-    assert!(rendered_modal.contains("New Session Tab"));
-
-    app.modals.pop();
-    app.modals.push(Modal::Diff(DiffModal::new(
-        "diff --git a/test b/test\n+new line\n-old line\n",
-    )));
-    terminal.draw(|f| app.render(f)).unwrap();
-    let buf_diff = terminal.backend().buffer();
-    let rendered_diff = buf_diff
-        .content()
-        .iter()
-        .map(|c| c.symbol())
-        .collect::<Vec<_>>()
-        .join("");
-
-    assert!(rendered_diff.contains("Integrated Diff Viewer"));
-    assert!(rendered_diff.contains("+new line"));
 }
 
 #[test]
@@ -393,9 +302,7 @@ fn test_adversarial_modal_and_palette_inputs() {
 
 #[test]
 fn test_tab_switching_under_rapid_background_events() {
-    let sm = SessionManager::new();
-    let id1 = SessionId::new();
-    let mut app = App::new(sm, id1.clone());
+    let (mut app, _id1) = test_app();
 
     let id2 = SessionId::new();
     let id3 = SessionId::new();
@@ -449,9 +356,7 @@ fn test_tab_switching_under_rapid_background_events() {
 
 #[test]
 fn test_close_active_tab_state_isolation_and_no_contamination() {
-    let sm = SessionManager::new();
-    let id1 = SessionId::new();
-    let mut app = App::new(sm, id1);
+    let (mut app, _) = test_app();
 
     app.cache.push_user_message("msg from tab 1");
     app.editor.insert_str("editor tab 1");
@@ -485,9 +390,7 @@ fn test_close_active_tab_state_isolation_and_no_contamination() {
 
 #[test]
 fn test_background_tab_protocol_error_and_stderr() {
-    let sm = SessionManager::new();
-    let id1 = SessionId::new();
-    let mut app = App::new(sm, id1);
+    let (mut app, _) = test_app();
 
     let id2 = SessionId::new();
     app.add_tab(id2.clone(), Some("Background Session".to_string()));
@@ -520,9 +423,7 @@ fn test_background_tab_protocol_error_and_stderr() {
 
 #[test]
 fn test_popover_closed_on_tab_switch_and_management() {
-    let sm = SessionManager::new();
-    let id1 = SessionId::new();
-    let mut app = App::new(sm, id1);
+    let (mut app, _) = test_app();
 
     let id2 = SessionId::new();
     app.add_tab(id2, Some("Tab 2".to_string()));
@@ -598,54 +499,135 @@ fn test_model_effort_query_filtering_and_effort_cycling() {
 }
 
 #[test]
-fn test_viewport_clean_text_selection_without_trailing_spaces() {
-    let mut cache = frontal::ui::cache::RenderCache::new();
-    cache.push_user_message("hello world");
-    cache.ensure_visual_lines(80);
+fn test_background_tab_tool_calls_and_error_lifecycle() {
+    let (mut app, _) = test_app();
+    let bg_id = SessionId::new();
+    app.add_tab(bg_id.clone(), Some("BG Worker".to_string()));
+    app.switch_tab(0);
 
-    let mut viewport = frontal::ui::viewport::ConversationViewport::new();
-    viewport.sync_dimensions(cache.total_lines(), 20);
-    viewport.start_selection(0, 0);
-    viewport.update_selection(0, 14);
+    let tool_active = StreamEvent::StepUpdate(StepUpdateEvent {
+        conversation_id: None,
+        step_update: Some(StepUpdateData {
+            step_index: Some(1),
+            step_type: Some(StepType::Tool),
+            state: Some(StepState::Active),
+            tool_name: Some("fetch_data".to_string()),
+            ..Default::default()
+        }),
+    });
+    app.handle_engine_envelope(SessionEnvelope {
+        session_id: bg_id.clone(),
+        event: EngineEvent::Stream(Box::new(tool_active)),
+    });
+    assert!(app.tabs[1].has_unread);
+    assert_eq!(app.tabs[1].cache.blocks_count(), 1);
 
-    let selected = viewport.selected_text(&cache).unwrap();
-    assert_eq!(selected, "hello world");
-    assert!(!selected.ends_with(' '));
+    let tool_done = StreamEvent::StepUpdate(StepUpdateEvent {
+        conversation_id: None,
+        step_update: Some(StepUpdateData {
+            step_index: Some(1),
+            step_type: Some(StepType::Tool),
+            state: Some(StepState::Done),
+            tool_name: Some("fetch_data".to_string()),
+            ..Default::default()
+        }),
+    });
+    app.handle_engine_envelope(SessionEnvelope {
+        session_id: bg_id.clone(),
+        event: EngineEvent::Stream(Box::new(tool_done)),
+    });
+    assert_eq!(app.tabs[1].cache.blocks_count(), 1);
+
+    let thought_ev = StreamEvent::StepUpdate(StepUpdateEvent {
+        conversation_id: None,
+        step_update: Some(StepUpdateData {
+            step_index: Some(2),
+            step_type: Some(StepType::Thought),
+            state: Some(StepState::Active),
+            thought: Some("evaluating background payload".to_string()),
+            ..Default::default()
+        }),
+    });
+    app.handle_engine_envelope(SessionEnvelope {
+        session_id: bg_id.clone(),
+        event: EngineEvent::Stream(Box::new(thought_ev)),
+    });
+    assert_eq!(app.tabs[1].cache.blocks_count(), 2);
+
+    let res_ev = StreamEvent::Result(frontal::protocol::ResultEvent {
+        conversation_id: None,
+        result: Some(ResultData {
+            conversation_id: None,
+            status: Some(ResultStatus::Success),
+            response: Some("done processing".to_string()),
+            duration_seconds: Some(0.8),
+            num_turns: Some(1),
+            usage: None,
+            error: None,
+        }),
+    });
+    app.handle_engine_envelope(SessionEnvelope {
+        session_id: bg_id,
+        event: EngineEvent::Stream(Box::new(res_ev)),
+    });
+    assert_eq!(app.tabs[1].cache.blocks_count(), 3);
 }
 
 #[test]
-fn test_user_message_accent_bar_styling() {
-    let mut cache = frontal::ui::cache::RenderCache::new();
-    cache.push_user_message("test message");
-    cache.ensure_visual_lines(80);
+fn test_close_tab_before_active_index_adjusts_active_tab() {
+    let (mut app, id1) = test_app();
+    let id2 = SessionId::new();
+    let id3 = SessionId::new();
+    app.add_tab(id2.clone(), Some("Tab 2".to_string()));
+    app.add_tab(id3.clone(), Some("Tab 3".to_string()));
+    assert_eq!(app.active_tab_index, 2);
+    assert_eq!(app.active_session, id3);
 
-    let slice = cache.visible_slice(0, 10);
-    assert!(!slice.is_empty());
-    let first_line = &slice[0];
-    let spans = &first_line.spans;
-    assert_eq!(spans[0].content.as_ref(), " ┃ ");
-    assert_eq!(spans[1].content.as_ref(), "test message");
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let closed = app.close_tab(0).await;
+        assert_eq!(closed, Some(id1));
+    });
+
+    assert_eq!(app.tab_count(), 2);
+    assert_eq!(app.active_tab_index, 1);
+    assert_eq!(app.active_session, id3);
 }
 
 #[test]
-fn test_footer_cwd_and_active_model_header() {
-    let sm = SessionManager::new();
-    let id = SessionId::new();
-    let mut app = App::new(sm, id);
+fn test_respawn_active_session_metadata_inheritance() {
+    let (mut app, initial_id) = test_app();
+    app.session_manager.set_session_metadata(
+        &initial_id,
+        Some("conv-inherited".to_string()),
+        Some("gemini-4-argon-high".to_string()),
+        Some("high".to_string()),
+        Some("architect".to_string()),
+    );
+    assert_eq!(app.active_model_name(), "gemini-4-argon-high");
+    assert_eq!(app.active_mode_name(), "architect");
 
-    let backend = TestBackend::new(100, 20);
-    let mut terminal = Terminal::new(backend).unwrap();
-    terminal.draw(|f| app.render(f)).unwrap();
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let new_session_id = app
+            .respawn_active_session(
+                None,
+                Some("gemini-3.8-flash-high".to_string()),
+                Some("low".to_string()),
+                None,
+            )
+            .await
+            .unwrap();
 
-    let buf = terminal.backend().buffer();
-    let rendered = buf
-        .content()
-        .iter()
-        .map(|c| c.symbol())
-        .collect::<Vec<_>>()
-        .join("");
-
-    assert!(rendered.contains(&app.cwd_display));
-    assert!(rendered.contains("gemini-4-argon-high"));
-    assert!(rendered.contains("Ctrl+P: Palette"));
+        assert_eq!(app.active_session, new_session_id);
+        assert_eq!(app.tabs[0].session_id, new_session_id);
+        assert_eq!(app.active_model_name(), "gemini-3.8-flash-high");
+        assert_eq!(app.active_mode_name(), "architect");
+        let meta = app.session_manager.get_metadata(&new_session_id).unwrap();
+        assert_eq!(meta.conversation_id.as_deref(), Some("conv-inherited"));
+        assert_eq!(meta.effort.as_deref(), Some("low"));
+        assert_eq!(
+            app.session_manager.active_session_id(),
+            Some(&new_session_id)
+        );
+        assert!(app.session_manager.interrupt_active().is_ok());
+    });
 }
