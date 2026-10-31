@@ -1,4 +1,6 @@
-use crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
+use crossterm::event::{
+    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
@@ -23,7 +25,12 @@ impl TerminalGuard {
         install_panic_hook();
         enable_raw_mode()?;
         let mut out = stdout();
-        execute!(out, EnterAlternateScreen, EnableBracketedPaste)?;
+        execute!(
+            out,
+            EnterAlternateScreen,
+            EnableBracketedPaste,
+            EnableMouseCapture
+        )?;
         let backend = CrosstermBackend::new(out);
         let terminal = Terminal::new(backend)?;
         Ok(Self {
@@ -39,7 +46,12 @@ impl TerminalGuard {
     pub fn restore(&self) {
         if !self.restored.swap(true, Ordering::SeqCst) {
             let mut out = stdout();
-            let _ = execute!(out, DisableBracketedPaste, LeaveAlternateScreen);
+            let _ = execute!(
+                out,
+                DisableBracketedPaste,
+                DisableMouseCapture,
+                LeaveAlternateScreen
+            );
             let _ = disable_raw_mode();
         }
     }
@@ -53,7 +65,12 @@ impl Drop for TerminalGuard {
 
 pub fn restore_terminal_raw() {
     let mut out = stdout();
-    let _ = execute!(out, DisableBracketedPaste, LeaveAlternateScreen);
+    let _ = execute!(
+        out,
+        DisableBracketedPaste,
+        DisableMouseCapture,
+        LeaveAlternateScreen
+    );
     let _ = disable_raw_mode();
 }
 

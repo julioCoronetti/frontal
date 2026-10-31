@@ -1,3 +1,4 @@
+use ratatui::style::Modifier;
 use ratatui::text::Line;
 
 use crate::ui::cache::RenderCache;
@@ -8,11 +9,18 @@ pub enum ScrollMode {
     Unanchored { offset: usize },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SelectionPoint {
+    pub line: usize,
+    pub col: usize,
+}
+
 #[derive(Clone, Debug)]
 pub struct ConversationViewport {
     mode: ScrollMode,
     total_lines: usize,
     viewport_height: usize,
+    pub selection: Option<(SelectionPoint, SelectionPoint)>,
 }
 
 impl ConversationViewport {
@@ -21,6 +29,7 @@ impl ConversationViewport {
             mode: ScrollMode::Anchored,
             total_lines: 0,
             viewport_height: 20,
+            selection: None,
         }
     }
 
@@ -76,9 +85,54 @@ impl ConversationViewport {
         }
     }
 
+    pub fn start_selection(&mut self, line: usize, col: usize) {
+        let p = SelectionPoint { line, col };
+        self.selection = Some((p, p));
+    }
+
+    pub fn update_selection(&mut self, line: usize, col: usize) {
+        if let Some((start, _)) = self.selection {
+            self.selection = Some((start, SelectionPoint { line, col }));
+        }
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.selection = None;
+    }
+
+    pub fn selected_text(&self, cache: &RenderCache) -> Option<String> {
+        let (start, end) = self.selection?;
+        if start == end {
+            return None;
+        }
+        let text = cache.extract_text_range(start.line, start.col, end.line, end.col);
+        if text.trim().is_empty() {
+            None
+        } else {
+            Some(text)
+        }
+    }
+
     pub fn visible_slice(&self, cache: &RenderCache) -> Vec<Line<'static>> {
         let offset = self.effective_offset();
-        cache.visible_slice(offset, self.viewport_height)
+        let mut lines = cache.visible_slice(offset, self.viewport_height);
+        if let Some((start, end)) = self.selection {
+            let (s_line, e_line) = if start.line > end.line {
+                (end.line, start.line)
+            } else {
+                (start.line, end.line)
+            };
+
+            for (i, line) in lines.iter_mut().enumerate() {
+                let abs_line = offset + i;
+                if abs_line >= s_line && abs_line <= e_line {
+                    for span in &mut line.spans {
+                        span.style = span.style.add_modifier(Modifier::REVERSED);
+                    }
+                }
+            }
+        }
+        lines
     }
 
     pub fn total_lines(&self) -> usize {

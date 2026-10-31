@@ -7,6 +7,15 @@ use crate::ui::highlight::IncrementalCodeHighlighter;
 use crate::ui::markdown::{
     parse_markdown_segments, render_markdown_to_lines, render_segments_to_lines, MarkdownSegment,
 };
+use crate::ui::theme::{ACCENT_PRIMARY, BG_USER_CONTAINER, TEXT_MUTED, TEXT_PRIMARY};
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TurnMeta {
+    pub mode: String,
+    pub model: String,
+    pub duration_seconds: Option<f64>,
+    pub output_tokens: Option<u64>,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BlockKind {
@@ -29,6 +38,7 @@ pub struct MessageBlock {
     pub step_index: Option<u64>,
     pub code_highlighters: Vec<IncrementalCodeHighlighter>,
     pub markdown_ast: Option<Vec<MarkdownSegment>>,
+    pub turn_meta: Option<TurnMeta>,
 }
 
 #[derive(Clone, Debug)]
@@ -101,6 +111,7 @@ impl RenderCache {
             step_index: None,
             code_highlighters: Vec::new(),
             markdown_ast: None,
+            turn_meta: None,
         });
         id
     }
@@ -127,6 +138,7 @@ impl RenderCache {
             step_index: None,
             code_highlighters: Vec::new(),
             markdown_ast: None,
+            turn_meta: None,
         });
         id
     }
@@ -186,6 +198,7 @@ impl RenderCache {
             step_index,
             code_highlighters: Vec::new(),
             markdown_ast: None,
+            turn_meta: None,
         });
         id
     }
@@ -241,16 +254,23 @@ impl RenderCache {
             step_index: None,
             code_highlighters: Vec::new(),
             markdown_ast: None,
+            turn_meta: None,
         });
         id
     }
 
-    pub fn consolidate_active_turn(&mut self, fallback_response: Option<&str>) {
+    pub fn consolidate_active_turn_with_meta(
+        &mut self,
+        fallback_response: Option<&str>,
+        meta: Option<TurnMeta>,
+    ) {
         let mut has_assistant_content = false;
-        for block in self.blocks.iter_mut() {
+        let mut last_assistant_idx = None;
+        for (i, block) in self.blocks.iter_mut().enumerate() {
             if !block.consolidated {
                 if matches!(block.kind, BlockKind::Assistant) && !block.content.trim().is_empty() {
                     has_assistant_content = true;
+                    last_assistant_idx = Some(i);
                 }
                 block.consolidated = true;
             }
@@ -271,10 +291,22 @@ impl RenderCache {
                         step_index: None,
                         code_highlighters: Vec::new(),
                         markdown_ast: None,
+                        turn_meta: meta.clone(),
                     });
+                    return;
                 }
             }
         }
+        if let Some(idx) = last_assistant_idx {
+            if let Some(block) = self.blocks.get_mut(idx) {
+                block.turn_meta = meta;
+                block.revision += 1;
+            }
+        }
+    }
+
+    pub fn consolidate_active_turn(&mut self, fallback_response: Option<&str>) {
+        self.consolidate_active_turn_with_meta(fallback_response, None);
     }
 
     pub fn ensure_visual_lines(&mut self, width: u16) -> usize {
@@ -314,68 +346,98 @@ impl RenderCache {
         let mut result = Vec::new();
         match &block.kind {
             BlockKind::User => {
-                let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
-                for (i, row) in wrapped.into_iter().enumerate() {
-                    let prefix = if i == 0 { "> " } else { "  " };
-                    result.push(Line::from(vec![
+                let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(6) as usize);
+                for row in wrapped.into_iter() {
+                    let row_len = row.chars().count();
+                    let pad_len = (width as usize).saturating_sub(3 + row_len);
+                    let mut line = Line::from(vec![
                         Span::styled(
-                            prefix.to_string(),
+                            " ┃ ",
                             Style::default()
-                                .fg(Color::Cyan)
+                                .fg(ACCENT_PRIMARY)
                                 .add_modifier(Modifier::BOLD),
                         ),
-                        Span::styled(row, Style::default().fg(Color::White)),
-                    ]));
+                        Span::styled(row, Style::default().fg(TEXT_PRIMARY)),
+                        Span::styled(" ".repeat(pad_len), Style::default().bg(BG_USER_CONTAINER)),
+                    ]);
+                    line = line.style(Style::default().bg(BG_USER_CONTAINER));
+                    result.push(line);
                 }
                 result.push(Line::from(""));
             }
             BlockKind::Assistant => {
-                let lines = if block.consolidated {
+                let content_width = width.saturating_sub(6) as usize;
+                let mut lines = if block.consolidated {
                     if block.markdown_ast.is_none() {
                         block.markdown_ast = Some(parse_markdown_segments(&block.content, true));
                     }
                     render_segments_to_lines(
                         block.markdown_ast.as_ref().unwrap(),
-                        width as usize,
+                        content_width,
                         &mut block.code_highlighters,
                     )
                 } else {
                     render_markdown_to_lines(
                         &block.content,
-                        width as usize,
+                        content_width,
                         false,
                         &mut block.code_highlighters,
                     )
                 };
+                for line in &mut lines {
+                    line.spans.insert(0, Span::raw("   "));
+                }
                 result.extend(lines);
                 if block.consolidated {
+                    if let Some(meta) = &block.turn_meta {
+                        let mut meta_parts = vec![format!("▣ {} · {}", meta.mode, meta.model)];
+                        if let Some(d) = meta.duration_seconds {
+                            if d > 0.0 {
+                                meta_parts.push(format!("{:.1}s", d));
+                                if let Some(tok) = meta.output_tokens {
+                                    if tok > 0 {
+                                        meta_parts.push(format!("{:.1} tok/s", (tok as f64) / d));
+                                    }
+                                }
+                            }
+                        }
+                        result.push(Line::from(""));
+                        result.push(Line::from(vec![
+                            Span::raw("   "),
+                            Span::styled(meta_parts.join(" · "), Style::default().fg(TEXT_MUTED)),
+                        ]));
+                    }
                     result.push(Line::from(""));
                 }
             }
             BlockKind::Thought => {
                 if block.collapsed {
                     let line_count = block.content.lines().count().max(1);
-                    result.push(Line::from(vec![Span::styled(
-                        format!("▸ Thought [collapsed - {} lines]", line_count),
-                        Style::default()
-                            .fg(Color::DarkGray)
-                            .add_modifier(Modifier::ITALIC),
-                    )]));
+                    result.push(Line::from(vec![
+                        Span::raw("   "),
+                        Span::styled(
+                            format!("▸ Thought [collapsed - {} lines]", line_count),
+                            Style::default()
+                                .fg(TEXT_MUTED)
+                                .add_modifier(Modifier::ITALIC),
+                        ),
+                    ]));
                 } else {
-                    result.push(Line::from(vec![Span::styled(
-                        "▾ Thought",
-                        Style::default()
-                            .fg(Color::DarkGray)
-                            .add_modifier(Modifier::BOLD),
-                    )]));
-                    let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
+                    result.push(Line::from(vec![
+                        Span::raw("   "),
+                        Span::styled(
+                            "▾ Thought",
+                            Style::default().fg(TEXT_MUTED).add_modifier(Modifier::BOLD),
+                        ),
+                    ]));
+                    let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(8) as usize);
                     for row in wrapped {
                         result.push(Line::from(vec![
-                            Span::styled("  ▎ ", Style::default().fg(Color::DarkGray)),
+                            Span::styled("   ▎ ", Style::default().fg(TEXT_MUTED)),
                             Span::styled(
                                 row,
                                 Style::default()
-                                    .fg(Color::DarkGray)
+                                    .fg(TEXT_MUTED)
                                     .add_modifier(Modifier::ITALIC),
                             ),
                         ]));
@@ -402,9 +464,7 @@ impl RenderCache {
                     ),
                     StepState::Other => (
                         "[PENDING]",
-                        Style::default()
-                            .fg(Color::DarkGray)
-                            .add_modifier(Modifier::BOLD),
+                        Style::default().fg(TEXT_MUTED).add_modifier(Modifier::BOLD),
                     ),
                 };
 
@@ -415,23 +475,23 @@ impl RenderCache {
                     .unwrap_or_default();
 
                 if block.collapsed {
-                    let header = format!("{} {}{} ▸ [collapsed]", state_badge, name, args_str);
+                    let header = format!("   {} {}{} ▸ [collapsed]", state_badge, name, args_str);
                     result.push(Line::from(vec![Span::styled(header, state_style)]));
                 } else {
-                    let header = format!("{} {}{}", state_badge, name, args_str);
+                    let header = format!("   {} {}{}", state_badge, name, args_str);
                     result.push(Line::from(vec![Span::styled(header, state_style)]));
 
                     if !block.content.is_empty() {
                         let wrapped =
-                            wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
+                            wrap_text_utf8(&block.content, width.saturating_sub(8) as usize);
                         for row in wrapped {
                             let text_style = if matches!(state, StepState::Error) {
                                 Style::default().fg(Color::LightRed)
                             } else {
-                                Style::default().fg(Color::DarkGray)
+                                Style::default().fg(TEXT_MUTED)
                             };
                             result.push(Line::from(vec![
-                                Span::styled("  ", Style::default()),
+                                Span::styled("     ", Style::default()),
                                 Span::styled(row, text_style),
                             ]));
                         }
@@ -440,9 +500,9 @@ impl RenderCache {
                 result.push(Line::from(""));
             }
             BlockKind::Error => {
-                let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
+                let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(8) as usize);
                 for (i, row) in wrapped.into_iter().enumerate() {
-                    let prefix = if i == 0 { "! " } else { "  " };
+                    let prefix = if i == 0 { "   ! " } else { "     " };
                     result.push(Line::from(vec![
                         Span::styled(
                             prefix.to_string(),
@@ -499,6 +559,83 @@ impl RenderCache {
 
     pub fn blocks_count(&self) -> usize {
         self.blocks.len()
+    }
+
+    pub fn line_text_at(&self, visual_idx: usize) -> Option<String> {
+        let mut current = 0;
+        for block in &self.blocks {
+            if let Some(cached) = self.l2_cache.get(&block.id) {
+                if visual_idx < current + cached.lines.len() {
+                    let local = visual_idx - current;
+                    let line = &cached.lines[local];
+                    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+                    return Some(text);
+                }
+                current += cached.lines.len();
+            }
+        }
+        None
+    }
+
+    pub fn extract_text_range(
+        &self,
+        start_line: usize,
+        start_col: usize,
+        end_line: usize,
+        end_col: usize,
+    ) -> String {
+        let (s_line, s_col, e_line, e_col) =
+            if start_line > end_line || (start_line == end_line && start_col > end_col) {
+                (end_line, end_col, start_line, start_col)
+            } else {
+                (start_line, start_col, end_line, end_col)
+            };
+
+        let mut extracted = Vec::new();
+        for l in s_line..=e_line {
+            if let Some(text) = self.line_text_at(l) {
+                let trimmed = text.trim_end();
+                let (stripped, prefix_len) = if trimmed.starts_with("   ▎ ") {
+                    (trimmed.replacen("   ▎ ", "", 1), 5)
+                } else if trimmed.starts_with("   ! ") {
+                    (trimmed.replacen("   ! ", "", 1), 5)
+                } else if trimmed.starts_with("     ") {
+                    (trimmed.replacen("     ", "", 1), 5)
+                } else if trimmed.starts_with(" ┃ ") {
+                    (trimmed.replacen(" ┃ ", "", 1), 3)
+                } else if trimmed.starts_with(" ┃") {
+                    (trimmed.replacen(" ┃", "", 1), 2)
+                } else if trimmed.starts_with("   ") {
+                    (trimmed.replacen("   ", "", 1), 3)
+                } else {
+                    (trimmed.to_string(), 0)
+                };
+                let chars: Vec<char> = stripped.chars().collect();
+                let sc = s_col.saturating_sub(prefix_len).min(chars.len());
+                let ec = if e_col <= prefix_len {
+                    0
+                } else {
+                    e_col.saturating_sub(prefix_len).min(chars.len())
+                };
+                if l == s_line && l == e_line {
+                    let slice: String = if sc <= ec {
+                        chars[sc..ec].iter().collect()
+                    } else {
+                        String::new()
+                    };
+                    extracted.push(slice);
+                } else if l == s_line {
+                    let slice: String = chars[sc..].iter().collect();
+                    extracted.push(slice);
+                } else if l == e_line {
+                    let slice: String = chars[..ec].iter().collect();
+                    extracted.push(slice);
+                } else {
+                    extracted.push(stripped);
+                }
+            }
+        }
+        extracted.join("\n")
     }
 
     pub fn clear(&mut self) {

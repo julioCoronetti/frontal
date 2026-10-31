@@ -89,7 +89,7 @@ pub fn wrap_styled_spans(
     first_prefix: &[Span<'static>],
     cont_prefix: &[Span<'static>],
 ) -> Vec<Line<'static>> {
-    let target_width = max_width.max(10);
+    let target_width = max_width.max(1);
     let first_pw: usize = first_prefix.iter().map(|s| s.content.chars().count()).sum();
     let cont_pw: usize = cont_prefix.iter().map(|s| s.content.chars().count()).sum();
 
@@ -640,7 +640,7 @@ pub fn render_segments_to_lines(
                 }
             }
             MarkdownSegment::Rule => {
-                let rule_len = width.clamp(10, 40);
+                let rule_len = width.clamp(1, 40);
                 output_lines.push(Line::from(vec![Span::styled(
                     "─".repeat(rule_len),
                     Style::default().fg(Color::DarkGray),

@@ -100,6 +100,92 @@ impl EngineConfig {
         PathBuf::from("agy")
     }
 
+    pub fn default_fallback_models() -> Vec<(String, String)> {
+        vec![
+            (
+                "gemini-4-argon-high".to_string(),
+                "Gemini 4 Argon (High)".to_string(),
+            ),
+            (
+                "gemini-4-argon-medium".to_string(),
+                "Gemini 4 Argon (Medium)".to_string(),
+            ),
+            (
+                "gemini-4-argon-low".to_string(),
+                "Gemini 4 Argon (Low)".to_string(),
+            ),
+            (
+                "gemini-3.8-flash-high".to_string(),
+                "Gemini 3.8 Flash (High)".to_string(),
+            ),
+            (
+                "gemini-3.8-flash-medium".to_string(),
+                "Gemini 3.8 Flash (Medium)".to_string(),
+            ),
+            (
+                "gemini-3.8-flash-low".to_string(),
+                "Gemini 3.8 Flash (Low)".to_string(),
+            ),
+            (
+                "claude-opus-5-5-high".to_string(),
+                "Claude Opus 5.5 (High)".to_string(),
+            ),
+            (
+                "claude-sonnet-5-5-high".to_string(),
+                "Claude Sonnet 5.5 (High)".to_string(),
+            ),
+            (
+                "gpt-oss-120b-medium".to_string(),
+                "GPT-OSS 120B (Medium)".to_string(),
+            ),
+        ]
+    }
+
+    pub async fn fetch_available_models(agy_bin: &Path) -> Vec<(String, String)> {
+        let output = match tokio::time::timeout(
+            Duration::from_secs(3),
+            tokio::process::Command::new(agy_bin).arg("models").output(),
+        )
+        .await
+        {
+            Ok(Ok(out)) if out.status.success() => out.stdout,
+            _ => return Self::default_fallback_models(),
+        };
+
+        let text = String::from_utf8_lossy(&output);
+        let mut models = Vec::new();
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with("Fetching") {
+                continue;
+            }
+            let parts: Vec<&str> = trimmed.splitn(2, '\t').collect();
+            if parts.len() == 2 {
+                let id = parts[0].trim().to_string();
+                let name = parts[1].trim().to_string();
+                if !id.is_empty() {
+                    models.push((id, name));
+                }
+            } else {
+                let space_parts: Vec<&str> = trimmed.split_whitespace().collect();
+                if !space_parts.is_empty() {
+                    let id = space_parts[0].to_string();
+                    let name = if space_parts.len() > 1 {
+                        space_parts[1..].join(" ")
+                    } else {
+                        id.clone()
+                    };
+                    models.push((id, name));
+                }
+            }
+        }
+        if models.is_empty() {
+            Self::default_fallback_models()
+        } else {
+            models
+        }
+    }
+
     pub fn build_args(&self, resolved_conversation_id: &str) -> Vec<String> {
         let mut args = vec![
             "--input-format".to_string(),
