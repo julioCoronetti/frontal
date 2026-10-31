@@ -2,6 +2,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::codec::{LinesCodec, LinesCodecError};
 
+use frontal::cli::CliArgs;
 use frontal::engine::SubprocessEngine;
 use frontal::protocol::{
     format_user_message, parse_stream_line, EngineEvent, ProtocolError, ResultStatus, SessionId,
@@ -327,4 +328,166 @@ wait
     assert!(exit_code.is_some() || exit_code.is_none());
 
     let _ = std::fs::remove_file(&mock_path);
+}
+
+#[test]
+fn test_parse_stream_line_corrupted_json() {
+    let bad_json = r#"{"event":"step_update","step_update":{"#;
+    let res = parse_stream_line(bad_json);
+    assert!(matches!(res, Err(ProtocolError::Deserialization(_))));
+
+    let truncated = "{\"event\":";
+    let res2 = parse_stream_line(truncated);
+    assert!(matches!(res2, Err(ProtocolError::Deserialization(_))));
+}
+
+#[tokio::test]
+async fn test_subprocess_grandchild_process_group_cleanup() {
+    let temp_dir = std::env::temp_dir();
+    let script_path = temp_dir.join(format!("grandchild_test_{}.sh", SessionId::new()));
+    let pid_file = temp_dir.join(format!("grandchild_pid_{}.txt", SessionId::new()));
+
+    let script = format!(
+        "#!/usr/bin/env bash\nsleep 30 &\necho $! > {}\nread line\n",
+        pid_file.display()
+    );
+    std::fs::write(&script_path, script.as_bytes()).unwrap();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&script_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&script_path, perms).unwrap();
+    }
+
+    let session_id = SessionId::new();
+    let (tx, _rx) = mpsc::channel(100);
+    let mut config = EngineConfig::new();
+    config.agy_bin = script_path.clone();
+
+    let mut engine = SubprocessEngine::spawn(session_id, config, tx)
+        .await
+        .unwrap();
+
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let pid_str = std::fs::read_to_string(&pid_file).unwrap();
+    let grandchild_pid: i32 = pid_str.trim().parse().unwrap();
+
+    unsafe {
+        assert_eq!(libc::kill(grandchild_pid, 0), 0);
+    }
+
+    let _ = engine.shutdown(Duration::from_millis(200)).await;
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    unsafe {
+        let res = libc::kill(grandchild_pid, 0);
+        assert_eq!(res, -1);
+    }
+
+    let _ = std::fs::remove_file(&script_path);
+    let _ = std::fs::remove_file(&pid_file);
+}
+
+#[tokio::test]
+async fn test_subprocess_engine_reconfigure() {
+    let temp_dir = std::env::temp_dir();
+    let mock_path = temp_dir.join(format!("mock_reconfig_{}.sh", SessionId::new()));
+    let script = r#"#!/usr/bin/env bash
+echo '{"event":"init","conversation_id":"reconfig-conv-1","init":{}}'
+while IFS= read -r line; do
+  echo '{"event":"result","result":{"status":"success"}}'
+done
+"#;
+    std::fs::write(&mock_path, script.as_bytes()).unwrap();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&mock_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&mock_path, perms).unwrap();
+    }
+
+    let session_id = SessionId::new();
+    let (tx, mut rx) = mpsc::channel(100);
+    let mut config = EngineConfig::new();
+    config.agy_bin = mock_path.clone();
+
+    let mut engine = SubprocessEngine::spawn(session_id, config, tx)
+        .await
+        .unwrap();
+    let _ = rx.recv().await;
+
+    let mut new_config = EngineConfig::new();
+    new_config.agy_bin = mock_path.clone();
+    new_config.model = Some("gemini-2.5-pro".to_string());
+
+    engine.reconfigure(new_config).await.unwrap();
+    assert_eq!(engine.config().model.as_deref(), Some("gemini-2.5-pro"));
+
+    let _ = engine.shutdown(Duration::from_millis(200)).await;
+    let _ = std::fs::remove_file(&mock_path);
+}
+
+#[test]
+fn test_cli_args_parsing_options() {
+    let args = vec![
+        "frontal".to_string(),
+        "--headless".to_string(),
+        "-p".to_string(),
+        "prompt 1".to_string(),
+        "--prompt".to_string(),
+        "prompt 2".to_string(),
+        "--model".to_string(),
+        "gemini-2.5-flash".to_string(),
+        "--mode".to_string(),
+        "architect".to_string(),
+        "--effort".to_string(),
+        "high".to_string(),
+        "--project".to_string(),
+        "test-proj".to_string(),
+    ];
+    let parsed = CliArgs::parse_from(args.into_iter());
+    assert!(parsed.headless);
+    assert_eq!(parsed.prompts, vec!["prompt 1", "prompt 2"]);
+    assert_eq!(parsed.model.as_deref(), Some("gemini-2.5-flash"));
+    assert_eq!(parsed.mode.as_deref(), Some("architect"));
+    assert_eq!(parsed.effort.as_deref(), Some("high"));
+    assert_eq!(parsed.project.as_deref(), Some("test-proj"));
+}
+
+#[tokio::test]
+async fn test_fixture_replay_engine_cancellation() {
+    let temp_dir = std::env::temp_dir();
+    let fixture_path = temp_dir.join(format!("fixture_cancel_{}.jsonl", SessionId::new()));
+
+    let lines = [
+        r#"{"event":"init","conversation_id":"cancel-conv"}"#,
+        r#"{"event":"step_update","step_update":{"step_index":1,"type":"thought","thought":"thinking..."}}"#,
+        r#"{"event":"result","result":{"status":"success"}}"#,
+    ];
+    std::fs::write(&fixture_path, lines.join("\n")).unwrap();
+
+    let session_id = SessionId::new();
+    let (tx, mut rx) = mpsc::channel(100);
+
+    let mut engine =
+        FixtureReplayEngine::from_file(session_id, &fixture_path, ReplayMode::TurnGated, tx)
+            .unwrap();
+
+    engine.start().await.unwrap();
+    let init_env = rx.recv().await.unwrap();
+    if let EngineEvent::Stream(s) = init_env.event {
+        if let StreamEvent::Init(ev) = *s {
+            assert_eq!(ev.conversation_id.as_deref(), Some("cancel-conv"));
+        }
+    }
+
+    engine.interrupt().unwrap();
+    let _ = engine.shutdown();
+
+    let _ = std::fs::remove_file(&fixture_path);
 }

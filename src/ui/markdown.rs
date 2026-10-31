@@ -158,6 +158,7 @@ pub fn wrap_styled_spans(
     lines
 }
 
+#[derive(Clone, Debug)]
 pub enum MarkdownSegment {
     Heading {
         level: u8,
@@ -181,12 +182,7 @@ pub enum MarkdownSegment {
     Rule,
 }
 
-pub fn render_markdown_to_lines(
-    markdown_text: &str,
-    width: usize,
-    consolidated: bool,
-    highlighters: &mut Vec<IncrementalCodeHighlighter>,
-) -> Vec<Line<'static>> {
+pub fn parse_markdown_segments(markdown_text: &str, consolidated: bool) -> Vec<MarkdownSegment> {
     let normalized = normalize_streaming_markdown(markdown_text, consolidated);
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
@@ -432,6 +428,24 @@ pub fn render_markdown_to_lines(
         }
     }
 
+    segments
+}
+
+pub fn render_markdown_to_lines(
+    markdown_text: &str,
+    width: usize,
+    consolidated: bool,
+    highlighters: &mut Vec<IncrementalCodeHighlighter>,
+) -> Vec<Line<'static>> {
+    let segments = parse_markdown_segments(markdown_text, consolidated);
+    render_segments_to_lines(&segments, width, highlighters)
+}
+
+pub fn render_segments_to_lines(
+    segments: &[MarkdownSegment],
+    width: usize,
+    highlighters: &mut Vec<IncrementalCodeHighlighter>,
+) -> Vec<Line<'static>> {
     let mut output_lines = Vec::new();
     let mut code_block_idx = 0;
 
@@ -455,8 +469,8 @@ pub fn render_markdown_to_lines(
                         .add_modifier(Modifier::ITALIC),
                 };
                 let styled_spans: Vec<Span<'static>> = spans
-                    .into_iter()
-                    .map(|s| Span::styled(s.content, h_style))
+                    .iter()
+                    .map(|s| Span::styled(s.content.clone(), h_style))
                     .collect();
                 let empty_prefix = vec![];
                 let wrapped = wrap_styled_spans(&styled_spans, width, &empty_prefix, &empty_prefix);
@@ -464,7 +478,7 @@ pub fn render_markdown_to_lines(
             }
             MarkdownSegment::Paragraph(spans) => {
                 let empty_prefix = vec![];
-                let wrapped = wrap_styled_spans(&spans, width, &empty_prefix, &empty_prefix);
+                let wrapped = wrap_styled_spans(spans, width, &empty_prefix, &empty_prefix);
                 output_lines.extend(wrapped);
             }
             MarkdownSegment::ListItem { bullet, spans } => {
@@ -476,7 +490,7 @@ pub fn render_markdown_to_lines(
                 )];
                 let indent = " ".repeat(bullet.chars().count());
                 let cont_prefix = vec![Span::raw(indent)];
-                let wrapped = wrap_styled_spans(&spans, width, &first_prefix, &cont_prefix);
+                let wrapped = wrap_styled_spans(spans, width, &first_prefix, &cont_prefix);
                 output_lines.extend(wrapped);
             }
             MarkdownSegment::BlockQuote(spans) => {
@@ -486,7 +500,7 @@ pub fn render_markdown_to_lines(
                         .fg(Color::Blue)
                         .add_modifier(Modifier::BOLD),
                 )];
-                let wrapped = wrap_styled_spans(&spans, width, &prefix, &prefix);
+                let wrapped = wrap_styled_spans(spans, width, &prefix, &prefix);
                 output_lines.extend(wrapped);
             }
             MarkdownSegment::CodeBlock {
@@ -497,8 +511,7 @@ pub fn render_markdown_to_lines(
                 while highlighters.len() <= code_block_idx {
                     highlighters.push(IncrementalCodeHighlighter::new());
                 }
-                let highlighted_lines =
-                    highlighters[code_block_idx].highlight_code(&language, &code);
+                let highlighted_lines = highlighters[code_block_idx].highlight_code(language, code);
                 code_block_idx += 1;
 
                 let border_style = Style::default().fg(Color::DarkGray);
@@ -507,7 +520,7 @@ pub fn render_markdown_to_lines(
                 } else {
                     language.clone()
                 };
-                let status_label = if is_unclosed { " [streaming...]" } else { "" };
+                let status_label = if *is_unclosed { " [streaming...]" } else { "" };
                 let top_border = format!("┌─ {}{} ─", lang_label, status_label);
                 output_lines.push(Line::from(vec![Span::styled(top_border, border_style)]));
 
@@ -530,7 +543,7 @@ pub fn render_markdown_to_lines(
                         let len: usize = h.iter().map(|s| s.content.chars().count()).sum();
                         col_widths[i] = col_widths[i].max(len + 2);
                     }
-                    for row in &rows {
+                    for row in rows {
                         for (i, cell) in row.iter().enumerate() {
                             let len: usize = cell.iter().map(|s| s.content.chars().count()).sum();
                             if i < col_widths.len() {

@@ -9,7 +9,8 @@ use crate::protocol::{EngineEvent, SessionEnvelope, SessionId, StepState, Stream
 use crate::session::{SessionManager, SessionStatus};
 use crate::ui::autocomplete::{AutocompletePopover, FileSearchWorker};
 use crate::ui::cache::{BlockKind, RenderCache};
-use crate::ui::editor::{ExtmarkKind, PromptEditor, TriggerKind};
+use crate::ui::clipboard::SystemClipboard;
+use crate::ui::editor::{EditorSnapshot, ExtmarkKind, PromptEditor, TriggerKind};
 use crate::ui::history::PromptHistory;
 use crate::ui::input_stub::MinimalInputStub;
 use crate::ui::viewport::{ConversationViewport, ScrollMode};
@@ -31,6 +32,7 @@ pub struct App {
     pub popover: AutocompletePopover,
     pub search_worker: FileSearchWorker,
     pub history: PromptHistory,
+    pub draft_snapshot: Option<EditorSnapshot>,
     pub dirty: bool,
     pub should_quit: bool,
     pub status_text: String,
@@ -65,6 +67,7 @@ impl App {
             popover: AutocompletePopover::new(),
             search_worker,
             history,
+            draft_snapshot: None,
             dirty: true,
             should_quit: false,
             status_text: String::from("Ready"),
@@ -101,6 +104,19 @@ impl App {
                 if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('q') {
                     self.should_quit = true;
                     return Some(AppAction::Quit);
+                }
+
+                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('v') {
+                    let mut cb = SystemClipboard::new();
+                    if let Some(text) = cb.get_text() {
+                        self.editor.insert_paste(&text);
+                        self.input.clear();
+                        self.input.insert_str(&self.editor.text());
+                        self.draft_snapshot = None;
+                        self.dirty = true;
+                        self.update_autocomplete();
+                        return None;
+                    }
                 }
 
                 if self.popover.is_visible() {
@@ -140,6 +156,7 @@ impl App {
                                 );
                                 self.input.clear();
                                 self.input.insert_str(&self.editor.text());
+                                self.draft_snapshot = None;
                             }
                             self.popover.close();
                             self.dirty = true;
@@ -174,7 +191,9 @@ impl App {
 
                 if is_multiline_newline {
                     self.editor.insert_newline();
-                    self.input.insert_char('\n');
+                    self.input.clear();
+                    self.input.insert_str(&self.editor.text());
+                    self.draft_snapshot = None;
                     self.dirty = true;
                     self.update_autocomplete();
                     return None;
@@ -188,6 +207,30 @@ impl App {
                             .or_else(|| self.input.take_submitted());
                         if let Some(p) = prompt {
                             self.input.clear();
+                            self.draft_snapshot = None;
+                            let trimmed = p.trim();
+                            if trimmed == "/quit" || trimmed == "/exit" {
+                                self.should_quit = true;
+                                return Some(AppAction::Quit);
+                            } else if trimmed == "/clear" {
+                                self.cache.clear();
+                                self.status_text = String::from("Cleared");
+                                self.dirty = true;
+                                return None;
+                            } else if trimmed == "/interrupt" {
+                                let _ = self.session_manager.interrupt_active();
+                                self.status_text = String::from("Interrupted");
+                                self.waiting_for_response = false;
+                                self.dirty = true;
+                                return Some(AppAction::Interrupt);
+                            } else if trimmed == "/help" {
+                                self.cache.push_user_message("/help");
+                                self.cache.push_error("Available local commands: /clear, /interrupt, /quit, /exit, /help");
+                                self.status_text = String::from("Ready");
+                                self.dirty = true;
+                                return None;
+                            }
+
                             self.history.record_prompt(&p);
                             self.cache.push_user_message(&p);
                             self.viewport.scroll_to_bottom();
@@ -199,12 +242,17 @@ impl App {
                     }
                     KeyCode::Backspace => {
                         self.editor.backspace();
-                        self.input.backspace();
+                        self.input.clear();
+                        self.input.insert_str(&self.editor.text());
+                        self.draft_snapshot = None;
                         self.dirty = true;
                         self.update_autocomplete();
                     }
                     KeyCode::Delete => {
                         self.editor.delete_forward();
+                        self.input.clear();
+                        self.input.insert_str(&self.editor.text());
+                        self.draft_snapshot = None;
                         self.dirty = true;
                         self.update_autocomplete();
                     }
@@ -230,6 +278,9 @@ impl App {
                         if self.editor.move_up() {
                             self.dirty = true;
                         } else {
+                            if self.draft_snapshot.is_none() {
+                                self.draft_snapshot = Some(self.editor.snapshot());
+                            }
                             let draft = self.editor.text();
                             if let Some(prev) = self.history.prev_history(&draft) {
                                 self.editor.clear();
@@ -247,10 +298,28 @@ impl App {
                         if self.editor.move_down() {
                             self.dirty = true;
                         } else if let Some(next) = self.history.next_history() {
-                            self.editor.clear();
-                            self.editor.insert_str(&next);
+                            if self.history.is_navigating() {
+                                self.editor.clear();
+                                self.editor.insert_str(&next);
+                                self.input.clear();
+                                self.input.insert_str(&next);
+                                self.dirty = true;
+                            } else if let Some(draft) = self.draft_snapshot.take() {
+                                self.editor.restore_snapshot(draft);
+                                self.input.clear();
+                                self.input.insert_str(&self.editor.text());
+                                self.dirty = true;
+                            } else {
+                                self.editor.clear();
+                                self.editor.insert_str(&next);
+                                self.input.clear();
+                                self.input.insert_str(&next);
+                                self.dirty = true;
+                            }
+                        } else if let Some(draft) = self.draft_snapshot.take() {
+                            self.editor.restore_snapshot(draft);
                             self.input.clear();
-                            self.input.insert_str(&next);
+                            self.input.insert_str(&self.editor.text());
                             self.dirty = true;
                         } else {
                             self.viewport.scroll_down(1);
@@ -267,7 +336,9 @@ impl App {
                     }
                     KeyCode::Char(c) => {
                         self.editor.insert_char(c);
-                        self.input.insert_char(c);
+                        self.input.clear();
+                        self.input.insert_str(&self.editor.text());
+                        self.draft_snapshot = None;
                         self.dirty = true;
                         self.update_autocomplete();
                     }
@@ -287,7 +358,9 @@ impl App {
             },
             Event::Paste(text) => {
                 self.editor.insert_paste(&text);
-                self.input.insert_str(&text);
+                self.input.clear();
+                self.input.insert_str(&self.editor.text());
+                self.draft_snapshot = None;
                 self.dirty = true;
                 self.update_autocomplete();
             }
@@ -422,8 +495,9 @@ impl App {
         let input_area = chunks[3];
 
         let total_lines = self.cache.ensure_visual_lines(viewport_area.width);
+        let total_with_spinner = total_lines + if self.waiting_for_response { 1 } else { 0 };
         self.viewport
-            .sync_dimensions(total_lines, viewport_area.height as usize);
+            .sync_dimensions(total_with_spinner, viewport_area.height as usize);
         let mut visible_lines = self.viewport.visible_slice(&self.cache);
 
         if self.waiting_for_response {
@@ -488,19 +562,28 @@ impl App {
             self.input.content().to_string()
         };
 
-        let input_widget = Paragraph::new(display_content).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(input_title)
-                .border_style(Style::default().fg(Color::Cyan)),
-        );
-        frame.render_widget(input_widget, input_area);
-
         let (cur_line, cur_col) = if !self.editor.is_empty() {
             self.editor.cursor_coordinates()
         } else {
             (0, self.input.cursor_char_idx())
         };
+
+        let scroll_y = if cur_line >= 8 {
+            (cur_line - 7) as u16
+        } else {
+            0
+        };
+
+        let mut input_widget = Paragraph::new(display_content).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(input_title)
+                .border_style(Style::default().fg(Color::Cyan)),
+        );
+        if scroll_y > 0 {
+            input_widget = input_widget.scroll((scroll_y, 0));
+        }
+        frame.render_widget(input_widget, input_area);
 
         let cursor_x = input_area
             .x
@@ -509,7 +592,7 @@ impl App {
         let cursor_y = input_area
             .y
             .saturating_add(1)
-            .saturating_add(cur_line as u16);
+            .saturating_add(cur_line.saturating_sub(scroll_y as usize) as u16);
         if cursor_x
             < input_area
                 .x

@@ -257,7 +257,8 @@ impl SubprocessEngine {
     }
 
     pub async fn shutdown(&mut self, grace: Duration) -> Result<Option<i32>, EngineError> {
-        if let Some(pid) = self.child.id() {
+        let child_pid = self.child.id();
+        if let Some(pid) = child_pid {
             unregister_child_pgid(pid as i32);
         }
         drop(self.stdin.take());
@@ -265,7 +266,7 @@ impl SubprocessEngine {
         let exit_status = match wait_result {
             Ok(Ok(status)) => status.code(),
             _ => {
-                if let Some(pid) = self.child.id() {
+                if let Some(pid) = child_pid {
                     unsafe {
                         libc::killpg(pid as libc::pid_t, libc::SIGTERM);
                     }
@@ -273,7 +274,7 @@ impl SubprocessEngine {
                 match timeout(Duration::from_millis(1000), self.child.wait()).await {
                     Ok(Ok(status)) => status.code(),
                     _ => {
-                        if let Some(pid) = self.child.id() {
+                        if let Some(pid) = child_pid {
                             unsafe {
                                 libc::killpg(pid as libc::pid_t, libc::SIGKILL);
                             }
@@ -283,6 +284,12 @@ impl SubprocessEngine {
                 }
             }
         };
+
+        if let Some(pid) = child_pid {
+            unsafe {
+                libc::killpg(pid as libc::pid_t, libc::SIGTERM);
+            }
+        }
 
         let tail = {
             let guard = self.stderr_tail.lock().await;
@@ -314,5 +321,17 @@ impl SubprocessEngine {
             Self::spawn(self.session_id.clone(), final_config, self.sender.clone()).await?;
         *self = new_engine;
         Ok(())
+    }
+}
+
+impl Drop for SubprocessEngine {
+    fn drop(&mut self) {
+        if let Some(pid) = self.child.id() {
+            let pgid = pid as i32;
+            unregister_child_pgid(pgid);
+            unsafe {
+                libc::killpg(pgid, libc::SIGTERM);
+            }
+        }
     }
 }

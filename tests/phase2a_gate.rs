@@ -189,3 +189,82 @@ fn test_child_pgid_registry_and_kill_safeguard() {
     unregister_child_pgid(999999);
     kill_registered_subprocesses();
 }
+
+#[test]
+fn test_kill_registered_subprocesses_real_termination() {
+    use std::os::unix::process::CommandExt;
+    use std::process::Command;
+    let mut child = Command::new("sleep")
+        .arg("30")
+        .process_group(0)
+        .spawn()
+        .expect("Failed to spawn sleep");
+    let pid = child.id() as i32;
+
+    register_child_pgid(pid);
+    kill_registered_subprocesses();
+
+    let _ = child.wait();
+    unsafe {
+        let res = libc::kill(pid, 0);
+        assert_eq!(res, -1);
+    }
+}
+
+#[test]
+fn test_viewport_resize_reanchoring() {
+    let mut viewport = ConversationViewport::new();
+    viewport.sync_dimensions(100, 20);
+    assert_eq!(viewport.mode(), ScrollMode::Anchored);
+
+    viewport.scroll_up(30);
+    assert!(matches!(viewport.mode(), ScrollMode::Unanchored { .. }));
+
+    viewport.sync_dimensions(25, 20);
+    assert_eq!(viewport.mode(), ScrollMode::Anchored);
+}
+
+#[test]
+fn test_consolidate_active_turn_fallback_response() {
+    let mut cache = RenderCache::new();
+    cache.push_user_message("hello");
+    cache.consolidate_active_turn(Some("fallback text"));
+    assert_eq!(cache.blocks_count(), 2);
+    let lines = cache.ensure_visual_lines(80);
+    assert!(lines > 0);
+
+    let mut cache2 = RenderCache::new();
+    cache2.push_user_message("hello");
+    cache2.append_streaming_delta(BlockKind::Assistant, "actual response");
+    cache2.consolidate_active_turn(Some("fallback text"));
+    assert_eq!(cache2.blocks_count(), 2);
+}
+
+#[test]
+fn test_spinner_visibility_when_total_lines_exceed_height() {
+    use frontal::protocol::SessionId;
+    let session_manager = SessionManager::new();
+    let session_id = SessionId::new();
+    let mut app = App::new(session_manager, session_id);
+
+    let backend = TestBackend::new(80, 10);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    for i in 0..15 {
+        app.cache.push_user_message(&format!("message line {}", i));
+    }
+    app.cache.consolidate_active_turn(None);
+    app.waiting_for_response = true;
+    app.spinner_tick = 4;
+
+    terminal.draw(|f| app.render(f)).unwrap();
+    let buffer = terminal.backend().buffer();
+    let rendered = buffer
+        .content()
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<Vec<_>>()
+        .join("");
+
+    assert!(rendered.contains("Thinking / Waiting for response..."));
+}

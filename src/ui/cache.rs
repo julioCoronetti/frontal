@@ -4,7 +4,9 @@ use std::collections::HashMap;
 
 use crate::protocol::StepState;
 use crate::ui::highlight::IncrementalCodeHighlighter;
-use crate::ui::markdown::render_markdown_to_lines;
+use crate::ui::markdown::{
+    parse_markdown_segments, render_markdown_to_lines, render_segments_to_lines, MarkdownSegment,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BlockKind {
@@ -26,6 +28,7 @@ pub struct MessageBlock {
     pub tool_args: Option<String>,
     pub step_index: Option<u64>,
     pub code_highlighters: Vec<IncrementalCodeHighlighter>,
+    pub markdown_ast: Option<Vec<MarkdownSegment>>,
 }
 
 #[derive(Clone, Debug)]
@@ -97,6 +100,7 @@ impl RenderCache {
             tool_args: None,
             step_index: None,
             code_highlighters: Vec::new(),
+            markdown_ast: None,
         });
         id
     }
@@ -106,6 +110,7 @@ impl RenderCache {
             if !block.consolidated && block.kind == kind {
                 block.content.push_str(delta);
                 block.revision += 1;
+                block.markdown_ast = None;
                 return block.id;
             }
         }
@@ -121,6 +126,7 @@ impl RenderCache {
             tool_args: None,
             step_index: None,
             code_highlighters: Vec::new(),
+            markdown_ast: None,
         });
         id
     }
@@ -179,6 +185,7 @@ impl RenderCache {
             tool_args: args.map(|s| s.to_string()),
             step_index,
             code_highlighters: Vec::new(),
+            markdown_ast: None,
         });
         id
     }
@@ -209,6 +216,17 @@ impl RenderCache {
         None
     }
 
+    pub fn toggle_latest_tool(&mut self) -> Option<u64> {
+        for block in self.blocks.iter_mut().rev() {
+            if matches!(block.kind, BlockKind::Tool { .. }) {
+                block.collapsed = !block.collapsed;
+                block.revision += 1;
+                return Some(block.id);
+            }
+        }
+        None
+    }
+
     pub fn push_error(&mut self, text: &str) -> u64 {
         let id = self.next_block_id;
         self.next_block_id += 1;
@@ -222,6 +240,7 @@ impl RenderCache {
             tool_args: None,
             step_index: None,
             code_highlighters: Vec::new(),
+            markdown_ast: None,
         });
         id
     }
@@ -251,6 +270,7 @@ impl RenderCache {
                         tool_args: None,
                         step_index: None,
                         code_highlighters: Vec::new(),
+                        markdown_ast: None,
                     });
                 }
             }
@@ -310,12 +330,23 @@ impl RenderCache {
                 result.push(Line::from(""));
             }
             BlockKind::Assistant => {
-                let lines = render_markdown_to_lines(
-                    &block.content,
-                    width as usize,
-                    block.consolidated,
-                    &mut block.code_highlighters,
-                );
+                let lines = if block.consolidated {
+                    if block.markdown_ast.is_none() {
+                        block.markdown_ast = Some(parse_markdown_segments(&block.content, true));
+                    }
+                    render_segments_to_lines(
+                        block.markdown_ast.as_ref().unwrap(),
+                        width as usize,
+                        &mut block.code_highlighters,
+                    )
+                } else {
+                    render_markdown_to_lines(
+                        &block.content,
+                        width as usize,
+                        false,
+                        &mut block.code_highlighters,
+                    )
+                };
                 result.extend(lines);
                 if block.consolidated {
                     result.push(Line::from(""));
@@ -382,22 +413,28 @@ impl RenderCache {
                     .as_deref()
                     .map(|a| format!("({})", a))
                     .unwrap_or_default();
-                let header = format!("{} {}{}", state_badge, name, args_str);
 
-                result.push(Line::from(vec![Span::styled(header, state_style)]));
+                if block.collapsed {
+                    let header = format!("{} {}{} ▸ [collapsed]", state_badge, name, args_str);
+                    result.push(Line::from(vec![Span::styled(header, state_style)]));
+                } else {
+                    let header = format!("{} {}{}", state_badge, name, args_str);
+                    result.push(Line::from(vec![Span::styled(header, state_style)]));
 
-                if !block.content.is_empty() {
-                    let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
-                    for row in wrapped {
-                        let text_style = if matches!(state, StepState::Error) {
-                            Style::default().fg(Color::LightRed)
-                        } else {
-                            Style::default().fg(Color::DarkGray)
-                        };
-                        result.push(Line::from(vec![
-                            Span::styled("  ", Style::default()),
-                            Span::styled(row, text_style),
-                        ]));
+                    if !block.content.is_empty() {
+                        let wrapped =
+                            wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
+                        for row in wrapped {
+                            let text_style = if matches!(state, StepState::Error) {
+                                Style::default().fg(Color::LightRed)
+                            } else {
+                                Style::default().fg(Color::DarkGray)
+                            };
+                            result.push(Line::from(vec![
+                                Span::styled("  ", Style::default()),
+                                Span::styled(row, text_style),
+                            ]));
+                        }
                     }
                 }
                 result.push(Line::from(""));
@@ -462,6 +499,11 @@ impl RenderCache {
 
     pub fn blocks_count(&self) -> usize {
         self.blocks.len()
+    }
+
+    pub fn clear(&mut self) {
+        self.blocks.clear();
+        self.l2_cache.clear();
     }
 }
 

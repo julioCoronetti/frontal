@@ -28,6 +28,16 @@ pub enum TriggerKind {
     Command,
 }
 
+#[derive(Clone, Debug)]
+pub struct EditorSnapshot {
+    pub rope: Rope,
+    pub cursor_char: usize,
+    pub extmarks: Vec<Extmark>,
+    pub paste_registry: HashMap<PasteId, String>,
+    pub next_paste_id: u64,
+    pub next_extmark_id: u64,
+}
+
 #[derive(Clone, Default)]
 pub struct PromptEditor {
     rope: Rope,
@@ -50,6 +60,26 @@ impl PromptEditor {
         }
     }
 
+    pub fn snapshot(&self) -> EditorSnapshot {
+        EditorSnapshot {
+            rope: self.rope.clone(),
+            cursor_char: self.cursor_char,
+            extmarks: self.extmarks.clone(),
+            paste_registry: self.paste_registry.clone(),
+            next_paste_id: self.next_paste_id,
+            next_extmark_id: self.next_extmark_id,
+        }
+    }
+
+    pub fn restore_snapshot(&mut self, snap: EditorSnapshot) {
+        self.rope = snap.rope;
+        self.cursor_char = snap.cursor_char;
+        self.extmarks = snap.extmarks;
+        self.paste_registry = snap.paste_registry;
+        self.next_paste_id = snap.next_paste_id;
+        self.next_extmark_id = snap.next_extmark_id;
+    }
+
     pub fn text(&self) -> String {
         self.rope.to_string()
     }
@@ -68,6 +98,7 @@ impl PromptEditor {
 
     pub fn set_cursor_char(&mut self, pos: usize) {
         self.cursor_char = pos.min(self.rope.len_chars());
+        self.adjust_cursor_outside_extmarks();
     }
 
     pub fn cursor_coordinates(&self) -> (usize, usize) {
@@ -235,6 +266,7 @@ impl PromptEditor {
         let target_col = col_idx.min(prev_line_len.saturating_sub(1));
         let prev_line_start = self.rope.line_to_char(prev_line);
         self.cursor_char = prev_line_start + target_col;
+        self.adjust_cursor_outside_extmarks();
         true
     }
 
@@ -248,12 +280,14 @@ impl PromptEditor {
         let target_col = col_idx.min(next_line_len.saturating_sub(1));
         let next_line_start = self.rope.line_to_char(next_line);
         self.cursor_char = next_line_start + target_col;
+        self.adjust_cursor_outside_extmarks();
         true
     }
 
     pub fn move_home(&mut self) {
         let (line_idx, _) = self.cursor_coordinates();
         self.cursor_char = self.rope.line_to_char(line_idx);
+        self.adjust_cursor_outside_extmarks();
     }
 
     pub fn move_end(&mut self) {
@@ -267,6 +301,22 @@ impl PromptEditor {
             line_chars.saturating_sub(1)
         };
         self.cursor_char = line_start + offset;
+        self.adjust_cursor_outside_extmarks();
+    }
+
+    fn adjust_cursor_outside_extmarks(&mut self) {
+        for ext in &self.extmarks {
+            if ext.start_char < self.cursor_char && self.cursor_char < ext.end_char {
+                let dist_to_start = self.cursor_char - ext.start_char;
+                let dist_to_end = ext.end_char - self.cursor_char;
+                if dist_to_start <= dist_to_end {
+                    self.cursor_char = ext.start_char;
+                } else {
+                    self.cursor_char = ext.end_char;
+                }
+                break;
+            }
+        }
     }
 
     pub fn take_submitted_expanded(&mut self) -> Option<String> {
@@ -358,14 +408,21 @@ impl PromptEditor {
         kind: ExtmarkKind,
         display_text: &str,
     ) {
+        let (token_text, has_trailing_space) =
+            if let Some(stripped) = display_text.strip_suffix(' ') {
+                (stripped, true)
+            } else {
+                (display_text, false)
+            };
+
         let safe_end = end_char.min(self.rope.len_chars());
         let safe_start = start_char.min(safe_end);
         let removed_len = safe_end - safe_start;
         self.rope.remove(safe_start..safe_end);
         self.shift_extmarks_after(safe_start, -(removed_len as isize));
 
-        let char_count = display_text.chars().count();
-        self.rope.insert(safe_start, display_text);
+        let char_count = token_text.chars().count();
+        self.rope.insert(safe_start, token_text);
         self.shift_extmarks_after(safe_start, char_count as isize);
 
         let id = ExtmarkId(self.next_extmark_id);
@@ -377,6 +434,12 @@ impl PromptEditor {
             kind,
         });
         self.cursor_char = safe_start + char_count;
+
+        if has_trailing_space {
+            self.rope.insert_char(self.cursor_char, ' ');
+            self.shift_extmarks_after(self.cursor_char, 1);
+            self.cursor_char += 1;
+        }
     }
 
     fn shift_extmarks_after(&mut self, threshold: usize, delta: isize) {

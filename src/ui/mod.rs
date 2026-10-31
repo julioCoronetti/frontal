@@ -1,6 +1,7 @@
 pub mod app;
 pub mod autocomplete;
 pub mod cache;
+pub mod clipboard;
 pub mod editor;
 pub mod highlight;
 pub mod history;

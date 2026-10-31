@@ -217,3 +217,117 @@ fn test_tool_cards_lifecycle_and_multiple_tools_same_turn() {
     cache.consolidate_active_turn(None);
     assert_eq!(cache.blocks_count(), 2);
 }
+
+#[test]
+fn test_tool_card_collapsing_and_expansion() {
+    let mut cache = RenderCache::new();
+    let id = cache.upsert_tool_call(
+        Some(1),
+        "read_file",
+        StepState::Done,
+        Some("path: foo.rs"),
+        Some("line 1\nline 2\nline 3\nline 4\nline 5"),
+    );
+
+    let expanded_lines = cache.ensure_visual_lines(80);
+    assert!(expanded_lines >= 6);
+
+    let toggled_id = cache.toggle_latest_tool();
+    assert_eq!(toggled_id, Some(id));
+
+    let collapsed_lines = cache.ensure_visual_lines(80);
+    assert!(collapsed_lines < expanded_lines);
+
+    let slice = cache.visible_slice(0, 10);
+    let text = slice
+        .iter()
+        .map(|l| {
+            l.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("[collapsed]"));
+
+    cache.toggle_latest_tool();
+    let re_expanded = cache.ensure_visual_lines(80);
+    assert_eq!(re_expanded, expanded_lines);
+}
+
+#[test]
+fn test_tilde_code_fence_normalization_and_rendering() {
+    let unclosed_tilde = "Texto antes\n~~~rust\nlet x = 42;";
+    let normalized = normalize_streaming_markdown(unclosed_tilde, false);
+    assert!(normalized.has_unclosed_fence);
+    assert_eq!(normalized.fence_lang.as_deref(), Some("rust"));
+    assert!(normalized.text.ends_with("~~~\n"));
+
+    let tilde_fence = "Texto antes\n~~~rust\nlet x = 42;\n~~~\nTexto depois";
+    let mut cache = RenderCache::new();
+    cache.append_streaming_delta(BlockKind::Assistant, tilde_fence);
+    cache.consolidate_active_turn(None);
+    let lines = cache.ensure_visual_lines(80);
+    assert!(lines > 0);
+
+    let slice = cache.visible_slice(0, 10);
+    let text = slice
+        .iter()
+        .map(|l| {
+            l.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("┌─ rust"));
+}
+
+#[test]
+fn test_syntect_checkpoint_invalidation_on_middle_edit() {
+    let mut hl = IncrementalCodeHighlighter::new();
+    let code_v1 = "fn main() {\n    let a = 1;\n    let b = 2;\n    println!(\"{}\", a + b);\n}";
+    let res1 = hl.highlight_code("rust", code_v1);
+    assert_eq!(res1.len(), 5);
+
+    let code_v2 = "fn main() {\n    let b = 2;\n    println!(\"{}\", b);\n}";
+    let res2 = hl.highlight_code("rust", code_v2);
+    assert_eq!(res2.len(), 4);
+}
+
+#[test]
+fn test_zero_markdown_reparse_on_resize_of_consolidated_block() {
+    let mut cache = RenderCache::new();
+    cache.append_streaming_delta(
+        BlockKind::Assistant,
+        "# Title\nParagraph with **bold** text.\n- item 1\n- item 2",
+    );
+    cache.consolidate_active_turn(None);
+
+    let lines_80 = cache.ensure_visual_lines(80);
+    assert!(lines_80 > 0);
+
+    let lines_60 = cache.ensure_visual_lines(60);
+    assert!(lines_60 > 0);
+
+    let lines_100 = cache.ensure_visual_lines(100);
+    assert!(lines_100 > 0);
+}
+
+#[test]
+fn test_table_wrapping_on_narrow_widths() {
+    let mut cache = RenderCache::new();
+    let table_md = "| Column 1 with long title | Column 2 with very long content |\n|---|---|\n| row 1 value a | row 1 value b |\n| row 2 value c | row 2 value d |";
+    cache.append_streaming_delta(BlockKind::Assistant, table_md);
+    cache.consolidate_active_turn(None);
+
+    let lines_narrow = cache.ensure_visual_lines(20);
+    assert!(lines_narrow > 0);
+
+    let lines_super_narrow = cache.ensure_visual_lines(10);
+    assert!(lines_super_narrow > 0);
+}

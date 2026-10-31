@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -15,10 +16,9 @@ impl SessionId {
             }
         }
         let fallback_path = Path::new("/dev/urandom");
-        if let Ok(bytes) = fs::read(fallback_path) {
-            if bytes.len() >= 16 {
-                let mut b = [0u8; 16];
-                b.copy_from_slice(&bytes[..16]);
+        if let Ok(mut file) = fs::File::open(fallback_path) {
+            let mut b = [0u8; 16];
+            if file.read_exact(&mut b).is_ok() {
                 b[6] = (b[6] & 0x0f) | 0x40;
                 b[8] = (b[8] & 0x3f) | 0x80;
                 let formatted = format!(
@@ -368,7 +368,9 @@ pub fn parse_stream_line(line: &str) -> Result<Option<StreamEvent>, ProtocolErro
             message: None,
         })));
     }
-    match serde_json::from_str::<StreamEvent>(trimmed) {
+    let val: serde_json::Value =
+        serde_json::from_str(trimmed).map_err(|e| ProtocolError::Deserialization(e.to_string()))?;
+    match serde_json::from_value::<StreamEvent>(val) {
         Ok(event) => Ok(Some(event)),
         Err(_) => Ok(Some(StreamEvent::Unknown)),
     }

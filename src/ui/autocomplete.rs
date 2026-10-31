@@ -1,4 +1,6 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
+use std::thread;
 
 use crate::ui::editor::TriggerKind;
 
@@ -121,38 +123,56 @@ impl Default for AutocompletePopover {
     }
 }
 
+#[derive(Clone)]
 pub struct FileSearchWorker {
-    cached_files: Vec<String>,
+    cached_files: Arc<RwLock<Vec<String>>>,
 }
 
 impl FileSearchWorker {
     pub fn new() -> Self {
         Self {
-            cached_files: Vec::new(),
+            cached_files: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
     pub fn set_cached_files(&mut self, files: Vec<String>) {
-        self.cached_files = files;
+        if let Ok(mut lock) = self.cached_files.write() {
+            *lock = files;
+        }
     }
 
-    pub fn cached_files(&self) -> &[String] {
-        &self.cached_files
+    pub fn cached_files(&self) -> Vec<String> {
+        self.cached_files
+            .read()
+            .map(|f| f.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn start_background_scan(&self, root: PathBuf, max_entries: usize) {
+        let target = self.cached_files.clone();
+        thread::spawn(move || {
+            let files = Self::scan_dir(&root, max_entries);
+            if let Ok(mut lock) = target.write() {
+                *lock = files;
+            }
+        });
     }
 
     pub fn search(&self, query: &str, limit: usize) -> Vec<AutocompleteItem> {
         let q = query.trim_start_matches('@').to_lowercase();
         let mut results = Vec::new();
 
-        for file in &self.cached_files {
-            if q.is_empty() || file.to_lowercase().contains(&q) {
-                results.push(AutocompleteItem {
-                    label: file.clone(),
-                    insert_text: format!("@{} ", file),
-                    kind: TriggerKind::File,
-                });
-                if results.len() >= limit {
-                    break;
+        if let Ok(files) = self.cached_files.read() {
+            for file in files.iter() {
+                if q.is_empty() || file.to_lowercase().contains(&q) {
+                    results.push(AutocompleteItem {
+                        label: file.clone(),
+                        insert_text: format!("@{} ", file),
+                        kind: TriggerKind::File,
+                    });
+                    if results.len() >= limit {
+                        break;
+                    }
                 }
             }
         }

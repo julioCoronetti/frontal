@@ -2,7 +2,7 @@ use std::env;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -147,8 +147,8 @@ pub enum ReplayMode {
 
 pub struct FixtureReplayEngine {
     session_id: SessionId,
-    lines: Vec<String>,
-    cursor: usize,
+    lines: Arc<Vec<String>>,
+    cursor: Arc<AtomicUsize>,
     mode: ReplayMode,
     sender: mpsc::Sender<SessionEnvelope>,
     interrupted: Arc<AtomicBool>,
@@ -169,8 +169,8 @@ impl FixtureReplayEngine {
             .collect();
         Ok(Self {
             session_id,
-            lines,
-            cursor: 0,
+            lines: Arc::new(lines),
+            cursor: Arc::new(AtomicUsize::new(0)),
             mode,
             sender,
             interrupted: Arc::new(AtomicBool::new(false)),
@@ -185,8 +185,8 @@ impl FixtureReplayEngine {
     ) -> Self {
         Self {
             session_id,
-            lines,
-            cursor: 0,
+            lines: Arc::new(lines),
+            cursor: Arc::new(AtomicUsize::new(0)),
             mode,
             sender,
             interrupted: Arc::new(AtomicBool::new(false)),
@@ -196,23 +196,35 @@ impl FixtureReplayEngine {
     pub async fn start(&mut self) -> Result<(), EngineError> {
         match self.mode {
             ReplayMode::Immediate => {
-                for line in &self.lines {
-                    if self.interrupted.load(Ordering::Relaxed) {
-                        break;
+                let lines = self.lines.clone();
+                let cursor = self.cursor.clone();
+                let interrupted = self.interrupted.clone();
+                let sender = self.sender.clone();
+                let session_id = self.session_id.clone();
+                tokio::spawn(async move {
+                    while cursor.load(Ordering::Relaxed) < lines.len() {
+                        if interrupted.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        let idx = cursor.fetch_add(1, Ordering::Relaxed);
+                        if idx >= lines.len() {
+                            break;
+                        }
+                        let line = &lines[idx];
+                        if let Ok(Some(stream_ev)) = parse_stream_line(line) {
+                            let envelope = SessionEnvelope {
+                                session_id: session_id.clone(),
+                                event: EngineEvent::Stream(Box::new(stream_ev)),
+                            };
+                            let _ = sender.send(envelope).await;
+                        }
+                        sleep(Duration::from_millis(1)).await;
                     }
-                    if let Ok(Some(stream_ev)) = parse_stream_line(line) {
-                        let envelope = SessionEnvelope {
-                            session_id: self.session_id.clone(),
-                            event: EngineEvent::Stream(Box::new(stream_ev)),
-                        };
-                        let _ = self.sender.send(envelope).await;
-                    }
-                    sleep(Duration::from_millis(1)).await;
-                }
+                });
             }
             ReplayMode::TurnGated => {
-                if self.cursor < self.lines.len() {
-                    let first_line = &self.lines[self.cursor];
+                if self.cursor.load(Ordering::Relaxed) < self.lines.len() {
+                    let first_line = &self.lines[self.cursor.load(Ordering::Relaxed)];
                     if let Ok(Some(stream_ev)) = parse_stream_line(first_line) {
                         if matches!(stream_ev, StreamEvent::Init(_)) {
                             let envelope = SessionEnvelope {
@@ -220,7 +232,7 @@ impl FixtureReplayEngine {
                                 event: EngineEvent::Stream(Box::new(stream_ev)),
                             };
                             let _ = self.sender.send(envelope).await;
-                            self.cursor += 1;
+                            self.cursor.fetch_add(1, Ordering::Relaxed);
                         }
                     }
                 }
@@ -232,32 +244,41 @@ impl FixtureReplayEngine {
     pub async fn send_prompt(&mut self, prompt: &str) -> Result<(), EngineError> {
         let _ = format_user_message(prompt)?;
         self.interrupted.store(false, Ordering::Relaxed);
-        while self.cursor < self.lines.len() {
-            if self.interrupted.load(Ordering::Relaxed) {
-                let _ = self
-                    .sender
-                    .send(SessionEnvelope {
-                        session_id: self.session_id.clone(),
-                        event: EngineEvent::Stderr("Replay interrupted by user".to_string()),
-                    })
-                    .await;
-                break;
-            }
-            let line = &self.lines[self.cursor];
-            self.cursor += 1;
-            if let Ok(Some(stream_ev)) = parse_stream_line(line) {
-                let is_result = stream_ev.is_result();
-                let envelope = SessionEnvelope {
-                    session_id: self.session_id.clone(),
-                    event: EngineEvent::Stream(Box::new(stream_ev)),
-                };
-                let _ = self.sender.send(envelope).await;
-                if is_result {
+        let lines = self.lines.clone();
+        let cursor = self.cursor.clone();
+        let interrupted = self.interrupted.clone();
+        let sender = self.sender.clone();
+        let session_id = self.session_id.clone();
+        tokio::spawn(async move {
+            while cursor.load(Ordering::Relaxed) < lines.len() {
+                if interrupted.load(Ordering::Relaxed) {
+                    let _ = sender
+                        .send(SessionEnvelope {
+                            session_id,
+                            event: EngineEvent::Stderr("Replay interrupted by user".to_string()),
+                        })
+                        .await;
                     break;
                 }
+                let idx = cursor.fetch_add(1, Ordering::Relaxed);
+                if idx >= lines.len() {
+                    break;
+                }
+                let line = &lines[idx];
+                if let Ok(Some(stream_ev)) = parse_stream_line(line) {
+                    let is_result = stream_ev.is_result();
+                    let envelope = SessionEnvelope {
+                        session_id: session_id.clone(),
+                        event: EngineEvent::Stream(Box::new(stream_ev)),
+                    };
+                    let _ = sender.send(envelope).await;
+                    if is_result {
+                        break;
+                    }
+                }
+                sleep(Duration::from_millis(2)).await;
             }
-            sleep(Duration::from_millis(2)).await;
-        }
+        });
         Ok(())
     }
 
