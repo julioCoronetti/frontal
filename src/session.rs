@@ -60,6 +60,35 @@ impl SessionManager {
         self.tx.clone()
     }
 
+    pub fn register_mock_session(&mut self, session_id: SessionId) {
+        let metadata = SessionMetadata {
+            session_id: session_id.clone(),
+            conversation_id: None,
+            model: Some("gemini-4-argon-high".to_string()),
+            mode: Some("auto".to_string()),
+            effort: Some("high".to_string()),
+            turns: 0,
+            last_prompt: None,
+            status: SessionStatus::Ready,
+        };
+        let replay = FixtureReplayEngine::from_lines(
+            session_id.clone(),
+            Vec::new(),
+            ReplayMode::TurnGated,
+            self.tx.clone(),
+        );
+        self.sessions.insert(
+            session_id.clone(),
+            SessionHandle {
+                metadata,
+                engine: SessionEngine::Replay(replay),
+            },
+        );
+        if self.active_session_id.is_none() {
+            self.active_session_id = Some(session_id);
+        }
+    }
+
     pub async fn create_subprocess_session(
         &mut self,
         config: EngineConfig,
@@ -166,8 +195,45 @@ impl SessionManager {
         }
     }
 
+    pub fn is_replay_session(&self, session_id: &SessionId) -> bool {
+        self.sessions
+            .get(session_id)
+            .map(|h| matches!(h.engine, SessionEngine::Replay(_)))
+            .unwrap_or(false)
+    }
+
     pub fn get_metadata(&self, session_id: &SessionId) -> Option<&SessionMetadata> {
         self.sessions.get(session_id).map(|h| &h.metadata)
+    }
+
+    pub fn set_session_status(&mut self, session_id: &SessionId, status: SessionStatus) {
+        if let Some(h) = self.sessions.get_mut(session_id) {
+            h.metadata.status = status;
+        }
+    }
+
+    pub fn set_session_metadata(
+        &mut self,
+        session_id: &SessionId,
+        conv_id: Option<String>,
+        model: Option<String>,
+        effort: Option<String>,
+        mode: Option<String>,
+    ) {
+        if let Some(h) = self.sessions.get_mut(session_id) {
+            if conv_id.is_some() {
+                h.metadata.conversation_id = conv_id;
+            }
+            if model.is_some() {
+                h.metadata.model = model;
+            }
+            if effort.is_some() {
+                h.metadata.effort = effort;
+            }
+            if mode.is_some() {
+                h.metadata.mode = mode;
+            }
+        }
     }
 
     pub async fn send_prompt(
@@ -217,6 +283,9 @@ impl SessionManager {
         session_id: &SessionId,
         grace: Duration,
     ) -> Result<Option<i32>, EngineError> {
+        if self.active_session_id.as_ref() == Some(session_id) {
+            self.active_session_id = None;
+        }
         if let Some(mut handle) = self.sessions.remove(session_id) {
             handle.metadata.status = SessionStatus::Closed;
             match &mut handle.engine {

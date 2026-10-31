@@ -123,6 +123,40 @@ impl App {
         }
     }
 
+    pub fn new_isolated(session_manager: SessionManager, active_session: SessionId) -> Self {
+        let history = PromptHistory::open_in_memory().unwrap();
+        let search_worker = FileSearchWorker::new();
+        let initial_tab = TabState::new(active_session.clone(), String::from("Session 1"));
+        let cwd_display = String::from("~/test");
+        let available_models = crate::transport::EngineConfig::default_fallback_models();
+
+        Self {
+            session_manager,
+            active_session,
+            cache: RenderCache::new(),
+            viewport: ConversationViewport::new(),
+            input: MinimalInputStub::new(),
+            editor: PromptEditor::new(),
+            popover: AutocompletePopover::new(),
+            search_worker,
+            history,
+            draft_snapshot: None,
+            dirty: true,
+            should_quit: false,
+            status_text: String::from("Ready"),
+            spinner_tick: 0,
+            waiting_for_response: false,
+            tabs: vec![initial_tab],
+            active_tab_index: 0,
+            modals: ModalStack::new(),
+            clipboard: SystemClipboard::new_isolated(),
+            cwd_display,
+            available_models,
+            viewport_bounds: (0, 0, 80, 20),
+            turn_started_at: None,
+        }
+    }
+
     pub fn set_available_models(&mut self, models: Vec<(String, String)>) {
         self.available_models = models;
     }
@@ -236,6 +270,7 @@ impl App {
             self.input = MinimalInputStub::new();
             self.draft_snapshot = None;
             self.waiting_for_response = false;
+            self.turn_started_at = None;
             self.status_text = String::from("Ready");
             self.popover.close();
             self.active_tab_index = self.active_tab_index.min(self.tabs.len() - 1);
@@ -268,6 +303,7 @@ impl App {
         mode: Option<String>,
     ) -> Result<SessionId, crate::transport::EngineError> {
         let old_id = self.active_session.clone();
+        let was_replay = self.session_manager.is_replay_session(&old_id);
         let (prev_conv_id, prev_model, prev_effort, prev_mode) = {
             let meta = self.session_manager.get_metadata(&old_id);
             (
@@ -281,16 +317,34 @@ impl App {
             .session_manager
             .shutdown_session(&old_id, std::time::Duration::from_millis(500))
             .await;
-        let mut config = crate::transport::EngineConfig::new();
-        config.conversation_id = conversation_id.or(prev_conv_id);
-        config.model = model.or(prev_model);
-        config.effort = effort.or(prev_effort);
-        config.mode = mode.or(prev_mode);
-        let new_id = self
-            .session_manager
-            .create_subprocess_session(config)
-            .await?;
+        let final_conv_id = conversation_id.or(prev_conv_id);
+        let final_model = model.or(prev_model);
+        let final_effort = effort.or(prev_effort);
+        let final_mode = mode.or(prev_mode);
+
+        let new_id = if was_replay {
+            let id = SessionId::new();
+            self.session_manager.register_mock_session(id.clone());
+            self.session_manager.set_session_metadata(
+                &id,
+                final_conv_id,
+                final_model,
+                final_effort,
+                final_mode,
+            );
+            id
+        } else {
+            let mut config = crate::transport::EngineConfig::new();
+            config.conversation_id = final_conv_id;
+            config.model = final_model;
+            config.effort = final_effort;
+            config.mode = final_mode;
+            self.session_manager
+                .create_subprocess_session(config)
+                .await?
+        };
         self.active_session = new_id.clone();
+        self.session_manager.set_active_session(new_id.clone());
         if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
             tab.session_id = new_id.clone();
         }
@@ -465,8 +519,7 @@ impl App {
                 }
 
                 if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('v') {
-                    let mut cb = SystemClipboard::new();
-                    if let Some(text) = cb.get_text() {
+                    if let Some(text) = self.clipboard.get_text() {
                         self.editor.insert_paste(&text);
                         self.input.clear();
                         self.input.insert_str(&self.editor.text());
@@ -972,7 +1025,7 @@ impl App {
                 EngineEvent::Stream(boxed_ev) => {
                     let turn_completed =
                         tab.handle_background_stream_event(&boxed_ev, &bg_mode, &bg_model);
-                    if turn_completed {
+                    if turn_completed && !self.clipboard.is_isolated() {
                         emit_sensory_notification(
                             "Frontal Session Completed",
                             &format!("Turn completed in {}", tab.title),
