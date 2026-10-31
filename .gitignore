@@ -11,6 +11,10 @@ node_modules/
 dist/
 build/
 
+# IDEs
+.idea/
+.vscode/
+
 # Local session files
 .sessions.json*
 .test_sessions.json
