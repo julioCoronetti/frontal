@@ -352,8 +352,29 @@ fn test_local_slash_commands_execution() {
     assert!(app.cache.blocks_count() > 0);
 
     app.editor.insert_str("/interrupt");
-    let act = app.handle_terminal_event(enter);
+    let act = app.handle_terminal_event(enter.clone());
     assert_eq!(act, Some(AppAction::Interrupt));
+
+    app.editor.insert_str("/model gemini");
+    let act = app.handle_terminal_event(enter.clone());
+    assert_eq!(act, None);
+    assert!(!app.waiting_for_response);
+
+    let _ = app.cache.upsert_tool_call(
+        Some(1),
+        "test_tool",
+        frontal::protocol::StepState::Done,
+        None,
+        Some("output"),
+    );
+    let backtab = Event::Key(KeyEvent {
+        code: KeyCode::BackTab,
+        modifiers: KeyModifiers::NONE,
+        kind: KeyEventKind::Press,
+        state: KeyEventState::NONE,
+    });
+    let act = app.handle_terminal_event(backtab);
+    assert_eq!(act, None);
 }
 
 #[test]

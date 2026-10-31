@@ -327,6 +327,11 @@ fn test_table_wrapping_on_narrow_widths() {
 
     let lines_narrow = cache.ensure_visual_lines(20);
     assert!(lines_narrow > 0);
+    let slice = cache.visible_slice(0, lines_narrow);
+    for line in slice {
+        let len: usize = line.spans.iter().map(|s| s.content.chars().count()).sum();
+        assert!(len <= 20);
+    }
 
     let lines_super_narrow = cache.ensure_visual_lines(10);
     assert!(lines_super_narrow > 0);

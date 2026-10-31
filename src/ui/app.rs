@@ -51,10 +51,9 @@ impl App {
             PromptHistory::open_in_memory().unwrap()
         };
 
-        let mut search_worker = FileSearchWorker::new();
+        let search_worker = FileSearchWorker::new();
         if let Ok(cwd) = std::env::current_dir() {
-            let files = FileSearchWorker::scan_dir(&cwd, 500);
-            search_worker.set_cached_files(files);
+            search_worker.start_background_scan(cwd, 500);
         }
 
         Self {
@@ -183,6 +182,15 @@ impl App {
                     return None;
                 }
 
+                if key.code == KeyCode::BackTab
+                    || (key.code == KeyCode::Char('o')
+                        && key.modifiers.contains(KeyModifiers::CONTROL))
+                {
+                    self.cache.toggle_latest_tool();
+                    self.dirty = true;
+                    return None;
+                }
+
                 let is_multiline_newline = (key.code == KeyCode::Enter
                     && (key.modifiers.contains(KeyModifiers::SHIFT)
                         || key.modifiers.contains(KeyModifiers::ALT)))
@@ -226,6 +234,12 @@ impl App {
                             } else if trimmed == "/help" {
                                 self.cache.push_user_message("/help");
                                 self.cache.push_error("Available local commands: /clear, /interrupt, /quit, /exit, /help");
+                                self.status_text = String::from("Ready");
+                                self.dirty = true;
+                                return None;
+                            } else if trimmed.starts_with('/') {
+                                self.cache.push_user_message(trimmed);
+                                self.cache.push_error(&format!("Command '{}' is not supported locally. Type /help for available commands.", trimmed));
                                 self.status_text = String::from("Ready");
                                 self.dirty = true;
                                 return None;

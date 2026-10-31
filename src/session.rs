@@ -180,11 +180,16 @@ impl SessionManager {
             .get_mut(session_id)
             .ok_or(EngineError::ProcessNotRunning)?;
         handle.metadata.last_prompt = Some(prompt.to_string());
+        let prev_status = handle.metadata.status;
         handle.metadata.status = SessionStatus::RunningTurn;
-        match &mut handle.engine {
+        let res = match &mut handle.engine {
             SessionEngine::Subprocess(engine) => engine.send_prompt(prompt).await,
             SessionEngine::Replay(engine) => engine.send_prompt(prompt).await,
+        };
+        if res.is_err() {
+            handle.metadata.status = prev_status;
         }
+        res
     }
 
     pub fn interrupt(&mut self, session_id: &SessionId) -> Result<(), EngineError> {

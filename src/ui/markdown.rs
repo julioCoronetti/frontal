@@ -552,15 +552,41 @@ pub fn render_segments_to_lines(
                         }
                     }
 
+                    let avail = width.saturating_sub(col_count + 1);
+                    if avail >= col_count * 2 {
+                        let sum_w: usize = col_widths.iter().sum();
+                        if sum_w > avail {
+                            for w in col_widths.iter_mut() {
+                                *w = ((*w * avail) / sum_w).max(2);
+                            }
+                        }
+                    }
+
                     let border_style = Style::default().fg(Color::DarkGray);
                     if !headers.is_empty() {
                         let mut head_spans = vec![Span::styled("│", border_style)];
                         for (i, h) in headers.iter().enumerate() {
                             head_spans.push(Span::raw(" "));
-                            head_spans.extend(h.clone());
+                            let max_cell_w = col_widths[i].saturating_sub(1);
                             let cur_len: usize = h.iter().map(|s| s.content.chars().count()).sum();
-                            let pad = col_widths[i].saturating_sub(cur_len + 1);
-                            head_spans.push(Span::raw(" ".repeat(pad)));
+                            if cur_len > max_cell_w {
+                                let mut budget = max_cell_w;
+                                for sp in h {
+                                    let sp_len = sp.content.chars().count();
+                                    if sp_len <= budget {
+                                        head_spans.push(sp.clone());
+                                        budget -= sp_len;
+                                    } else if budget > 0 {
+                                        let sub: String = sp.content.chars().take(budget).collect();
+                                        head_spans.push(Span::styled(sub, sp.style));
+                                        budget = 0;
+                                    }
+                                }
+                            } else {
+                                head_spans.extend(h.clone());
+                                let pad = max_cell_w - cur_len;
+                                head_spans.push(Span::raw(" ".repeat(pad)));
+                            }
                             head_spans.push(Span::styled("│", border_style));
                         }
                         output_lines.push(Line::from(head_spans));
@@ -582,14 +608,31 @@ pub fn render_segments_to_lines(
                         for (i, &col_w) in col_widths.iter().enumerate().take(col_count) {
                             let cell = row.get(i);
                             row_spans.push(Span::raw(" "));
-                            let cell_len: usize = if let Some(c) = cell {
-                                row_spans.extend(c.clone());
-                                c.iter().map(|s| s.content.chars().count()).sum()
+                            let max_cell_w = col_w.saturating_sub(1);
+                            if let Some(c) = cell {
+                                let len: usize = c.iter().map(|s| s.content.chars().count()).sum();
+                                if len > max_cell_w {
+                                    let mut budget = max_cell_w;
+                                    for sp in c {
+                                        let sp_len = sp.content.chars().count();
+                                        if sp_len <= budget {
+                                            row_spans.push(sp.clone());
+                                            budget -= sp_len;
+                                        } else if budget > 0 {
+                                            let sub: String =
+                                                sp.content.chars().take(budget).collect();
+                                            row_spans.push(Span::styled(sub, sp.style));
+                                            budget = 0;
+                                        }
+                                    }
+                                } else {
+                                    row_spans.extend(c.clone());
+                                    let pad = max_cell_w - len;
+                                    row_spans.push(Span::raw(" ".repeat(pad)));
+                                }
                             } else {
-                                0
-                            };
-                            let pad = col_w.saturating_sub(cell_len + 1);
-                            row_spans.push(Span::raw(" ".repeat(pad)));
+                                row_spans.push(Span::raw(" ".repeat(max_cell_w)));
+                            }
                             row_spans.push(Span::styled("│", border_style));
                         }
                         output_lines.push(Line::from(row_spans));
