@@ -110,6 +110,11 @@ impl RenderCache {
                         }
                     }
                 };
+
+                if is_structural_metadata(trimmed, &stripped) {
+                    continue;
+                }
+
                 let chars: Vec<char> = stripped.chars().collect();
                 let sc = s_col.saturating_sub(prefix_len).min(chars.len());
                 let ec = if e_col <= prefix_len {
@@ -135,6 +140,43 @@ impl RenderCache {
                 }
             }
         }
-        extracted.join("\n")
+
+        while extracted
+            .first()
+            .map(|s| s.trim().is_empty())
+            .unwrap_or(false)
+        {
+            extracted.remove(0);
+        }
+        while extracted
+            .last()
+            .map(|s| s.trim().is_empty())
+            .unwrap_or(false)
+        {
+            extracted.pop();
+        }
+
+        let mut sanitized = Vec::new();
+        let mut prev_empty = false;
+        for line in extracted {
+            let is_empty = line.trim().is_empty();
+            if is_empty && prev_empty {
+                continue;
+            }
+            prev_empty = is_empty;
+            sanitized.push(line);
+        }
+
+        sanitized.join("\n")
     }
+}
+
+fn is_structural_metadata(trimmed: &str, stripped: &str) -> bool {
+    trimmed.starts_with("▣ ")
+        || stripped.starts_with("▸ Thought")
+        || stripped == "▾ Thought"
+        || stripped.starts_with("[RUNNING]")
+        || stripped.starts_with("[DONE]")
+        || stripped.starts_with("[ERROR]")
+        || stripped.starts_with("[PENDING]")
 }

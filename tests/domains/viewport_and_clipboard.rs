@@ -1,8 +1,10 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::style::Modifier;
 
-use frontal::ui::cache::{BlockKind, RenderCache};
+use frontal::protocol::StepState;
+use frontal::ui::cache::{BlockKind, RenderCache, TurnMeta};
 use frontal::ui::clipboard::SystemClipboard;
+use frontal::ui::editor::PromptEditor;
 use frontal::ui::input_stub::MinimalInputStub;
 use frontal::ui::notify::{osc777_notification, osc9_notification, terminal_bell};
 use frontal::ui::viewport::{ConversationViewport, ScrollMode};
@@ -338,4 +340,51 @@ fn test_viewport_selection_utf8_multibyte_and_out_of_bounds_safety() {
         }
     }
     assert_eq!(rev_oob, "ção 🚀 teste");
+}
+
+#[test]
+fn test_selection_sanitization_filters_metadata_and_headers() {
+    let mut cache = RenderCache::new();
+    cache.append_streaming_delta(BlockKind::Assistant, "primeira linha");
+    cache.consolidate_active_turn_with_meta(
+        None,
+        Some(TurnMeta {
+            mode: "auto".to_string(),
+            model: "gemini-2.5-pro".to_string(),
+            duration_seconds: Some(1.2),
+            output_tokens: Some(45),
+        }),
+    );
+    cache.append_streaming_delta(
+        BlockKind::Tool {
+            name: "read_file".to_string(),
+            state: StepState::Done,
+        },
+        "file contents payload",
+    );
+    cache.consolidate_active_turn(None);
+    cache.ensure_visual_lines(80);
+
+    let mut viewport = ConversationViewport::new();
+    viewport.sync_dimensions(cache.total_lines(), 20);
+
+    viewport.start_selection(0, 0);
+    viewport.update_selection(cache.total_lines().saturating_sub(1), 50);
+
+    let extracted = viewport.selected_text(&cache).expect("should extract text");
+    assert!(extracted.contains("primeira linha"));
+    assert!(extracted.contains("file contents payload"));
+    assert!(!extracted.contains("▣ auto"));
+    assert!(!extracted.contains("gemini-2.5-pro"));
+    assert!(!extracted.contains("[DONE]"));
+    assert!(!extracted.starts_with('\n'));
+    assert!(!extracted.ends_with('\n'));
+}
+
+#[test]
+fn test_prompt_editor_paste_sanitization_removes_carriage_returns_and_control_chars() {
+    let mut editor = PromptEditor::new();
+    editor.insert_paste("hello\r\nworld\rtest\x1b[31m\x00\x08!");
+    let content = editor.text();
+    assert_eq!(content, "hello\nworld\ntest!");
 }

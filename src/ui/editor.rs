@@ -156,7 +156,7 @@ impl PromptEditor {
     }
 
     pub fn insert_paste(&mut self, text: &str) {
-        let normalized = text.replace("\r\n", "\n");
+        let normalized = sanitize_paste_text(text);
         let line_count = normalized.lines().count();
         if line_count > 5 {
             let id = PasteId(self.next_paste_id);
@@ -456,4 +456,40 @@ impl PromptEditor {
             }
         }
     }
+}
+
+fn sanitize_paste_text(text: &str) -> String {
+    let mut clean = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            if let Some(&'[') = chars.peek() {
+                chars.next();
+                while let Some(&c) = chars.peek() {
+                    chars.next();
+                    if ('@'..='~').contains(&c) {
+                        break;
+                    }
+                }
+            } else if let Some(&']') = chars.peek() {
+                chars.next();
+                while let Some(&c) = chars.peek() {
+                    chars.next();
+                    if c == '\x07' || c == '\x1b' {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        if ch == '\r' {
+            if chars.peek() == Some(&'\n') {
+                chars.next();
+            }
+            clean.push('\n');
+        } else if ch == '\n' || ch == '\t' || !ch.is_control() {
+            clean.push(ch);
+        }
+    }
+    clean
 }
