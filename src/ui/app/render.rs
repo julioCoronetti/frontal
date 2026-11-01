@@ -11,6 +11,7 @@ use crate::ui::theme::{ACCENT_PRIMARY, BORDER_SUBTLE, TAB_ACTIVE_DOT, TEXT_MUTED
 impl App {
     pub fn render(&mut self, frame: &mut Frame) {
         let area = frame.area();
+        frame.render_widget(Clear, area);
         let padded_area = if area.width > 16 {
             Rect {
                 x: area.x.saturating_add(2),
@@ -146,8 +147,9 @@ impl App {
             (0, self.input.cursor_char_idx())
         };
 
-        let scroll_y = if cur_line >= 8 {
-            (cur_line - 7) as u16
+        let max_visible = input_area.height.saturating_sub(2) as usize;
+        let scroll_y = if max_visible > 0 && cur_line >= max_visible {
+            (cur_line + 1 - max_visible) as u16
         } else {
             0
         };
@@ -162,6 +164,7 @@ impl App {
         if scroll_y > 0 {
             input_widget = input_widget.scroll((scroll_y, 0));
         }
+        frame.render_widget(Clear, input_area);
         frame.render_widget(input_widget, input_area);
 
         let footer_chunks = Layout::default()
@@ -190,10 +193,12 @@ impl App {
             .y
             .saturating_add(1)
             .saturating_add(cur_line.saturating_sub(scroll_y as usize) as u16);
-        if cursor_x
-            < input_area
-                .x
-                .saturating_add(input_area.width.saturating_sub(2))
+        if cursor_x > input_area.x
+            && cursor_x
+                < input_area
+                    .x
+                    .saturating_add(input_area.width.saturating_sub(2))
+            && cursor_y > input_area.y
             && cursor_y
                 < input_area
                     .y

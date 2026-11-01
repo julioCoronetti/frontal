@@ -1,8 +1,11 @@
+use ratatui::backend::TestBackend;
+use ratatui::Terminal;
+
 use frontal::ui::autocomplete::{AutocompletePopover, FileSearchWorker};
 use frontal::ui::editor::{ExtmarkKind, PromptEditor, TriggerKind};
 use frontal::ui::history::PromptHistory;
 
-use crate::common::TempDirGuard;
+use crate::common::{test_app, TempDirGuard};
 
 #[test]
 fn test_prompt_editor_multiline_and_navigation() {
@@ -264,4 +267,68 @@ fn test_prompt_history_deterministic_flush() {
         assert!(reopened.entries().contains(&"unflushed line 1".to_string()));
         assert!(reopened.entries().contains(&"unflushed line 2".to_string()));
     }
+}
+
+#[test]
+fn test_prompt_editor_visual_containment_and_shrink_no_residual_leakage() {
+    let (mut app, _) = test_app();
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    for i in 0..5 {
+        app.editor
+            .insert_str(&format!("multiline text row {}\n", i));
+    }
+    terminal.draw(|f| app.render(f)).unwrap();
+    terminal.draw(|f| app.render(f)).unwrap();
+
+    let buf_before = terminal.backend().buffer().clone();
+    let mut found_multiline = false;
+    for y in 0..24 {
+        let mut row_str = String::new();
+        for x in 0..80 {
+            row_str.push_str(buf_before.cell((x, y)).unwrap().symbol());
+        }
+        if row_str.contains("multiline text row 0") {
+            found_multiline = true;
+            break;
+        }
+    }
+    assert!(found_multiline);
+
+    app.editor.clear();
+    app.editor.insert_str("single line prompt");
+    terminal.draw(|f| app.render(f)).unwrap();
+
+    let buf_after = terminal.backend().buffer().clone();
+    for y in 0..24 {
+        let mut row_str = String::new();
+        for x in 0..80 {
+            row_str.push_str(buf_after.cell((x, y)).unwrap().symbol());
+        }
+        assert!(
+            !row_str.contains("multiline text row"),
+            "residual character leaked on row {}: {}",
+            y,
+            row_str
+        );
+    }
+}
+
+#[test]
+fn test_prompt_editor_dynamic_scroll_and_cursor_containment() {
+    let (mut app, _) = test_app();
+    let backend = TestBackend::new(80, 10);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    for i in 0..10 {
+        app.editor.insert_str(&format!("line {}\n", i));
+    }
+    app.editor.insert_str("last line");
+
+    terminal.draw(|f| app.render(f)).unwrap();
+
+    let pos = terminal.get_cursor_position().unwrap();
+    assert!(pos.y > 0 && pos.y < 10);
+    assert!(pos.x > 0 && pos.x < 80);
 }
