@@ -30,6 +30,7 @@ pub struct ModelEffortModal {
     pub selected_effort_idx: usize,
     pub chosen_model: Option<String>,
     pub current_model: Option<String>,
+    pub current_effort: Option<String>,
 }
 
 impl Default for ModelEffortModal {
@@ -65,7 +66,37 @@ impl ModelEffortModal {
             selected_effort_idx: initial_effort_idx,
             chosen_model: None,
             current_model: None,
+            current_effort: None,
         }
+    }
+
+    pub fn with_initial_selection(
+        mut self,
+        current_model: Option<String>,
+        current_effort: Option<String>,
+    ) -> Self {
+        if let Some(ref cur_m) = current_model {
+            if let Some(pos) = self
+                .models
+                .iter()
+                .position(|m| &m.id == cur_m || cur_m.starts_with(&format!("{}-", m.id)))
+            {
+                self.selected_model_idx = pos;
+            }
+        }
+        let effs = self.current_supported_efforts();
+        if let Some(ref cur_e) = current_effort {
+            if let Some(pos) = effs.iter().position(|e| e == cur_e) {
+                self.selected_effort_idx = pos;
+            } else {
+                self.selected_effort_idx = Self::default_effort_for_model(effs).0;
+            }
+        } else {
+            self.selected_effort_idx = Self::default_effort_for_model(effs).0;
+        }
+        self.current_model = current_model;
+        self.current_effort = current_effort;
+        self
     }
 
     fn parse_model_id_and_effort(raw_id: &str, raw_name: &str) -> (String, String, Option<String>) {
@@ -409,7 +440,10 @@ impl ModelEffortModal {
                     } else {
                         BORDER_SUBTLE
                     };
-                    track_spans.push(Span::styled(seg_str.clone(), Style::default().fg(seg_color)));
+                    track_spans.push(Span::styled(
+                        seg_str.clone(),
+                        Style::default().fg(seg_color),
+                    ));
                 }
 
                 if i == self.selected_effort_idx {

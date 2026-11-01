@@ -815,3 +815,46 @@ fn test_model_effort_modal_rendering_layout_and_slider() {
 
     assert!(content2.contains("medium"));
 }
+
+#[test]
+fn test_model_effort_modal_restores_last_selected_effort_and_model() {
+    let raw_models = vec![
+        (
+            "gemini-3.8-flash".to_string(),
+            "Gemini 3.8 Flash".to_string(),
+        ),
+        ("gemini-4-argon".to_string(), "Gemini 4 Argon".to_string()),
+    ];
+    let modal = ModelEffortModal::with_models(raw_models)
+        .with_initial_selection(Some("gemini-4-argon".to_string()), Some("low".to_string()));
+
+    assert_eq!(modal.selected_model_idx, 1);
+    assert_eq!(modal.selected_effort_idx, 0);
+    assert_eq!(
+        modal.current_supported_efforts()[modal.selected_effort_idx],
+        "low"
+    );
+
+    let (mut app, session_id) = test_app();
+    app.session_manager.set_session_metadata(
+        &session_id,
+        None,
+        None,
+        Some("medium".to_string()),
+        None,
+    );
+    app.editor.insert_str("/model");
+    let enter = press_key(KeyCode::Enter, KeyModifiers::NONE);
+    app.handle_terminal_event(enter);
+
+    assert_eq!(app.modals.stack.len(), 1);
+    if let Some(frontal::ui::modal::Modal::ModelEffort(ref m)) = app.modals.top() {
+        assert_eq!(m.current_effort.as_deref(), Some("medium"));
+        assert_eq!(
+            m.current_supported_efforts()[m.selected_effort_idx],
+            "medium"
+        );
+    } else {
+        panic!("expected ModelEffort modal");
+    }
+}

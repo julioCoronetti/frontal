@@ -60,9 +60,11 @@ impl App {
                     "new_tab" => Some(Some(AppAction::NewTab)),
                     "close_tab" => Some(Some(AppAction::CloseTab(self.active_tab_index))),
                     "select_model" => {
-                        let mut modal =
-                            ModelEffortModal::with_models(self.available_models.clone());
-                        modal.current_model = Some(self.active_model_name());
+                        let modal = ModelEffortModal::with_models(self.available_models.clone())
+                            .with_initial_selection(
+                                Some(self.active_model_name()),
+                                Some(self.active_effort_name()),
+                            );
                         self.modals.push(Modal::ModelEffort(modal));
                         Some(None)
                     }
@@ -138,16 +140,22 @@ impl App {
             self.dirty = true;
             Some(Some(AppAction::Interrupt))
         } else if trimmed == "/model" {
-            let mut modal = ModelEffortModal::with_models(self.available_models.clone());
-            modal.current_model = Some(self.active_model_name());
+            let modal = ModelEffortModal::with_models(self.available_models.clone())
+                .with_initial_selection(
+                    Some(self.active_model_name()),
+                    Some(self.active_effort_name()),
+                );
             self.modals.push(Modal::ModelEffort(modal));
             self.dirty = true;
             Some(None)
         } else if trimmed.starts_with("/model ") {
             let model_name = trimmed.strip_prefix("/model ").unwrap().trim();
-            let mut modal = ModelEffortModal::with_models(self.available_models.clone());
+            let mut modal = ModelEffortModal::with_models(self.available_models.clone())
+                .with_initial_selection(
+                    Some(self.active_model_name()),
+                    Some(self.active_effort_name()),
+                );
             modal.query = model_name.to_string();
-            modal.current_model = Some(self.active_model_name());
             self.modals.push(Modal::ModelEffort(modal));
             self.dirty = true;
             Some(None)
