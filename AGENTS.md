@@ -3,7 +3,7 @@
 ## 1. Visão Geral do Projeto
 - **Projeto**: Frontal.
 - **Objetivo**: Interface de usuário em terminal (TUI) desacoplada, de alta performance e assíncrona para o Antigravity CLI (`agy`) e motores compatíveis com o protocolo `stream-json`.
-- **Status do Projeto**: Arquitetura em Rust implementada e operacional. As Fases 1 a 4 do roadmap foram integralmente concluídas na branch `main` e consolidadas por suíte unificada de integração com 7 domínios (79 testes). O sistema encontra-se em fase de manutenção contínua e evolução de features.
+- **Status do Projeto**: Arquitetura em Rust implementada e operacional. As Fases 1 a 4 do roadmap foram integralmente concluídas na branch `main` e consolidadas por suíte unificada de integração com 7 domínios (83 testes). O sistema encontra-se em fase de manutenção contínua e evolução de features.
 - **Stack Oficial Ativa (Crates do `Cargo.toml`)**:
   - `tokio` (features: `rt-multi-thread`, `macros`, `process`, `io-util`, `sync`, `time`, `signal`, `fs`)
   - `tokio-util` (feature: `codec`)
@@ -51,7 +51,8 @@
 
 ### Núcleo & IPC (`src/`)
 - `src/main.rs`: Ponto de entrada do executável da aplicação.
-- `src/lib.rs`: Declaração dos módulos da biblioteca pública (`cli`, `engine`, `protocol`, `session`, `transport`, `ui`).
+- `src/lib.rs`: Declaração dos módulos da biblioteca pública (`cli`, `config`, `engine`, `protocol`, `session`, `transport`, `ui`).
+- `src/config.rs`: Configuração persistente do usuário (`~/.frontal/config.toml`, modelo, modo e esforço padrão).
 - `src/cli.rs`: Parser de argumentos de linha de comando (`CliArgs`), orquestração do modo headless e inicialização do TUI.
 - `src/protocol.rs`: Tipagem estrita e desserialização NDJSON do protocolo `stream-json` (`EngineEvent`, `StreamEvent`, `ToolInfo`, etc.).
 - `src/transport.rs`: Implementação de `EngineTransport` (`SubprocessEngine` com buffer `LinesCodec` de 16 MB e `FixtureReplayEngine`).
@@ -68,14 +69,14 @@
   - `src/ui/app/stream.rs`: Processamento de envelopes assíncronos do motor IPC (`handle_engine_envelope`).
   - `src/ui/app/render.rs`: Métodos de desenho, layout e widgets da TUI a 60 FPS.
 - `src/ui/tab.rs`: Gerenciamento de abas (`TabState`), swap de memória e processamento de background.
-- `src/ui/cache.rs`: Cache de renderização em 2 níveis (`RenderCache`, `MessageBlock`, `LayoutBlock`).
+- `src/ui/cache/`: Cache de renderização em 2 níveis particionado (`mod.rs`, `format.rs`, `slice.rs`).
 - `src/ui/viewport.rs`: Viewport da conversa com máquina de estados para sticky scroll e seleção limpa de texto.
-- `src/ui/markdown.rs`: Parser incremental `pulldown-cmark` com normalização de cercas de código incompletas.
+- `src/ui/markdown/`: Parser incremental `pulldown-cmark` particionado (`mod.rs`, `normalize.rs`, `parse.rs`, `render.rs`).
 - `src/ui/highlight.rs`: Realce sintático incremental por linha com `syntect` e checkpoints de estado.
 - `src/ui/editor.rs`: Editor de prompt multilinha sobre B-Tree (`ropey`), extmarks atômicos (`@`, `/`) e pílulas de paste (`[Pasted ~N lines]`).
 - `src/ui/autocomplete.rs`: Popover flutuante de autocompletação para comandos e arquivos (`FileSearchWorker`).
 - `src/ui/history.rs`: Persistência de histórico de comandos em SQLite WAL (`PromptHistory`).
-- `src/ui/modal.rs`: Pilha de diálogos modais flutuantes (`ModelEffortModal`, `CommandPaletteModal`).
+- `src/ui/modal/`: Pilha de diálogos modais flutuantes particionada (`mod.rs`, `diff.rs`, `model_effort.rs`, `palette.rs`, `respawn.rs`).
 - `src/ui/diff.rs`: Visualizador de diffs unificados integrado.
 - `src/ui/clipboard.rs`: Suporte à área de transferência do sistema via `arboard` com buffer isolado em memória e fallback OSC 52.
 - `src/ui/notify.rs`: Notificações sensoriais de terminal (campainha auditiva e flashes visuais).
@@ -86,12 +87,12 @@
 ### Suíte Unificada de Testes de Integração (`tests/`)
 - `tests/suite.rs`: Ponto de entrada canônico do binário único de testes (*single integration test crate*).
 - `tests/common/mod.rs`: Utilitários compartilhados herméticos (`test_app`, `press_key`, guards RAII `TempDirGuard`/`TempFileGuard` com gerador atômico de sequência, `PGID_TEST_LOCK`).
-- `tests/domains/protocol_and_cli.rs`: Testes de protocolo `stream-json`, NDJSON, `LinesCodec` (16 MB) e flags CLI (10 testes).
-- `tests/domains/engine_and_session.rs`: Testes de subprocesso `agy`, replay de fixtures, POSIX `killpg`/`setpgid` e multiplexação MPSC (8 testes).
+- `tests/domains/protocol_and_cli.rs`: Testes de protocolo `stream-json`, NDJSON, `LinesCodec` (16 MB) e flags CLI (11 testes).
+- `tests/domains/engine_and_session.rs`: Testes de subprocesso `agy`, replay de fixtures, POSIX `killpg`/`setpgid` e multiplexação MPSC (9 testes).
 - `tests/domains/cache_and_markdown.rs`: Testes de RenderCache L1/L2 $O(1)$, streaming Markdown, syntax highlighting `syntect`, tool cards e 60 FPS (16 testes).
 - `tests/domains/viewport_and_clipboard.rs`: Testes de sticky scroll, seleção limpa, word-wrap UTF-8, OSC 52, notificações sensoriais e compatibilidade `MinimalInputStub` (8 testes).
 - `tests/domains/editor_and_history.rs`: Testes de editor `ropey`, extmarks atômicos, paste pills, autocomplete popover e persistência SQLite WAL (8 testes).
-- `tests/domains/tabs_and_modals.rs`: Testes de multissessão (`App` ↔ `TabState`), modais, paleta de comandos, hot-respawn, diff viewer e tool lifecycle em background (18 testes).
+- `tests/domains/tabs_and_modals.rs`: Testes de multissessão (`App` ↔ `TabState`), modais, paleta de comandos, hot-respawn, diff viewer e tool lifecycle em background (19 testes).
 - `tests/domains/tui_integration.rs`: Testes fim-a-fim com `TestBackend`, comandos locais (`/quit`, `/clear`, `/help`, etc.), mouse routing, paste/multiline, simetria OpenCode e dimensões adversariais (11 testes).
 
 ---
@@ -132,7 +133,7 @@ Para cada issue, correção ou funcionalidade, executar obrigatoriamente a estei
 1. `cargo fmt --check`
 2. `cargo check --all-targets`
 3. `cargo clippy --all-targets -- -D warnings`
-4. `cargo test` (validando a integridade dos 79 testes no binário unificado `tests/suite.rs`)
+4. `cargo test` (validando a integridade dos 83 testes no binário unificado `tests/suite.rs`)
 5. Verificação mecânica de ausência total de comentários no código:
    `! grep -rnE '//|/\*' src/ tests/`
 
@@ -154,7 +155,7 @@ Card-Status: <In Progress | In Review | Done>
 Reviewed-By: Argon-Advisor <mode:none|review|design|troubleshoot|deep-dive>
 ```
 - **Tipos Permitidos:** `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`.
-- **Escopos Padronizados:** `protocol`, `transport`, `engine`, `session`, `cli`, `ui/app`, `ui/cache`, `ui/editor`, `ui/modal`, `ui/tab`, `ui/viewport`, `tests`, `agents`, `wiki`.
+- **Escopos Padronizados:** `config`, `protocol`, `transport`, `engine`, `session`, `cli`, `ui/app`, `ui/cache`, `ui/editor`, `ui/markdown`, `ui/modal`, `ui/tab`, `ui/viewport`, `tests`, `agents`, `wiki`.
 
 ---
 
