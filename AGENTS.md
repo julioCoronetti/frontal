@@ -30,7 +30,7 @@
 
 ### Invariantes Arquiteturais Obrigatórios
 1. **Cache de Renderização em 2 Níveis ($O(1)$ no turno ativo):**
-   - O Nível 1 preserva a AST semântica imutável (`MessageBlock` com spans de estilo em `src/ui/cache.rs`) para turnos consolidados.
+   - O Nível 1 preserva a AST semântica imutável (`MessageBlock` com spans de estilo em `src/ui/cache/`) para turnos consolidados.
    - O Nível 2 mantém linhas visuais pré-formatadas indexadas por `(width, revision)`. Redimensionamentos (`SIGWINCH`) ou expansão/colapso de blocos invalidam seletivamente apenas o Nível 2 sem reprocessar Markdown.
    - Durante streaming contínuo, apenas o bloco ativo emite deltas, garantindo taxa de quadros estável a 60 FPS independentemente do volume histórico da conversa.
 2. **Event Loop TUI Não-Bloqueante (60 FPS):**
@@ -87,7 +87,7 @@
 ### Suíte Unificada de Testes de Integração (`tests/`)
 - `tests/suite.rs`: Ponto de entrada canônico do binário único de testes (*single integration test crate*).
 - `tests/common/mod.rs`: Utilitários compartilhados herméticos (`test_app`, `press_key`, guards RAII `TempDirGuard`/`TempFileGuard` com gerador atômico de sequência, `PGID_TEST_LOCK`).
-- `tests/domains/protocol_and_cli.rs`: Testes de protocolo `stream-json`, NDJSON, `LinesCodec` (16 MB) e flags CLI (11 testes).
+- `tests/domains/protocol_and_cli.rs`: Testes de protocolo `stream-json`, NDJSON, `LinesCodec` (16 MB) e flags CLI (12 testes).
 - `tests/domains/engine_and_session.rs`: Testes de subprocesso `agy`, replay de fixtures, POSIX `killpg`/`setpgid` e multiplexação MPSC (9 testes).
 - `tests/domains/cache_and_markdown.rs`: Testes de RenderCache L1/L2 $O(1)$, streaming Markdown, syntax highlighting `syntect`, tool cards e 60 FPS (16 testes).
 - `tests/domains/viewport_and_clipboard.rs`: Testes de sticky scroll, seleção limpa, word-wrap UTF-8, OSC 52, notificações sensoriais e compatibilidade `MinimalInputStub` (8 testes).

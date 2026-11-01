@@ -217,9 +217,7 @@ fn test_cli_args_engine_config_override_precedence() {
     assert!(initial_model.is_some());
 
     let empty_args = CliArgs::parse_from(["frontal"].into_iter().map(String::from));
-    if empty_args.model.is_some() {
-        config.model = empty_args.model;
-    }
+    empty_args.apply_to_config(&mut config);
     assert_eq!(config.model, initial_model);
 
     let override_args = CliArgs::parse_from(
@@ -227,8 +225,6 @@ fn test_cli_args_engine_config_override_precedence() {
             .into_iter()
             .map(String::from),
     );
-    if override_args.model.is_some() {
-        config.model = override_args.model;
-    }
+    override_args.apply_to_config(&mut config);
     assert_eq!(config.model.as_deref(), Some("custom-model"));
 }

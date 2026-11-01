@@ -66,12 +66,13 @@ impl App {
                                     .take()
                                     .map(|t| t.elapsed().as_secs_f64())
                             });
+                        let fallback_usage = self.last_turn_usage.take();
                         let tokens = res
                             .result
                             .as_ref()
                             .and_then(|r| r.usage.as_ref())
-                            .map(|u| u.output_tokens)
-                            .or_else(|| self.last_turn_usage.take().map(|u| u.output_tokens));
+                            .or(fallback_usage.as_ref())
+                            .map(|u| u.output_tokens);
                         let meta = crate::ui::cache::TurnMeta {
                             mode: self.active_mode_name(),
                             model: self.active_model_name(),
@@ -85,6 +86,7 @@ impl App {
                     }
                     StreamEvent::Error(err) => {
                         self.waiting_for_response = false;
+                        self.last_turn_usage = None;
                         let msg = err
                             .error
                             .or(err.message)

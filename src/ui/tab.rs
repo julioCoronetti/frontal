@@ -102,11 +102,12 @@ impl TabState {
                             .take()
                             .map(|t| t.elapsed().as_secs_f64())
                     });
+                let fallback_usage = self.last_turn_usage.take();
                 let tokens = res
                     .result
                     .as_ref()
                     .and_then(|r| r.usage.as_ref())
-                    .or(self.last_turn_usage.as_ref())
+                    .or(fallback_usage.as_ref())
                     .map(|u| u.output_tokens);
                 let meta = crate::ui::cache::TurnMeta {
                     mode: mode.to_string(),
@@ -122,6 +123,7 @@ impl TabState {
             }
             StreamEvent::Error(err) => {
                 self.waiting_for_response = false;
+                self.last_turn_usage = None;
                 let msg = err
                     .error
                     .as_deref()

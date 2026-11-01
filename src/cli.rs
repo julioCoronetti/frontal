@@ -7,6 +7,7 @@ use crate::protocol::{EngineEvent, StreamEvent};
 use crate::session::SessionManager;
 use crate::transport::{EngineConfig, ReplayMode};
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CliArgs {
     pub headless: bool,
     pub prompts: Vec<String>,
@@ -122,6 +123,33 @@ impl CliArgs {
         println!("  --cwd <PATH>                   Working directory");
         println!("  --help, -h                     Show this help message");
     }
+
+    pub fn apply_to_config(&self, config: &mut EngineConfig) {
+        if let Some(bin) = &self.agy_bin {
+            config.agy_bin = bin.clone();
+        }
+        if self.conversation_id.is_some() {
+            config.conversation_id = self.conversation_id.clone();
+        }
+        if self.project.is_some() {
+            config.project = self.project.clone();
+        }
+        if self.model.is_some() {
+            config.model = self.model.clone();
+        }
+        if self.mode.is_some() {
+            config.mode = self.mode.clone();
+        }
+        if self.effort.is_some() {
+            config.effort = self.effort.clone();
+        }
+        if self.cwd.is_some() {
+            config.cwd = self.cwd.clone();
+        }
+        if self.dangerously_skip_permissions {
+            config.dangerously_skip_permissions = true;
+        }
+    }
 }
 
 pub async fn run_from_env() -> Result<(), Box<dyn std::error::Error>> {
@@ -139,30 +167,7 @@ pub async fn run_from_env() -> Result<(), Box<dyn std::error::Error>> {
             .await?
     } else {
         let mut config = EngineConfig::new();
-        if let Some(bin) = args.agy_bin {
-            config.agy_bin = bin;
-        }
-        if args.conversation_id.is_some() {
-            config.conversation_id = args.conversation_id;
-        }
-        if args.project.is_some() {
-            config.project = args.project;
-        }
-        if args.model.is_some() {
-            config.model = args.model;
-        }
-        if args.mode.is_some() {
-            config.mode = args.mode;
-        }
-        if args.effort.is_some() {
-            config.effort = args.effort;
-        }
-        if args.cwd.is_some() {
-            config.cwd = args.cwd;
-        }
-        if args.dangerously_skip_permissions {
-            config.dangerously_skip_permissions = true;
-        }
+        args.apply_to_config(&mut config);
         session_manager.create_subprocess_session(config).await?
     };
 

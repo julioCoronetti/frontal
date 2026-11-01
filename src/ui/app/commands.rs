@@ -86,6 +86,10 @@ impl App {
                     }
                     "clear" => {
                         self.cache.clear();
+                        self.last_turn_usage = None;
+                        if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
+                            tab.last_turn_usage = None;
+                        }
                         self.status_text = String::from("Cleared");
                         Some(None)
                     }
@@ -116,6 +120,10 @@ impl App {
             Some(Some(AppAction::Quit))
         } else if trimmed == "/clear" {
             self.cache.clear();
+            self.last_turn_usage = None;
+            if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
+                tab.last_turn_usage = None;
+            }
             self.status_text = String::from("Cleared");
             self.dirty = true;
             Some(None)
