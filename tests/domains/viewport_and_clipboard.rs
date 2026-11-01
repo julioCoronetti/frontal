@@ -275,6 +275,41 @@ fn test_viewport_reverse_drag_selection_order() {
         }
     }
     assert_eq!(reversed, "abcdefg");
+
+    let mut cache_multi = RenderCache::new();
+    cache_multi.append_streaming_delta(
+        BlockKind::Assistant,
+        "first line\n\nsecond line\n\nthird line",
+    );
+    cache_multi.consolidate_active_turn(None);
+    cache_multi.ensure_visual_lines(80);
+
+    let mut vp_fwd = ConversationViewport::new();
+    vp_fwd.sync_dimensions(cache_multi.total_lines(), 20);
+    vp_fwd.start_selection(0, 4);
+    vp_fwd.update_selection(2, 8);
+
+    let mut vp_rev = ConversationViewport::new();
+    vp_rev.sync_dimensions(cache_multi.total_lines(), 20);
+    vp_rev.start_selection(2, 8);
+    vp_rev.update_selection(0, 4);
+
+    let fwd_slice = vp_fwd.visible_slice(&cache_multi);
+    let rev_slice = vp_rev.visible_slice(&cache_multi);
+
+    assert_eq!(fwd_slice.len(), rev_slice.len());
+    for (f_line, r_line) in fwd_slice.iter().zip(rev_slice.iter()) {
+        assert_eq!(f_line.spans.len(), r_line.spans.len());
+        for (f_span, r_span) in f_line.spans.iter().zip(r_line.spans.iter()) {
+            assert_eq!(f_span.content, r_span.content);
+            assert_eq!(f_span.style, r_span.style);
+        }
+    }
+
+    assert_eq!(
+        vp_fwd.selected_text(&cache_multi),
+        vp_rev.selected_text(&cache_multi)
+    );
 }
 
 #[test]
