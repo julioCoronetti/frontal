@@ -1,12 +1,12 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::ui::modal::ModalAction;
-use crate::ui::theme::{ACCENT_WARM, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY};
+use crate::ui::theme::{ACCENT_PRIMARY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModelEffortStep {
@@ -52,13 +52,17 @@ impl ModelEffortModal {
             "xhigh".to_string(),
             "max".to_string(),
         ];
+        let initial_effort_idx = items
+            .first()
+            .map(|m| Self::default_effort_for_model(&m.supported_efforts).0)
+            .unwrap_or(0);
         Self {
             step: ModelEffortStep::SelectModel,
             query: String::new(),
             models: items,
             fallback_efforts: fallback,
             selected_model_idx: 0,
-            selected_effort_idx: 0,
+            selected_effort_idx: initial_effort_idx,
             chosen_model: None,
             current_model: None,
         }
@@ -135,16 +139,9 @@ impl ModelEffortModal {
     }
 
     pub fn current_supported_efforts(&self) -> &[String] {
-        let model_id = self.chosen_model.as_ref().or_else(|| {
-            let filtered = self.filtered_indices();
-            filtered
-                .get(self.selected_model_idx)
-                .map(|&idx| &self.models[idx].id)
-        });
-        if let Some(id) = model_id {
-            if let Some(m) = self.models.iter().find(|m| &m.id == id) {
-                return &m.supported_efforts;
-            }
+        let filtered = self.filtered_indices();
+        if let Some(&idx) = filtered.get(self.selected_model_idx) {
+            return &self.models[idx].supported_efforts;
         }
         &self.fallback_efforts
     }
@@ -177,266 +174,268 @@ impl ModelEffortModal {
             .collect()
     }
 
+    pub fn effort_description(effort: &str) -> &'static str {
+        match effort {
+            "low" => "Fastest response, minimal reasoning — best for straightforward tasks",
+            "medium" => "Balanced speed and reasoning — recommended for most tasks",
+            "high" => "Deepest reasoning for complex problems — slower but strongest",
+            "xhigh" => "Extended reasoning budget for difficult coding challenges",
+            "max" => "Maximum reasoning capability and exhaustive verification",
+            _ => "Configured reasoning effort level",
+        }
+    }
+
+    fn sync_effort_after_model_change(&mut self, prev_effort: Option<String>) {
+        let effs = self.current_supported_efforts();
+        if let Some(prev) = prev_effort {
+            if let Some(pos) = effs.iter().position(|e| e == &prev) {
+                self.selected_effort_idx = pos;
+                return;
+            }
+        }
+        let (def_idx, _) = Self::default_effort_for_model(effs);
+        self.selected_effort_idx = def_idx;
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) -> ModalAction {
-        match self.step {
-            ModelEffortStep::SelectModel => match key.code {
-                KeyCode::Esc => ModalAction::Close,
-                KeyCode::Enter | KeyCode::Tab => {
-                    let filtered = self.filtered_indices();
-                    if let Some(&real_idx) = filtered.get(self.selected_model_idx) {
-                        let m = &self.models[real_idx];
-                        let (def_idx, _) = Self::default_effort_for_model(&m.supported_efforts);
-                        self.chosen_model = Some(m.id.clone());
-                        self.selected_effort_idx = def_idx;
-                        self.step = ModelEffortStep::SelectEffort;
-                    }
-                    ModalAction::None
+        let max_model = self.filtered_indices().len().saturating_sub(1);
+        let max_eff = self.current_supported_efforts().len().saturating_sub(1);
+
+        match key.code {
+            KeyCode::Esc => ModalAction::Close,
+            KeyCode::Up => {
+                let prev_eff = self
+                    .current_supported_efforts()
+                    .get(self.selected_effort_idx)
+                    .cloned();
+                self.selected_model_idx = self.selected_model_idx.saturating_sub(1);
+                self.sync_effort_after_model_change(prev_eff);
+                ModalAction::None
+            }
+            KeyCode::Down => {
+                if self.selected_model_idx < max_model {
+                    let prev_eff = self
+                        .current_supported_efforts()
+                        .get(self.selected_effort_idx)
+                        .cloned();
+                    self.selected_model_idx += 1;
+                    self.sync_effort_after_model_change(prev_eff);
                 }
-                KeyCode::Up => {
-                    self.selected_model_idx = self.selected_model_idx.saturating_sub(1);
-                    ModalAction::None
+                ModalAction::None
+            }
+            KeyCode::Left => {
+                self.selected_effort_idx = self.selected_effort_idx.saturating_sub(1);
+                ModalAction::None
+            }
+            KeyCode::Right => {
+                self.selected_effort_idx = (self.selected_effort_idx + 1).min(max_eff);
+                ModalAction::None
+            }
+            KeyCode::Tab => {
+                let effs = self.current_supported_efforts();
+                if !effs.is_empty() {
+                    self.selected_effort_idx = (self.selected_effort_idx + 1) % effs.len();
                 }
-                KeyCode::Down => {
-                    let filtered = self.filtered_indices();
-                    if !filtered.is_empty() && self.selected_model_idx + 1 < filtered.len() {
-                        self.selected_model_idx += 1;
-                    }
-                    ModalAction::None
+                ModalAction::None
+            }
+            KeyCode::BackTab => {
+                let effs = self.current_supported_efforts();
+                if !effs.is_empty() {
+                    self.selected_effort_idx =
+                        (self.selected_effort_idx + effs.len() - 1) % effs.len();
                 }
-                KeyCode::Char(c)
-                    if !key.modifiers.contains(KeyModifiers::CONTROL)
-                        && !key.modifiers.contains(KeyModifiers::ALT) =>
-                {
-                    self.query.push(c);
-                    self.selected_model_idx = 0;
-                    ModalAction::None
-                }
-                KeyCode::Backspace => {
-                    self.query.pop();
-                    self.selected_model_idx = 0;
-                    ModalAction::None
-                }
-                _ => ModalAction::None,
-            },
-            ModelEffortStep::SelectEffort => match key.code {
-                KeyCode::Esc | KeyCode::Backspace => {
-                    self.step = ModelEffortStep::SelectModel;
-                    ModalAction::None
-                }
-                KeyCode::Up => {
-                    self.selected_effort_idx = self.selected_effort_idx.saturating_sub(1);
-                    ModalAction::None
-                }
-                KeyCode::Down => {
-                    let efforts = self.current_supported_efforts();
-                    if !efforts.is_empty() && self.selected_effort_idx + 1 < efforts.len() {
-                        self.selected_effort_idx += 1;
-                    }
-                    ModalAction::None
-                }
-                KeyCode::Tab => {
-                    let efforts = self.current_supported_efforts();
-                    if !efforts.is_empty() {
-                        self.selected_effort_idx = (self.selected_effort_idx + 1) % efforts.len();
-                    }
-                    ModalAction::None
-                }
-                KeyCode::BackTab => {
-                    let efforts = self.current_supported_efforts();
-                    if !efforts.is_empty() {
-                        self.selected_effort_idx =
-                            (self.selected_effort_idx + efforts.len() - 1) % efforts.len();
-                    }
-                    ModalAction::None
-                }
-                KeyCode::Enter => {
-                    let model = self
-                        .chosen_model
-                        .clone()
-                        .or_else(|| {
-                            let filtered = self.filtered_indices();
-                            filtered
-                                .get(self.selected_model_idx)
-                                .map(|&idx| self.models[idx].id.clone())
-                        })
-                        .unwrap_or_else(|| crate::config::DEFAULT_MODEL.to_string());
+                ModalAction::None
+            }
+            KeyCode::Enter => {
+                let filtered = self.filtered_indices();
+                if let Some(&real_idx) = filtered.get(self.selected_model_idx) {
+                    let model = self.models[real_idx].id.clone();
                     let efforts = self.current_supported_efforts();
                     let effort = efforts
                         .get(self.selected_effort_idx)
                         .cloned()
                         .unwrap_or_else(|| "high".to_string());
+                    self.chosen_model = Some(model.clone());
                     ModalAction::SelectModelEffort { model, effort }
+                } else {
+                    ModalAction::None
                 }
-                _ => ModalAction::None,
-            },
+            }
+            KeyCode::Char(c)
+                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT) =>
+            {
+                let prev_eff = self
+                    .current_supported_efforts()
+                    .get(self.selected_effort_idx)
+                    .cloned();
+                self.query.push(c);
+                self.selected_model_idx = 0;
+                self.sync_effort_after_model_change(prev_eff);
+                ModalAction::None
+            }
+            KeyCode::Backspace => {
+                let prev_eff = self
+                    .current_supported_efforts()
+                    .get(self.selected_effort_idx)
+                    .cloned();
+                self.query.pop();
+                self.selected_model_idx = 0;
+                self.sync_effort_after_model_change(prev_eff);
+                ModalAction::None
+            }
+            _ => ModalAction::None,
         }
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect) {
-        match self.step {
-            ModelEffortStep::SelectModel => {
-                let block = Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(BORDER_SUBTLE));
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(BORDER_SUBTLE));
 
-                let mut lines = Vec::new();
-                let esc_pad = (area.width as usize).saturating_sub(18);
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        " Select model",
-                        Style::default()
-                            .fg(TEXT_PRIMARY)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(
-                        format!("{:>esc_pad$}", "esc"),
-                        Style::default().fg(TEXT_MUTED),
-                    ),
-                ]));
-                lines.push(Line::raw(""));
+        let mut lines = Vec::new();
+        let esc_pad = (area.width as usize).saturating_sub(17);
+        lines.push(Line::from(vec![
+            Span::styled(
+                " Switch Model",
+                Style::default()
+                    .fg(TEXT_PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("{:>esc_pad$}", "esc"),
+                Style::default().fg(TEXT_MUTED),
+            ),
+        ]));
+        lines.push(Line::raw(""));
 
-                let query_span = if self.query.is_empty() {
-                    Span::styled(" Search", Style::default().fg(TEXT_MUTED))
+        let query_span = if self.query.is_empty() {
+            Span::styled("   Search: ", Style::default().fg(TEXT_MUTED))
+        } else {
+            Span::styled(
+                format!("   Search: {}", self.query),
+                Style::default()
+                    .fg(TEXT_PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            )
+        };
+        lines.push(Line::from(vec![
+            query_span,
+            Span::styled("█", Style::default().fg(ACCENT_PRIMARY)),
+        ]));
+        lines.push(Line::from(vec![Span::styled(
+            "   ─────────────────────",
+            Style::default().fg(BORDER_SUBTLE),
+        )]));
+        lines.push(Line::raw(""));
+
+        let filtered = self.filtered_indices();
+        let visible_count = area.height.saturating_sub(11) as usize;
+        let visible_count = visible_count.max(1);
+        let scroll_offset = if self.selected_model_idx >= visible_count {
+            self.selected_model_idx + 1 - visible_count
+        } else {
+            0
+        };
+
+        if filtered.is_empty() {
+            lines.push(Line::from(vec![Span::styled(
+                "   No models matching query",
+                Style::default().fg(TEXT_MUTED),
+            )]));
+        } else {
+            for (display_idx, &real_idx) in filtered
+                .iter()
+                .enumerate()
+                .skip(scroll_offset)
+                .take(visible_count)
+            {
+                let is_sel = display_idx == self.selected_model_idx;
+                let m = &self.models[real_idx];
+                let is_current = self
+                    .current_model
+                    .as_ref()
+                    .map(|cur| cur == &m.id || cur.starts_with(&format!("{}-", m.id)))
+                    .unwrap_or(false);
+
+                let prefix = if is_sel { "> " } else { "  " };
+                let current_label = if is_current { "  (current)" } else { "" };
+
+                let style = if is_sel {
+                    Style::default()
+                        .fg(ACCENT_PRIMARY)
+                        .add_modifier(Modifier::BOLD)
                 } else {
-                    Span::styled(
-                        format!(" {}", self.query),
-                        Style::default()
-                            .fg(TEXT_PRIMARY)
-                            .add_modifier(Modifier::BOLD),
-                    )
+                    Style::default().fg(TEXT_PRIMARY)
                 };
+
                 lines.push(Line::from(vec![
-                    query_span,
-                    Span::styled("█", Style::default().fg(ACCENT_WARM)),
+                    Span::styled(format!(" {}", prefix), style),
+                    Span::styled(&m.name, style),
+                    Span::styled(current_label, Style::default().fg(TEXT_MUTED)),
                 ]));
-                lines.push(Line::raw(""));
-
-                let filtered = self.filtered_indices();
-                let visible_count = area.height.saturating_sub(6) as usize;
-                let visible_count = visible_count.max(1);
-                let scroll_offset = if self.selected_model_idx >= visible_count {
-                    self.selected_model_idx + 1 - visible_count
-                } else {
-                    0
-                };
-
-                if filtered.is_empty() {
-                    lines.push(Line::from(vec![Span::styled(
-                        "   No models matching query",
-                        Style::default().fg(TEXT_MUTED),
-                    )]));
-                } else {
-                    for (display_idx, &real_idx) in filtered
-                        .iter()
-                        .enumerate()
-                        .skip(scroll_offset)
-                        .take(visible_count)
-                    {
-                        let is_sel = display_idx == self.selected_model_idx;
-                        let m = &self.models[real_idx];
-                        let is_current = self
-                            .current_model
-                            .as_ref()
-                            .map(|cur| cur == &m.id || cur.starts_with(&format!("{}-", m.id)))
-                            .unwrap_or(false);
-
-                        let dot_span = if is_current {
-                            Span::styled("● ", Style::default().fg(ACCENT_WARM))
-                        } else {
-                            Span::raw("  ")
-                        };
-
-                        let style = if is_sel {
-                            Style::default()
-                                .bg(ACCENT_WARM)
-                                .fg(Color::Black)
-                                .add_modifier(Modifier::BOLD)
-                        } else {
-                            Style::default().fg(TEXT_PRIMARY)
-                        };
-
-                        let efforts_label = m.supported_efforts.join("·");
-                        let total_w = area.width.saturating_sub(6) as usize;
-                        let name_w = total_w.saturating_sub(efforts_label.len() + 1).max(10);
-
-                        lines.push(Line::from(vec![
-                            if is_sel {
-                                Span::styled(" ", style)
-                            } else {
-                                dot_span
-                            },
-                            Span::styled(format!("{:<name_w$}", m.name), style),
-                            Span::styled(
-                                format!(" {}", efforts_label),
-                                if is_sel {
-                                    style
-                                } else {
-                                    Style::default().fg(TEXT_MUTED)
-                                },
-                            ),
-                        ]));
-                    }
-                }
-
-                let widget = Paragraph::new(lines).block(block);
-                frame.render_widget(Clear, area);
-                frame.render_widget(widget, area);
-            }
-            ModelEffortStep::SelectEffort => {
-                let block = Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(BORDER_SUBTLE));
-
-                let mut lines = Vec::new();
-                let esc_pad = (area.width as usize).saturating_sub(19);
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        " Select effort",
-                        Style::default()
-                            .fg(TEXT_PRIMARY)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(
-                        format!("{:>esc_pad$}", "esc"),
-                        Style::default().fg(TEXT_MUTED),
-                    ),
-                ]));
-                lines.push(Line::raw(""));
-
-                let chosen = self.chosen_model.as_deref().unwrap_or("None");
-                lines.push(Line::from(vec![
-                    Span::styled(" Model: ", Style::default().fg(TEXT_MUTED)),
-                    Span::styled(
-                        chosen,
-                        Style::default()
-                            .fg(TEXT_PRIMARY)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                ]));
-                lines.push(Line::raw(""));
-
-                let efforts = self.current_supported_efforts();
-                for (idx, eff) in efforts.iter().enumerate() {
-                    let is_sel = idx == self.selected_effort_idx;
-                    let style = if is_sel {
-                        Style::default()
-                            .bg(ACCENT_WARM)
-                            .fg(Color::Black)
-                            .add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(TEXT_PRIMARY)
-                    };
-                    let prefix = if is_sel { " > " } else { "   " };
-                    lines.push(Line::from(vec![
-                        Span::styled(prefix, style),
-                        Span::styled(format!("{:<16}", eff), style),
-                    ]));
-                }
-
-                let widget = Paragraph::new(lines).block(block);
-                frame.render_widget(Clear, area);
-                frame.render_widget(widget, area);
             }
         }
+
+        lines.push(Line::raw(""));
+
+        let efforts = self.current_supported_efforts();
+        if !efforts.is_empty() {
+            let mut track_spans = Vec::new();
+            track_spans.push(Span::styled(" Effort  ", Style::default().fg(TEXT_PRIMARY)));
+            track_spans.push(Span::styled("◀    ", Style::default().fg(ACCENT_PRIMARY)));
+
+            let mut label_spans = Vec::new();
+            label_spans.push(Span::raw("             "));
+
+            for (i, eff) in efforts.iter().enumerate() {
+                if i > 0 {
+                    track_spans.push(Span::styled(
+                        "─────────",
+                        Style::default().fg(BORDER_SUBTLE),
+                    ));
+                }
+                let is_active_effort = i == self.selected_effort_idx;
+                if is_active_effort {
+                    track_spans.push(Span::styled(
+                        "◎",
+                        Style::default()
+                            .fg(ACCENT_PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ));
+                    label_spans.push(Span::styled(
+                        format!("{:<9}", eff),
+                        Style::default()
+                            .fg(ACCENT_PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ));
+                } else {
+                    track_spans.push(Span::styled("●", Style::default().fg(TEXT_MUTED)));
+                    label_spans.push(Span::styled(
+                        format!("{:<9}", eff),
+                        Style::default().fg(TEXT_MUTED),
+                    ));
+                }
+            }
+            track_spans.push(Span::styled("    ▶", Style::default().fg(ACCENT_PRIMARY)));
+            lines.push(Line::from(track_spans));
+            lines.push(Line::from(label_spans));
+
+            let current_eff = efforts
+                .get(self.selected_effort_idx)
+                .map(|s| s.as_str())
+                .unwrap_or("high");
+            let desc = Self::effort_description(current_eff);
+            lines.push(Line::from(vec![Span::styled(
+                format!("     {}", desc),
+                Style::default()
+                    .fg(TEXT_MUTED)
+                    .add_modifier(Modifier::ITALIC),
+            )]));
+        }
+
+        let widget = Paragraph::new(lines).block(block);
+        frame.render_widget(Clear, area);
+        frame.render_widget(widget, area);
     }
 }

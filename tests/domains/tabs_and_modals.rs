@@ -9,9 +9,7 @@ use frontal::protocol::{
 };
 use frontal::ui::app::AppAction;
 use frontal::ui::diff::{DiffLineKind, DiffViewer};
-use frontal::ui::modal::{
-    CommandPaletteModal, HotRespawnModal, ModalAction, ModelEffortModal, ModelEffortStep,
-};
+use frontal::ui::modal::{CommandPaletteModal, HotRespawnModal, ModalAction, ModelEffortModal};
 
 use crate::common::{press_key, test_app};
 
@@ -168,23 +166,21 @@ fn test_model_effort_selector_two_step_flow() {
     modal.handle_key(down);
     assert_eq!(modal.selected_model_idx, 1);
 
+    let left = KeyEvent::new(KeyCode::Left, KeyModifiers::NONE);
+    modal.handle_key(left);
+    assert_eq!(modal.selected_effort_idx, 1);
+
+    let right = KeyEvent::new(KeyCode::Right, KeyModifiers::NONE);
+    modal.handle_key(right);
+    assert_eq!(modal.selected_effort_idx, 2);
+
     let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-    let act1 = modal.handle_key(enter);
-    assert_eq!(act1, ModalAction::None);
-    assert_eq!(modal.step, ModelEffortStep::SelectEffort);
-    assert_eq!(modal.chosen_model.as_deref(), Some("gemini-4-argon"));
-
-    let tab = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
-    modal.handle_key(tab);
-    assert_eq!(modal.selected_effort_idx, 0);
-
-    let enter2 = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-    let act2 = modal.handle_key(enter2);
+    let act = modal.handle_key(enter);
     assert_eq!(
-        act2,
+        act,
         ModalAction::SelectModelEffort {
             model: "gemini-4-argon".to_string(),
-            effort: "low".to_string(),
+            effort: "high".to_string(),
         }
     );
 }
@@ -528,11 +524,8 @@ fn test_model_effort_query_filtering_and_effort_cycling() {
         assert!(m.id.contains("so") || m.name.to_lowercase().contains("so"));
     }
 
-    let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-    modal.handle_key(enter);
-    assert_eq!(modal.step, ModelEffortStep::SelectEffort);
-    let tab2 = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
-    modal.handle_key(tab2);
+    let tab = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
+    modal.handle_key(tab);
     assert_eq!(modal.selected_effort_idx, 0);
     let backtab = KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE);
     modal.handle_key(backtab);
@@ -759,31 +752,18 @@ fn test_model_catalog_normalization_and_effort_decoupling() {
     assert_eq!(modal.models[2].name, "Custom Model");
 
     let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-    let act1 = modal.handle_key(enter);
-    assert_eq!(act1, ModalAction::None);
-    assert_eq!(modal.step, ModelEffortStep::SelectEffort);
-    assert_eq!(modal.chosen_model.as_deref(), Some("gemini-3.8-flash"));
-
-    let act_confirm = modal.handle_key(enter);
+    let act = modal.handle_key(enter);
     assert_eq!(
-        act_confirm,
+        act,
         ModalAction::SelectModelEffort {
             model: "gemini-3.8-flash".to_string(),
             effort: "high".to_string(),
         }
     );
 
-    let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
-    let act_back = modal.handle_key(esc);
-    assert_eq!(act_back, ModalAction::None);
-    assert_eq!(modal.step, ModelEffortStep::SelectModel);
-
     let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
     modal.handle_key(down);
     assert_eq!(modal.selected_model_idx, 1);
-
-    modal.handle_key(enter);
-    assert_eq!(modal.step, ModelEffortStep::SelectEffort);
     assert_eq!(modal.current_supported_efforts(), &["medium".to_string()]);
 
     let act2 = modal.handle_key(enter);
