@@ -332,3 +332,31 @@ fn test_prompt_editor_dynamic_scroll_and_cursor_containment() {
     assert!(pos.y > 0 && pos.y < 10);
     assert!(pos.x > 0 && pos.x < 80);
 }
+
+#[test]
+fn test_adversarial_paste_and_selection_sanitization() {
+    let mut editor = PromptEditor::new();
+    let malformed = "\x1b[31;1mLine 1\x1b[0m\r\nLine 2\rLine 3\x00\x08\r\nLine 4\rLine 5\r\nLine 6\x1b]9;notification\x07";
+    editor.insert_paste(malformed);
+
+    assert_eq!(editor.line_count(), 1);
+    let pill_text = editor.text();
+    assert!(pill_text.starts_with("[Pasted #1: ~6 lines]"));
+
+    let resolved = editor.take_submitted_expanded().unwrap();
+    assert!(!resolved.contains('\r'));
+    assert!(!resolved.contains('\x1b'));
+    assert!(!resolved.contains('\x00'));
+    assert!(!resolved.contains('\x08'));
+    assert!(resolved.contains("Line 1\nLine 2\nLine 3\nLine 4\nLine 5\nLine 6"));
+
+    let (mut app, _) = test_app();
+    let backend = TestBackend::new(20, 6);
+    let mut terminal = Terminal::new(backend).unwrap();
+    app.editor.insert_str(&resolved);
+    terminal.draw(|f| app.render(f)).unwrap();
+
+    let pos = terminal.get_cursor_position().unwrap();
+    assert!(pos.y < 6);
+    assert!(pos.x < 20);
+}
