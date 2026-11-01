@@ -132,7 +132,7 @@ fn test_model_effort_selector_two_step_flow() {
     assert_eq!(
         act,
         ModalAction::SelectModelEffort {
-            model: "gemini-4-argon-medium".to_string(),
+            model: "gemini-3.8-flash-medium".to_string(),
             effort: "xhigh".to_string(),
         }
     );

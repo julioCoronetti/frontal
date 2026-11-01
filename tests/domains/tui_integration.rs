@@ -256,7 +256,7 @@ fn test_footer_cwd_and_active_model_header() {
         .join("");
 
     assert!(rendered.contains(&app.cwd_display));
-    assert!(rendered.contains("gemini-4-argon-high"));
+    assert!(rendered.contains("gemini-3.8-flash-high"));
     assert!(rendered.contains("Ctrl+P: Palette"));
 }
 

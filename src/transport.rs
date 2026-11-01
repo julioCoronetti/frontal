@@ -71,13 +71,30 @@ pub struct EngineConfig {
 impl EngineConfig {
     pub fn new() -> Self {
         let bin = Self::resolve_agy_binary();
+        let user_config = crate::config::UserConfig::load();
         Self {
             agy_bin: bin,
             conversation_id: None,
             project: None,
-            model: None,
-            mode: None,
-            effort: None,
+            model: Some(user_config.model),
+            mode: Some(user_config.mode),
+            effort: Some(user_config.effort),
+            cwd: None,
+            dangerously_skip_permissions: true,
+            extra_args: Vec::new(),
+        }
+    }
+
+    pub fn new_isolated() -> Self {
+        let bin = Self::resolve_agy_binary();
+        let user_config = crate::config::UserConfig::new_isolated();
+        Self {
+            agy_bin: bin,
+            conversation_id: None,
+            project: None,
+            model: Some(user_config.model),
+            mode: Some(user_config.mode),
+            effort: Some(user_config.effort),
             cwd: None,
             dangerously_skip_permissions: true,
             extra_args: Vec::new(),
@@ -103,18 +120,6 @@ impl EngineConfig {
     pub fn default_fallback_models() -> Vec<(String, String)> {
         vec![
             (
-                "gemini-4-argon-high".to_string(),
-                "Gemini 4 Argon (High)".to_string(),
-            ),
-            (
-                "gemini-4-argon-medium".to_string(),
-                "Gemini 4 Argon (Medium)".to_string(),
-            ),
-            (
-                "gemini-4-argon-low".to_string(),
-                "Gemini 4 Argon (Low)".to_string(),
-            ),
-            (
                 "gemini-3.8-flash-high".to_string(),
                 "Gemini 3.8 Flash (High)".to_string(),
             ),
@@ -125,6 +130,18 @@ impl EngineConfig {
             (
                 "gemini-3.8-flash-low".to_string(),
                 "Gemini 3.8 Flash (Low)".to_string(),
+            ),
+            (
+                "gemini-4-argon-high".to_string(),
+                "Gemini 4 Argon (High)".to_string(),
+            ),
+            (
+                "gemini-4-argon-medium".to_string(),
+                "Gemini 4 Argon (Medium)".to_string(),
+            ),
+            (
+                "gemini-4-argon-low".to_string(),
+                "Gemini 4 Argon (Low)".to_string(),
             ),
             (
                 "claude-opus-5-5-high".to_string(),

@@ -54,6 +54,7 @@ pub struct App {
     pub clipboard: SystemClipboard,
     pub cwd_display: String,
     pub available_models: Vec<(String, String)>,
+    pub user_config: crate::config::UserConfig,
     pub viewport_bounds: (u16, u16, u16, u16),
     pub turn_started_at: Option<std::time::Instant>,
 }
@@ -110,6 +111,7 @@ impl App {
             clipboard: SystemClipboard::new(),
             cwd_display,
             available_models,
+            user_config: crate::config::UserConfig::load(),
             viewport_bounds: (0, 0, 80, 20),
             turn_started_at: None,
         }
@@ -144,6 +146,7 @@ impl App {
             clipboard: SystemClipboard::new_isolated(),
             cwd_display,
             available_models,
+            user_config: crate::config::UserConfig::new_isolated(),
             viewport_bounds: (0, 0, 80, 20),
             turn_started_at: None,
         }
@@ -157,21 +160,21 @@ impl App {
         self.session_manager
             .get_metadata(&self.active_session)
             .and_then(|m| m.model.clone())
-            .unwrap_or_else(|| String::from("gemini-4-argon-high"))
+            .unwrap_or_else(|| self.user_config.model.clone())
     }
 
     pub fn active_mode_name(&self) -> String {
         self.session_manager
             .get_metadata(&self.active_session)
             .and_then(|m| m.mode.clone())
-            .unwrap_or_else(|| String::from("auto"))
+            .unwrap_or_else(|| self.user_config.mode.clone())
     }
 
     pub fn active_effort_name(&self) -> String {
         self.session_manager
             .get_metadata(&self.active_session)
             .and_then(|m| m.effort.clone())
-            .unwrap_or_else(|| String::from("high"))
+            .unwrap_or_else(|| self.user_config.effort.clone())
     }
 
     pub(crate) fn sync_editor_to_input(&mut self) {

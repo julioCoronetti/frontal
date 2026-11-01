@@ -30,6 +30,9 @@ impl App {
             ModalAction::SelectModelEffort { model, effort } => {
                 self.modals.pop();
                 self.status_text = format!("Model: {} ({})", model, effort);
+                self.user_config.model = model.clone();
+                self.user_config.effort = effort.clone();
+                let _ = self.user_config.save();
                 Some(Some(AppAction::RespawnSession {
                     conversation_id: None,
                     model: Some(model),

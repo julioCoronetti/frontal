@@ -1,4 +1,5 @@
 pub mod cli;
+pub mod config;
 pub mod engine;
 pub mod protocol;
 pub mod session;

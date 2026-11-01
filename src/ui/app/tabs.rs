@@ -136,6 +136,17 @@ impl App {
         let final_effort = effort.or(prev_effort);
         let final_mode = mode.or(prev_mode);
 
+        if let Some(m) = &final_model {
+            self.user_config.model = m.clone();
+        }
+        if let Some(e) = &final_effort {
+            self.user_config.effort = e.clone();
+        }
+        if let Some(md) = &final_mode {
+            self.user_config.mode = md.clone();
+        }
+        let _ = self.user_config.save();
+
         let new_id = if was_replay {
             let id = SessionId::new();
             self.session_manager.register_mock_session(id.clone());

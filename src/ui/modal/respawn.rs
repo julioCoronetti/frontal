@@ -25,9 +25,9 @@ impl HotRespawnModal {
     ) -> Self {
         Self {
             conversation_id: conv_id.unwrap_or_default(),
-            model: model.unwrap_or_else(|| "gemini-4-argon-high".to_string()),
-            effort: effort.unwrap_or_else(|| "high".to_string()),
-            mode: mode.unwrap_or_else(|| "auto".to_string()),
+            model: model.unwrap_or_else(|| crate::config::DEFAULT_MODEL.to_string()),
+            effort: effort.unwrap_or_else(|| crate::config::DEFAULT_EFFORT.to_string()),
+            mode: mode.unwrap_or_else(|| crate::config::DEFAULT_MODE.to_string()),
             active_field: 0,
         }
     }

@@ -121,9 +121,9 @@ impl App {
                 let meta = self.session_manager.get_metadata(&envelope.session_id);
                 (
                     meta.and_then(|m| m.mode.clone())
-                        .unwrap_or_else(|| "auto".to_string()),
+                        .unwrap_or_else(|| crate::config::DEFAULT_MODE.to_string()),
                     meta.and_then(|m| m.model.clone())
-                        .unwrap_or_else(|| "gemini-4-argon-high".to_string()),
+                        .unwrap_or_else(|| crate::config::DEFAULT_MODEL.to_string()),
                 )
             };
             match envelope.event {

@@ -64,9 +64,9 @@ impl SessionManager {
         let metadata = SessionMetadata {
             session_id: session_id.clone(),
             conversation_id: None,
-            model: Some("gemini-4-argon-high".to_string()),
-            mode: Some("auto".to_string()),
-            effort: Some("high".to_string()),
+            model: Some(crate::config::DEFAULT_MODEL.to_string()),
+            mode: Some(crate::config::DEFAULT_MODE.to_string()),
+            effort: Some(crate::config::DEFAULT_EFFORT.to_string()),
             turns: 0,
             last_prompt: None,
             status: SessionStatus::Ready,

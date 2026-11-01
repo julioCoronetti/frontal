@@ -192,3 +192,20 @@ fn test_cli_args_parsing_options() {
     assert_eq!(parsed.effort.as_deref(), Some("high"));
     assert_eq!(parsed.project.as_deref(), Some("test-proj"));
 }
+
+#[test]
+fn test_user_config_defaults_and_parsing() {
+    let mut config = frontal::config::UserConfig::new_isolated();
+    assert_eq!(config.model, frontal::config::DEFAULT_MODEL);
+    assert_eq!(config.effort, frontal::config::DEFAULT_EFFORT);
+    assert_eq!(config.mode, frontal::config::DEFAULT_MODE);
+    assert!(config.isolated);
+
+    let toml = "model = \"custom-model\"\neffort = 'low'\nmode = \"ask\"\n";
+    config.parse_content(toml);
+    assert_eq!(config.model, "custom-model");
+    assert_eq!(config.effort, "low");
+    assert_eq!(config.mode, "ask");
+
+    assert!(config.save().is_ok());
+}

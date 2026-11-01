@@ -174,7 +174,7 @@ impl ModelEffortModal {
                                 .get(self.selected_model_idx)
                                 .map(|&idx| self.models[idx].id.clone())
                         })
-                        .unwrap_or_else(|| "gemini-4-argon-high".to_string());
+                        .unwrap_or_else(|| crate::config::DEFAULT_MODEL.to_string());
                     let effort = self.efforts[self.selected_effort_idx].clone();
                     ModalAction::SelectModelEffort { model, effort }
                 }
