@@ -202,6 +202,13 @@ impl SessionManager {
             .unwrap_or(false)
     }
 
+    pub fn get_engine_config(&self, session_id: &SessionId) -> Option<EngineConfig> {
+        self.sessions.get(session_id).and_then(|h| match &h.engine {
+            SessionEngine::Subprocess(engine) => Some(engine.config().clone()),
+            SessionEngine::Replay(_) => None,
+        })
+    }
+
     pub fn get_metadata(&self, session_id: &SessionId) -> Option<&SessionMetadata> {
         self.sessions.get(session_id).map(|h| &h.metadata)
     }

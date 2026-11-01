@@ -16,6 +16,9 @@ impl App {
                     }
                     StreamEvent::StepUpdate(update) => {
                         if let Some(data) = update.step_update {
+                            if let Some(usage) = data.usage {
+                                self.last_turn_usage = Some(usage);
+                            }
                             if let Some(ref delta) = data.text_delta {
                                 self.waiting_for_response = false;
                                 self.cache
@@ -67,7 +70,8 @@ impl App {
                             .result
                             .as_ref()
                             .and_then(|r| r.usage.as_ref())
-                            .map(|u| u.output_tokens);
+                            .map(|u| u.output_tokens)
+                            .or_else(|| self.last_turn_usage.take().map(|u| u.output_tokens));
                         let meta = crate::ui::cache::TurnMeta {
                             mode: self.active_mode_name(),
                             model: self.active_model_name(),

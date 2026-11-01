@@ -118,6 +118,7 @@ impl App {
     ) -> Result<SessionId, crate::transport::EngineError> {
         let old_id = self.active_session.clone();
         let was_replay = self.session_manager.is_replay_session(&old_id);
+        let base_engine_config = self.session_manager.get_engine_config(&old_id);
         let (prev_conv_id, prev_model, prev_effort, prev_mode) = {
             let meta = self.session_manager.get_metadata(&old_id);
             (
@@ -159,7 +160,7 @@ impl App {
             );
             id
         } else {
-            let mut config = crate::transport::EngineConfig::new();
+            let mut config = base_engine_config.unwrap_or_default();
             config.conversation_id = final_conv_id;
             config.model = final_model;
             config.effort = final_effort;
@@ -172,7 +173,9 @@ impl App {
         self.session_manager.set_active_session(new_id.clone());
         if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
             tab.session_id = new_id.clone();
+            tab.waiting_for_response = false;
         }
+        self.waiting_for_response = false;
         self.status_text = format!("Respawned session: {}", new_id);
         self.dirty = true;
         Ok(new_id)

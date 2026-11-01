@@ -58,6 +58,7 @@ pub struct App {
     pub viewport_bounds: (u16, u16, u16, u16),
     pub turn_started_at: Option<std::time::Instant>,
     pub last_ctrl_c_at: Option<std::time::Instant>,
+    pub last_turn_usage: Option<crate::protocol::TokenUsage>,
 }
 
 impl App {
@@ -116,6 +117,7 @@ impl App {
             viewport_bounds: (0, 0, 80, 20),
             turn_started_at: None,
             last_ctrl_c_at: None,
+            last_turn_usage: None,
         }
     }
 
@@ -152,6 +154,7 @@ impl App {
             viewport_bounds: (0, 0, 80, 20),
             turn_started_at: None,
             last_ctrl_c_at: None,
+            last_turn_usage: None,
         }
     }
 
