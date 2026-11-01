@@ -388,3 +388,45 @@ fn test_prompt_editor_paste_sanitization_removes_carriage_returns_and_control_ch
     let content = editor.text();
     assert_eq!(content, "hello\nworld\ntest!");
 }
+
+#[test]
+fn test_adversarial_prompt_shortcuts_and_undo_boundaries() {
+    let mut editor = PromptEditor::new();
+    assert!(!editor.delete_to_line_start());
+    editor.select_all();
+    assert!(!editor.has_selection());
+
+    editor.insert_str("🦀 primeira linha\n🚀 segunda linha com emojis");
+    editor.select_all();
+    editor.select_all();
+    assert_eq!(
+        editor.selected_text(),
+        Some("🦀 primeira linha\n🚀 segunda linha com emojis".to_string())
+    );
+
+    editor.insert_str("substituição");
+    assert_eq!(editor.text(), "substituição");
+    assert!(editor.undo());
+    assert_eq!(
+        editor.text(),
+        "🦀 primeira linha\n🚀 segunda linha com emojis"
+    );
+
+    editor.move_home();
+    assert!(!editor.delete_to_line_start());
+    assert_eq!(
+        editor.text(),
+        "🦀 primeira linha\n🚀 segunda linha com emojis"
+    );
+
+    editor.clear();
+    for i in 0..120 {
+        editor.insert_str(&format!("w{} ", i));
+    }
+    let mut undo_count = 0;
+    while editor.undo() {
+        undo_count += 1;
+    }
+    assert!(undo_count >= 99);
+    assert!(!editor.undo());
+}
