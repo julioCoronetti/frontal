@@ -18,13 +18,14 @@ pub enum ModelEffortStep {
 pub struct ModelItem {
     pub id: String,
     pub name: String,
+    pub supported_efforts: Vec<String>,
 }
 
 pub struct ModelEffortModal {
     pub step: ModelEffortStep,
     pub query: String,
     pub models: Vec<ModelItem>,
-    pub efforts: Vec<String>,
+    pub fallback_efforts: Vec<String>,
     pub selected_model_idx: usize,
     pub selected_effort_idx: usize,
     pub chosen_model: Option<String>,
@@ -42,24 +43,119 @@ impl ModelEffortModal {
     }
 
     pub fn with_models(models: Vec<(String, String)>) -> Self {
-        let items = models
-            .into_iter()
-            .map(|(id, name)| ModelItem { id, name })
-            .collect();
+        let items = Self::normalize_catalog(models);
+        let fallback = vec![
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string(),
+            "xhigh".to_string(),
+            "max".to_string(),
+        ];
         Self {
             step: ModelEffortStep::SelectModel,
             query: String::new(),
             models: items,
-            efforts: vec![
-                "low".to_string(),
-                "medium".to_string(),
-                "high".to_string(),
-                "xhigh".to_string(),
-                "max".to_string(),
-            ],
+            fallback_efforts: fallback,
             selected_model_idx: 0,
-            selected_effort_idx: 2,
+            selected_effort_idx: 0,
             chosen_model: None,
+        }
+    }
+
+    fn parse_model_id_and_effort(raw_id: &str, raw_name: &str) -> (String, String, Option<String>) {
+        let known_efforts = [
+            ("-low", " (Low)", "low"),
+            ("-medium", " (Medium)", "medium"),
+            ("-high", " (High)", "high"),
+            ("-xhigh", " (XHigh)", "xhigh"),
+            ("-max", " (Max)", "max"),
+        ];
+
+        for &(id_sfx, name_sfx, effort) in &known_efforts {
+            if let Some(base_id) = raw_id.strip_suffix(id_sfx) {
+                let base_name = raw_name.strip_suffix(name_sfx).unwrap_or(raw_name);
+                return (
+                    base_id.to_string(),
+                    base_name.to_string(),
+                    Some(effort.to_string()),
+                );
+            }
+        }
+
+        (raw_id.to_string(), raw_name.to_string(), None)
+    }
+
+    pub fn normalize_catalog(raw_models: Vec<(String, String)>) -> Vec<ModelItem> {
+        let default_efforts = vec![
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string(),
+            "xhigh".to_string(),
+            "max".to_string(),
+        ];
+
+        let mut result: Vec<ModelItem> = Vec::new();
+
+        for (raw_id, raw_name) in raw_models {
+            let (base_id, base_name, effort_opt) =
+                Self::parse_model_id_and_effort(&raw_id, &raw_name);
+            if let Some(existing) = result.iter_mut().find(|m| m.id == base_id) {
+                if let Some(eff) = effort_opt {
+                    if !existing.supported_efforts.contains(&eff) {
+                        existing.supported_efforts.push(eff);
+                        Self::sort_efforts(&mut existing.supported_efforts);
+                    }
+                }
+            } else {
+                let supported = match effort_opt {
+                    Some(eff) => vec![eff],
+                    None => default_efforts.clone(),
+                };
+                result.push(ModelItem {
+                    id: base_id,
+                    name: base_name,
+                    supported_efforts: supported,
+                });
+            }
+        }
+
+        result
+    }
+
+    fn sort_efforts(efforts: &mut [String]) {
+        let order = ["low", "medium", "high", "xhigh", "max"];
+        efforts.sort_by_key(|e| {
+            order
+                .iter()
+                .position(|&o| o == e.as_str())
+                .unwrap_or(order.len())
+        });
+    }
+
+    pub fn current_supported_efforts(&self) -> &[String] {
+        let model_id = self.chosen_model.as_ref().or_else(|| {
+            let filtered = self.filtered_indices();
+            filtered
+                .get(self.selected_model_idx)
+                .map(|&idx| &self.models[idx].id)
+        });
+        if let Some(id) = model_id {
+            if let Some(m) = self.models.iter().find(|m| &m.id == id) {
+                return &m.supported_efforts;
+            }
+        }
+        &self.fallback_efforts
+    }
+
+    pub fn default_effort_for_model(efforts: &[String]) -> (usize, String) {
+        if let Some(pos) = efforts.iter().position(|e| e == "high") {
+            (pos, "high".to_string())
+        } else if let Some(pos) = efforts.iter().position(|e| e == "medium") {
+            (pos, "medium".to_string())
+        } else if let Some(first) = efforts.first() {
+            (0, first.clone())
+        } else {
+            (0, "high".to_string())
         }
     }
 
@@ -86,7 +182,10 @@ impl ModelEffortModal {
                 KeyCode::Tab => {
                     let filtered = self.filtered_indices();
                     if let Some(&real_idx) = filtered.get(self.selected_model_idx) {
-                        self.chosen_model = Some(self.models[real_idx].id.clone());
+                        let m = &self.models[real_idx];
+                        let (def_idx, _) = Self::default_effort_for_model(&m.supported_efforts);
+                        self.chosen_model = Some(m.id.clone());
+                        self.selected_effort_idx = def_idx;
                     }
                     self.step = ModelEffortStep::SelectEffort;
                     ModalAction::None
@@ -118,22 +217,13 @@ impl ModelEffortModal {
                 KeyCode::Enter => {
                     let filtered = self.filtered_indices();
                     if let Some(&real_idx) = filtered.get(self.selected_model_idx) {
-                        let model = self.models[real_idx].id.clone();
-                        let effort = if model.ends_with("-low") {
-                            "low".to_string()
-                        } else if model.ends_with("-medium") {
-                            "medium".to_string()
-                        } else if model.ends_with("-high") {
-                            "high".to_string()
-                        } else if model.ends_with("-xhigh") {
-                            "xhigh".to_string()
-                        } else if model.ends_with("-max") {
-                            "max".to_string()
-                        } else {
-                            self.efforts[self.selected_effort_idx].clone()
-                        };
-                        self.chosen_model = Some(model.clone());
-                        ModalAction::SelectModelEffort { model, effort }
+                        let m = &self.models[real_idx];
+                        let (_, effort) = Self::default_effort_for_model(&m.supported_efforts);
+                        self.chosen_model = Some(m.id.clone());
+                        ModalAction::SelectModelEffort {
+                            model: m.id.clone(),
+                            effort,
+                        }
                     } else {
                         ModalAction::None
                     }
@@ -150,18 +240,25 @@ impl ModelEffortModal {
                     ModalAction::None
                 }
                 KeyCode::Down => {
-                    if self.selected_effort_idx + 1 < self.efforts.len() {
+                    let efforts = self.current_supported_efforts();
+                    if !efforts.is_empty() && self.selected_effort_idx + 1 < efforts.len() {
                         self.selected_effort_idx += 1;
                     }
                     ModalAction::None
                 }
                 KeyCode::Tab => {
-                    self.selected_effort_idx = (self.selected_effort_idx + 1) % self.efforts.len();
+                    let efforts = self.current_supported_efforts();
+                    if !efforts.is_empty() {
+                        self.selected_effort_idx = (self.selected_effort_idx + 1) % efforts.len();
+                    }
                     ModalAction::None
                 }
                 KeyCode::BackTab => {
-                    self.selected_effort_idx =
-                        (self.selected_effort_idx + self.efforts.len() - 1) % self.efforts.len();
+                    let efforts = self.current_supported_efforts();
+                    if !efforts.is_empty() {
+                        self.selected_effort_idx =
+                            (self.selected_effort_idx + efforts.len() - 1) % efforts.len();
+                    }
                     ModalAction::None
                 }
                 KeyCode::Enter => {
@@ -175,7 +272,11 @@ impl ModelEffortModal {
                                 .map(|&idx| self.models[idx].id.clone())
                         })
                         .unwrap_or_else(|| crate::config::DEFAULT_MODEL.to_string());
-                    let effort = self.efforts[self.selected_effort_idx].clone();
+                    let efforts = self.current_supported_efforts();
+                    let effort = efforts
+                        .get(self.selected_effort_idx)
+                        .cloned()
+                        .unwrap_or_else(|| "high".to_string());
                     ModalAction::SelectModelEffort { model, effort }
                 }
                 _ => ModalAction::None,
@@ -274,7 +375,8 @@ impl ModelEffortModal {
                 ]));
                 lines.push(Line::raw(""));
 
-                for (idx, eff) in self.efforts.iter().enumerate() {
+                let efforts = self.current_supported_efforts();
+                for (idx, eff) in efforts.iter().enumerate() {
                     let is_sel = idx == self.selected_effort_idx;
                     let style = if is_sel {
                         Style::default()

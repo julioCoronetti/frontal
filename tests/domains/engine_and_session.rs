@@ -328,3 +328,15 @@ async fn test_session_manager_get_engine_config() {
     manager.register_mock_session(sid.clone());
     assert_eq!(manager.get_engine_config(&sid), None);
 }
+
+#[test]
+fn test_engine_config_build_args_strips_conflicting_suffix() {
+    let mut config = EngineConfig::new_isolated();
+    config.model = Some("gemini-3.8-flash-high".to_string());
+    config.effort = Some("max".to_string());
+    let args = config.build_args("test-conv");
+    let model_idx = args.iter().position(|a| a == "--model").unwrap();
+    assert_eq!(args[model_idx + 1], "gemini-3.8-flash");
+    let effort_idx = args.iter().position(|a| a == "--effort").unwrap();
+    assert_eq!(args[effort_idx + 1], "max");
+}

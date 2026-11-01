@@ -203,6 +203,16 @@ impl EngineConfig {
         }
     }
 
+    pub fn strip_effort_suffix(model: &str) -> &str {
+        let suffixes = ["-low", "-medium", "-high", "-xhigh", "-max"];
+        for sfx in suffixes {
+            if let Some(stripped) = model.strip_suffix(sfx) {
+                return stripped;
+            }
+        }
+        model
+    }
+
     pub fn build_args(&self, resolved_conversation_id: &str) -> Vec<String> {
         let mut args = vec![
             "--input-format".to_string(),
@@ -218,7 +228,12 @@ impl EngineConfig {
         }
         if let Some(model) = &self.model {
             args.push("--model".to_string());
-            args.push(model.clone());
+            let final_model = if self.effort.is_some() {
+                Self::strip_effort_suffix(model)
+            } else {
+                model.as_str()
+            };
+            args.push(final_model.to_string());
         }
         if let Some(mode) = &self.mode {
             args.push("--mode".to_string());
