@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyModifiers};
+use ratatui::style::Modifier;
 
 use frontal::ui::cache::{BlockKind, RenderCache};
 use frontal::ui::clipboard::SystemClipboard;
@@ -176,4 +177,132 @@ fn test_paste_pill_preservation_across_history_navigation() {
 
     let expanded = app.editor.take_submitted_expanded().unwrap();
     assert!(expanded.contains("line 1\nline 2\nline 3"));
+}
+
+#[test]
+fn test_viewport_granular_character_selection_single_line() {
+    let mut cache = RenderCache::new();
+    cache.append_streaming_delta(BlockKind::Assistant, "alpha bravo charlie");
+    cache.consolidate_active_turn(None);
+    cache.ensure_visual_lines(80);
+
+    let mut viewport = ConversationViewport::new();
+    viewport.sync_dimensions(cache.total_lines(), 20);
+
+    viewport.start_selection(0, 3);
+    viewport.update_selection(0, 8);
+
+    let slice = viewport.visible_slice(&cache);
+    assert!(!slice.is_empty());
+    let line0 = &slice[0];
+
+    let mut reversed_chars = String::new();
+    let mut unreversed_chars = String::new();
+    for span in &line0.spans {
+        if span.style.add_modifier.contains(Modifier::REVERSED) {
+            reversed_chars.push_str(&span.content);
+        } else {
+            unreversed_chars.push_str(&span.content);
+        }
+    }
+
+    assert_eq!(reversed_chars, "alpha");
+    assert_eq!(&unreversed_chars[..3], "   ");
+    assert!(unreversed_chars.ends_with(" bravo charlie"));
+}
+
+#[test]
+fn test_viewport_granular_character_selection_multiline() {
+    let mut cache = RenderCache::new();
+    cache.append_streaming_delta(
+        BlockKind::Assistant,
+        "first line\n\nsecond line\n\nthird line",
+    );
+    cache.consolidate_active_turn(None);
+    cache.ensure_visual_lines(80);
+
+    let mut viewport = ConversationViewport::new();
+    viewport.sync_dimensions(cache.total_lines(), 20);
+
+    viewport.start_selection(0, 4);
+    viewport.update_selection(2, 8);
+
+    let slice = viewport.visible_slice(&cache);
+    assert!(slice.len() >= 3);
+
+    let line0 = &slice[0];
+    let mut line0_rev = String::new();
+    for span in &line0.spans {
+        if span.style.add_modifier.contains(Modifier::REVERSED) {
+            line0_rev.push_str(&span.content);
+        }
+    }
+    assert_eq!(line0_rev, "irst line");
+
+    let line1 = &slice[1];
+    for span in &line1.spans {
+        assert!(span.style.add_modifier.contains(Modifier::REVERSED));
+    }
+
+    let line2 = &slice[2];
+    let mut line2_rev = String::new();
+    for span in &line2.spans {
+        if span.style.add_modifier.contains(Modifier::REVERSED) {
+            line2_rev.push_str(&span.content);
+        }
+    }
+    assert_eq!(line2_rev, "   third");
+}
+
+#[test]
+fn test_viewport_reverse_drag_selection_order() {
+    let mut cache = RenderCache::new();
+    cache.append_streaming_delta(BlockKind::Assistant, "abcdefghijklmnopqrstuvwxyz");
+    cache.consolidate_active_turn(None);
+    cache.ensure_visual_lines(80);
+
+    let mut viewport = ConversationViewport::new();
+    viewport.sync_dimensions(cache.total_lines(), 20);
+
+    viewport.start_selection(0, 10);
+    viewport.update_selection(0, 3);
+
+    let slice = viewport.visible_slice(&cache);
+    let mut reversed = String::new();
+    for span in &slice[0].spans {
+        if span.style.add_modifier.contains(Modifier::REVERSED) {
+            reversed.push_str(&span.content);
+        }
+    }
+    assert_eq!(reversed, "abcdefg");
+}
+
+#[test]
+fn test_viewport_selection_utf8_multibyte_and_out_of_bounds_safety() {
+    let mut cache = RenderCache::new();
+    cache.append_streaming_delta(BlockKind::Assistant, "ação 🚀 teste");
+    cache.consolidate_active_turn(None);
+    cache.ensure_visual_lines(80);
+
+    let mut viewport = ConversationViewport::new();
+    viewport.sync_dimensions(cache.total_lines(), 20);
+
+    viewport.start_selection(0, 2);
+    viewport.update_selection(0, 2);
+
+    let slice_eq = viewport.visible_slice(&cache);
+    for span in &slice_eq[0].spans {
+        assert!(!span.style.add_modifier.contains(Modifier::REVERSED));
+    }
+
+    viewport.start_selection(0, 4);
+    viewport.update_selection(0, 9999);
+    let slice_oob = viewport.visible_slice(&cache);
+    let mut rev_oob = String::new();
+    for span in &slice_oob[0].spans {
+        if span.style.add_modifier.contains(Modifier::REVERSED) {
+            rev_oob.push_str(&span.content);
+        }
+    }
+    assert_eq!(rev_oob, "ção 🚀 teste");
 }

@@ -1,5 +1,5 @@
 use ratatui::style::Modifier;
-use ratatui::text::Line;
+use ratatui::text::{Line, Span};
 
 use crate::ui::cache::RenderCache;
 
@@ -117,15 +117,30 @@ impl ConversationViewport {
         let offset = self.effective_offset();
         let mut lines = cache.visible_slice(offset, self.viewport_height);
         if let Some((start, end)) = self.selection {
-            let (s_line, e_line) = if start.line > end.line {
-                (end.line, start.line)
-            } else {
-                (start.line, end.line)
-            };
+            if start == end {
+                return lines;
+            }
+
+            let (s_line, s_col, e_line, e_col) =
+                if start.line > end.line || (start.line == end.line && start.col > end.col) {
+                    (end.line, end.col, start.line, start.col)
+                } else {
+                    (start.line, start.col, end.line, end.col)
+                };
 
             for (i, line) in lines.iter_mut().enumerate() {
                 let abs_line = offset + i;
-                if abs_line >= s_line && abs_line <= e_line {
+                if abs_line < s_line || abs_line > e_line {
+                    continue;
+                }
+
+                if abs_line == s_line && abs_line == e_line {
+                    highlight_line_range(line, s_col, e_col);
+                } else if abs_line == s_line {
+                    highlight_line_range(line, s_col, usize::MAX);
+                } else if abs_line == e_line {
+                    highlight_line_range(line, 0, e_col);
+                } else {
                     for span in &mut line.spans {
                         span.style = span.style.add_modifier(Modifier::REVERSED);
                     }
@@ -142,6 +157,55 @@ impl ConversationViewport {
     pub fn viewport_height(&self) -> usize {
         self.viewport_height
     }
+}
+
+fn char_to_byte_idx(s: &str, char_idx: usize) -> usize {
+    s.char_indices()
+        .nth(char_idx)
+        .map(|(i, _)| i)
+        .unwrap_or(s.len())
+}
+
+fn highlight_line_range(line: &mut Line<'static>, from_col: usize, to_col: usize) {
+    if from_col >= to_col {
+        return;
+    }
+    let mut new_spans = Vec::new();
+    let mut current_col = 0;
+
+    for mut span in std::mem::take(&mut line.spans) {
+        let span_len = span.content.chars().count();
+        let span_end = current_col + span_len;
+
+        if span_end <= from_col || current_col >= to_col {
+            new_spans.push(span);
+        } else if current_col >= from_col && span_end <= to_col {
+            span.style = span.style.add_modifier(Modifier::REVERSED);
+            new_spans.push(span);
+        } else {
+            let rel_start = from_col.saturating_sub(current_col).min(span_len);
+            let rel_end = to_col.saturating_sub(current_col).min(span_len);
+
+            let content = span.content.as_ref();
+            let b_start = char_to_byte_idx(content, rel_start);
+            let b_end = char_to_byte_idx(content, rel_end);
+
+            if b_start > 0 {
+                new_spans.push(Span::styled(content[..b_start].to_string(), span.style));
+            }
+            if b_start < b_end {
+                new_spans.push(Span::styled(
+                    content[b_start..b_end].to_string(),
+                    span.style.add_modifier(Modifier::REVERSED),
+                ));
+            }
+            if b_end < content.len() {
+                new_spans.push(Span::styled(content[b_end..].to_string(), span.style));
+            }
+        }
+        current_col = span_end;
+    }
+    line.spans = new_spans;
 }
 
 impl Default for ConversationViewport {
