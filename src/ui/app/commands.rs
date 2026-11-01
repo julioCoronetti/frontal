@@ -71,18 +71,9 @@ impl App {
                             .session_manager
                             .get_metadata(&self.active_session)
                             .and_then(|m| m.conversation_id.clone());
-                        let model = self
-                            .session_manager
-                            .get_metadata(&self.active_session)
-                            .and_then(|m| m.model.clone());
-                        let effort = self
-                            .session_manager
-                            .get_metadata(&self.active_session)
-                            .and_then(|m| m.effort.clone());
-                        let mode = self
-                            .session_manager
-                            .get_metadata(&self.active_session)
-                            .and_then(|m| m.mode.clone());
+                        let model = Some(self.active_model_name());
+                        let effort = Some(self.active_effort_name());
+                        let mode = Some(self.active_mode_name());
                         self.modals.push(Modal::HotRespawn(HotRespawnModal::new(
                             conv_id, model, effort, mode,
                         )));
@@ -102,6 +93,10 @@ impl App {
                         let _ = self.session_manager.interrupt_active();
                         self.status_text = String::from("Interrupted");
                         self.waiting_for_response = false;
+                        if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
+                            tab.waiting_for_response = false;
+                            tab.status_text = self.status_text.clone();
+                        }
                         Some(Some(AppAction::Interrupt))
                     }
                     "quit" => {
@@ -128,6 +123,10 @@ impl App {
             let _ = self.session_manager.interrupt_active();
             self.status_text = String::from("Interrupted");
             self.waiting_for_response = false;
+            if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
+                tab.waiting_for_response = false;
+                tab.status_text = self.status_text.clone();
+            }
             self.dirty = true;
             Some(Some(AppAction::Interrupt))
         } else if trimmed == "/model" {
@@ -154,18 +153,9 @@ impl App {
                 .session_manager
                 .get_metadata(&self.active_session)
                 .and_then(|m| m.conversation_id.clone());
-            let model = self
-                .session_manager
-                .get_metadata(&self.active_session)
-                .and_then(|m| m.model.clone());
-            let effort = self
-                .session_manager
-                .get_metadata(&self.active_session)
-                .and_then(|m| m.effort.clone());
-            let mode = self
-                .session_manager
-                .get_metadata(&self.active_session)
-                .and_then(|m| m.mode.clone());
+            let model = Some(self.active_model_name());
+            let effort = Some(self.active_effort_name());
+            let mode = Some(self.active_mode_name());
             self.modals.push(Modal::HotRespawn(HotRespawnModal::new(
                 conv_id, model, effort, mode,
             )));

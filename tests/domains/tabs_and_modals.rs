@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use frontal::protocol::{
     EngineEvent, ResultData, ResultStatus, SessionEnvelope, SessionId, StepState, StepType,
-    StepUpdateData, StepUpdateEvent, StreamEvent,
+    StepUpdateData, StepUpdateEvent, StreamEvent, TokenUsage,
 };
 use frontal::ui::app::AppAction;
 use frontal::ui::diff::{DiffLineKind, DiffViewer};
@@ -84,6 +84,52 @@ fn test_background_tab_streaming_isolation_and_unread() {
     assert_eq!(app.active_tab_index, 1);
     assert!(!app.tabs[1].has_unread);
     assert_eq!(app.cache.blocks_count(), 1);
+}
+
+#[test]
+fn test_background_tab_token_usage_swap_and_isolation() {
+    let (mut app, id1) = test_app();
+    let id2 = SessionId::new();
+    app.add_tab(id2.clone(), Some("Second Session".to_string()));
+
+    app.switch_tab(0);
+    assert_eq!(app.active_tab_index, 0);
+    assert_eq!(app.active_session, id1);
+
+    let usage = TokenUsage {
+        input_tokens: 10,
+        output_tokens: 42,
+        thinking_tokens: 0,
+        cache_read_tokens: 0,
+        total_tokens: 52,
+    };
+    let bg_update = StreamEvent::StepUpdate(StepUpdateEvent {
+        conversation_id: None,
+        step_update: Some(StepUpdateData {
+            step_index: Some(1),
+            text_delta: Some("Delta with usage".to_string()),
+            usage: Some(usage),
+            ..Default::default()
+        }),
+    });
+
+    let env = SessionEnvelope {
+        session_id: id2.clone(),
+        event: EngineEvent::Stream(Box::new(bg_update)),
+    };
+    app.handle_engine_envelope(env);
+
+    assert_eq!(app.last_turn_usage, None);
+    assert_eq!(app.tabs[1].last_turn_usage, Some(usage));
+
+    app.switch_tab(1);
+    assert_eq!(app.active_tab_index, 1);
+    assert_eq!(app.last_turn_usage, Some(usage));
+
+    let enter = press_key(KeyCode::Enter, KeyModifiers::NONE);
+    app.editor.insert_str("new prompt");
+    app.handle_terminal_event(enter);
+    assert_eq!(app.last_turn_usage, None);
 }
 
 #[test]

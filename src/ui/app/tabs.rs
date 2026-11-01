@@ -32,6 +32,7 @@ impl App {
             tab.turn_started_at = self.turn_started_at;
             std::mem::swap(&mut self.status_text, &mut tab.status_text);
             std::mem::swap(&mut self.draft_snapshot, &mut tab.draft_snapshot);
+            std::mem::swap(&mut self.last_turn_usage, &mut tab.last_turn_usage);
             tab.session_id = self.active_session.clone();
         }
     }
@@ -46,6 +47,7 @@ impl App {
             self.turn_started_at = tab.turn_started_at;
             std::mem::swap(&mut self.status_text, &mut tab.status_text);
             std::mem::swap(&mut self.draft_snapshot, &mut tab.draft_snapshot);
+            std::mem::swap(&mut self.last_turn_usage, &mut tab.last_turn_usage);
             self.active_session = tab.session_id.clone();
             tab.has_unread = false;
             self.session_manager
@@ -85,6 +87,7 @@ impl App {
             self.draft_snapshot = None;
             self.waiting_for_response = false;
             self.turn_started_at = None;
+            self.last_turn_usage = None;
             self.status_text = String::from("Ready");
             self.popover.close();
             self.active_tab_index = self.active_tab_index.min(self.tabs.len() - 1);

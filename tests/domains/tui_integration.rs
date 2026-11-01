@@ -466,6 +466,16 @@ fn test_contextual_ctrl_c_and_slash_commands_routing() {
     assert_eq!(act_idle_first, None);
     assert!(!app.should_quit);
     assert!(app.status_text.contains("Ctrl+C"));
+    assert!(app.last_ctrl_c_at.is_some());
+
+    let other_key = press_key(KeyCode::Left, KeyModifiers::NONE);
+    app.handle_terminal_event(other_key);
+    assert!(app.last_ctrl_c_at.is_none());
+
+    let act_after_intervening = app.handle_terminal_event(ctrl_c.clone());
+    assert_eq!(act_after_intervening, None);
+    assert!(!app.should_quit);
+    assert!(app.last_ctrl_c_at.is_some());
 
     let act_idle_second = app.handle_terminal_event(ctrl_c.clone());
     assert_eq!(act_idle_second, Some(AppAction::Quit));

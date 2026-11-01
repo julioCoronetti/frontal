@@ -1,4 +1,4 @@
-use crate::protocol::{SessionId, StepState, StreamEvent};
+use crate::protocol::{SessionId, StepState, StreamEvent, TokenUsage};
 use crate::ui::cache::{BlockKind, RenderCache};
 use crate::ui::editor::{EditorSnapshot, PromptEditor};
 use crate::ui::input_stub::MinimalInputStub;
@@ -16,6 +16,7 @@ pub struct TabState {
     pub status_text: String,
     pub has_unread: bool,
     pub turn_started_at: Option<std::time::Instant>,
+    pub last_turn_usage: Option<TokenUsage>,
 }
 
 impl TabState {
@@ -32,6 +33,7 @@ impl TabState {
             status_text: String::from("Ready"),
             has_unread: false,
             turn_started_at: None,
+            last_turn_usage: None,
         }
     }
 
@@ -51,6 +53,9 @@ impl TabState {
             }
             StreamEvent::StepUpdate(update) => {
                 if let Some(data) = &update.step_update {
+                    if let Some(usage) = &data.usage {
+                        self.last_turn_usage = Some(*usage);
+                    }
                     if let Some(delta) = &data.text_delta {
                         self.waiting_for_response = false;
                         self.cache
@@ -101,6 +106,7 @@ impl TabState {
                     .result
                     .as_ref()
                     .and_then(|r| r.usage.as_ref())
+                    .or(self.last_turn_usage.as_ref())
                     .map(|u| u.output_tokens);
                 let meta = crate::ui::cache::TurnMeta {
                     mode: mode.to_string(),

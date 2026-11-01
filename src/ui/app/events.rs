@@ -16,6 +16,12 @@ impl App {
                     return None;
                 }
 
+                let is_ctrl_c =
+                    key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c');
+                if !is_ctrl_c {
+                    self.last_ctrl_c_at = None;
+                }
+
                 if !self.modals.is_empty() {
                     let action = self.modals.handle_key_event(key);
                     self.dirty = true;
@@ -55,6 +61,7 @@ impl App {
                         if !selected.is_empty() {
                             let _ = self.clipboard.set_text(&selected);
                             self.viewport.clear_selection();
+                            self.last_ctrl_c_at = None;
                             self.status_text = String::from("Selection copied to clipboard");
                             self.dirty = true;
                             return None;
@@ -66,6 +73,7 @@ impl App {
                         self.input.clear();
                         self.popover.close();
                         self.draft_snapshot = None;
+                        self.last_ctrl_c_at = None;
                         self.status_text = String::from("Input cleared");
                         self.dirty = true;
                         return None;
@@ -82,6 +90,11 @@ impl App {
                         let _ = self.session_manager.interrupt_active();
                         self.status_text = String::from("Interrupted by user");
                         self.waiting_for_response = false;
+                        if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
+                            tab.waiting_for_response = false;
+                            tab.status_text = self.status_text.clone();
+                        }
+                        self.last_ctrl_c_at = None;
                         self.dirty = true;
                         return Some(AppAction::Interrupt);
                     }
@@ -220,6 +233,7 @@ impl App {
                         if let Some(p) = prompt {
                             self.input.clear();
                             self.draft_snapshot = None;
+                            self.last_turn_usage = None;
                             let trimmed = p.trim();
                             if let Some(cmd_action) = self.execute_local_command(trimmed) {
                                 return cmd_action;
@@ -235,6 +249,7 @@ impl App {
                             if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
                                 tab.waiting_for_response = true;
                                 tab.turn_started_at = self.turn_started_at;
+                                tab.last_turn_usage = None;
                                 tab.status_text = self.status_text.clone();
                             }
                             return Some(AppAction::SubmitPrompt(p));
