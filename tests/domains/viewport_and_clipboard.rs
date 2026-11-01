@@ -84,11 +84,10 @@ fn test_clipboard_selection_no_padding_or_indent_pollution() {
     assert!(!user_selected.starts_with(" ┃ "));
     assert!(!user_selected.ends_with(' '));
 
-    viewport.start_selection(4, 3);
-    viewport.update_selection(4, 26);
+    viewport.start_selection(4, 0);
+    viewport.update_selection(4, 23);
     let assistant_selected = viewport.selected_text(&cache).unwrap();
     assert_eq!(assistant_selected, "assistant markdown text");
-    assert!(!assistant_selected.starts_with("   "));
 
     let total = cache.total_lines();
     assert!(total >= 7);
@@ -189,8 +188,8 @@ fn test_viewport_granular_character_selection_single_line() {
     let mut viewport = ConversationViewport::new();
     viewport.sync_dimensions(cache.total_lines(), 20);
 
-    viewport.start_selection(0, 3);
-    viewport.update_selection(0, 8);
+    viewport.start_selection(0, 0);
+    viewport.update_selection(0, 5);
 
     let slice = viewport.visible_slice(&cache);
     assert!(!slice.is_empty());
@@ -207,8 +206,7 @@ fn test_viewport_granular_character_selection_single_line() {
     }
 
     assert_eq!(reversed_chars, "alpha");
-    assert_eq!(&unreversed_chars[..3], "   ");
-    assert!(unreversed_chars.ends_with(" bravo charlie"));
+    assert_eq!(unreversed_chars, " bravo charlie");
 }
 
 #[test]
@@ -224,8 +222,8 @@ fn test_viewport_granular_character_selection_multiline() {
     let mut viewport = ConversationViewport::new();
     viewport.sync_dimensions(cache.total_lines(), 20);
 
-    viewport.start_selection(0, 4);
-    viewport.update_selection(2, 8);
+    viewport.start_selection(0, 1);
+    viewport.update_selection(2, 5);
 
     let slice = viewport.visible_slice(&cache);
     assert!(slice.len() >= 3);
@@ -251,7 +249,7 @@ fn test_viewport_granular_character_selection_multiline() {
             line2_rev.push_str(&span.content);
         }
     }
-    assert_eq!(line2_rev, "   third");
+    assert_eq!(line2_rev, "third");
 }
 
 #[test]
@@ -264,8 +262,8 @@ fn test_viewport_reverse_drag_selection_order() {
     let mut viewport = ConversationViewport::new();
     viewport.sync_dimensions(cache.total_lines(), 20);
 
-    viewport.start_selection(0, 10);
-    viewport.update_selection(0, 3);
+    viewport.start_selection(0, 7);
+    viewport.update_selection(0, 0);
 
     let slice = viewport.visible_slice(&cache);
     let mut reversed = String::new();
@@ -286,13 +284,13 @@ fn test_viewport_reverse_drag_selection_order() {
 
     let mut vp_fwd = ConversationViewport::new();
     vp_fwd.sync_dimensions(cache_multi.total_lines(), 20);
-    vp_fwd.start_selection(0, 4);
-    vp_fwd.update_selection(2, 8);
+    vp_fwd.start_selection(0, 1);
+    vp_fwd.update_selection(2, 5);
 
     let mut vp_rev = ConversationViewport::new();
     vp_rev.sync_dimensions(cache_multi.total_lines(), 20);
-    vp_rev.start_selection(2, 8);
-    vp_rev.update_selection(0, 4);
+    vp_rev.start_selection(2, 5);
+    vp_rev.update_selection(0, 1);
 
     let fwd_slice = vp_fwd.visible_slice(&cache_multi);
     let rev_slice = vp_rev.visible_slice(&cache_multi);
@@ -330,7 +328,7 @@ fn test_viewport_selection_utf8_multibyte_and_out_of_bounds_safety() {
         assert!(!span.style.add_modifier.contains(Modifier::REVERSED));
     }
 
-    viewport.start_selection(0, 4);
+    viewport.start_selection(0, 1);
     viewport.update_selection(0, 9999);
     let slice_oob = viewport.visible_slice(&cache);
     let mut rev_oob = String::new();

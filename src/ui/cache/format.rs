@@ -125,8 +125,8 @@ impl RenderCache {
                 result.push(Line::from(""));
             }
             BlockKind::Assistant => {
-                let content_width = width.saturating_sub(6) as usize;
-                let mut lines = if block.consolidated {
+                let content_width = width.saturating_sub(2) as usize;
+                let lines = if block.consolidated {
                     if block.markdown_ast.is_none() {
                         block.markdown_ast = Some(parse_markdown_segments(&block.content, true));
                     }
@@ -143,9 +143,6 @@ impl RenderCache {
                         &mut block.code_highlighters,
                     )
                 };
-                for line in &mut lines {
-                    line.spans.insert(0, Span::raw("   "));
-                }
                 result.extend(lines);
                 if block.consolidated {
                     if let Some(meta) = &block.turn_meta {
@@ -161,10 +158,10 @@ impl RenderCache {
                             }
                         }
                         result.push(Line::from(""));
-                        result.push(Line::from(vec![
-                            Span::raw("   "),
-                            Span::styled(meta_parts.join(" · "), Style::default().fg(TEXT_MUTED)),
-                        ]));
+                        result.push(Line::from(vec![Span::styled(
+                            meta_parts.join(" · "),
+                            Style::default().fg(TEXT_MUTED),
+                        )]));
                     }
                     result.push(Line::from(""));
                 }

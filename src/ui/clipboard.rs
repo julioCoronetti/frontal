@@ -42,10 +42,11 @@ impl SystemClipboard {
             self.isolated_buffer = Some(text.to_string());
             return Ok(());
         }
+        let mut arboard_ok = false;
         if let Some(ref mut cb) = self.internal {
-            let _ = cb.set_text(text.to_string());
+            arboard_ok = cb.set_text(text.to_string()).is_ok();
         }
-        if self.emit_osc52 {
+        if !arboard_ok && self.emit_osc52 {
             let osc = Self::format_osc52(text);
             let _ = std::io::Write::write_all(&mut std::io::stdout(), osc.as_bytes());
             let _ = std::io::Write::flush(&mut std::io::stdout());

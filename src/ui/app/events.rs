@@ -346,6 +346,9 @@ impl App {
                         self.dirty = true;
                     }
                     KeyCode::Char(c) => {
+                        if self.viewport.selection.is_some() {
+                            self.viewport.clear_selection();
+                        }
                         self.editor.insert_char(c);
                         self.sync_editor_to_input();
                         self.dirty = true;
@@ -373,6 +376,9 @@ impl App {
                         let col = column.saturating_sub(vx) as usize;
                         self.viewport.start_selection(line, col);
                         self.dirty = true;
+                    } else if self.viewport.selection.is_some() {
+                        self.viewport.clear_selection();
+                        self.dirty = true;
                     }
                 }
                 MouseEventKind::Drag(MouseButton::Left) => {
@@ -386,15 +392,17 @@ impl App {
                     }
                 }
                 MouseEventKind::Up(MouseButton::Left) => {
-                    if let Some(text) = self.viewport.selected_text(&self.cache) {
-                        let _ = self.clipboard.set_text(&text);
+                    if matches!(self.viewport.selection, Some((s, e)) if s == e) {
+                        self.viewport.clear_selection();
                     }
-                    self.viewport.clear_selection();
                     self.dirty = true;
                 }
                 _ => {}
             },
             Event::Paste(text) => {
+                if self.viewport.selection.is_some() {
+                    self.viewport.clear_selection();
+                }
                 self.editor.insert_paste(&text);
                 self.sync_editor_to_input();
                 self.dirty = true;

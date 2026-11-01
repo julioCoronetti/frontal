@@ -316,7 +316,12 @@ fn test_opencode_visual_layout_and_symmetry() {
     let visual_lines = app.cache.visible_slice(0, 20);
     assert!(visual_lines.len() >= 5);
     let assistant_first_line = &visual_lines[4];
-    assert_eq!(assistant_first_line.spans[0].content.as_ref(), "   ");
+    let assistant_text: String = assistant_first_line
+        .spans
+        .iter()
+        .map(|s| s.content.as_ref())
+        .collect();
+    assert!(assistant_text.contains("Hello from assistant response"));
 }
 
 #[test]
@@ -424,7 +429,15 @@ fn test_mouse_selection_and_scroll_events_via_app() {
         modifiers: KeyModifiers::NONE,
     });
     app.handle_terminal_event(mouse_up);
+    assert!(app.viewport.selected_text(&app.cache).is_some());
+    assert_eq!(app.clipboard.get_text(), None);
+    assert!(app.editor.is_empty());
+
+    let ctrl_c = press_key(KeyCode::Char('c'), KeyModifiers::CONTROL);
+    app.handle_terminal_event(ctrl_c);
     assert!(app.viewport.selected_text(&app.cache).is_none());
+    assert!(app.clipboard.get_text().is_some());
+    assert!(app.editor.is_empty());
 }
 
 #[test]

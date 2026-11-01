@@ -47,7 +47,7 @@ impl RenderCache {
         self.blocks.len()
     }
 
-    pub fn line_text_at(&self, visual_idx: usize) -> Option<String> {
+    pub fn line_info_at(&self, visual_idx: usize) -> Option<(crate::ui::cache::BlockKind, String)> {
         let mut current = 0;
         for block in &self.blocks {
             if let Some(cached) = self.l2_cache.get(&block.id) {
@@ -55,12 +55,16 @@ impl RenderCache {
                     let local = visual_idx - current;
                     let line = &cached.lines[local];
                     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-                    return Some(text);
+                    return Some((block.kind.clone(), text));
                 }
                 current += cached.lines.len();
             }
         }
         None
+    }
+
+    pub fn line_text_at(&self, visual_idx: usize) -> Option<String> {
+        self.line_info_at(visual_idx).map(|(_, t)| t)
     }
 
     pub fn extract_text_range(
@@ -79,22 +83,32 @@ impl RenderCache {
 
         let mut extracted = Vec::new();
         for l in s_line..=e_line {
-            if let Some(text) = self.line_text_at(l) {
+            if let Some((kind, text)) = self.line_info_at(l) {
                 let trimmed = text.trim_end();
-                let (stripped, prefix_len) = if trimmed.starts_with("   ▎ ") {
-                    (trimmed.replacen("   ▎ ", "", 1), 5)
-                } else if trimmed.starts_with("   ! ") {
-                    (trimmed.replacen("   ! ", "", 1), 5)
-                } else if trimmed.starts_with("     ") {
-                    (trimmed.replacen("     ", "", 1), 5)
-                } else if trimmed.starts_with(" ┃ ") {
-                    (trimmed.replacen(" ┃ ", "", 1), 3)
-                } else if trimmed.starts_with(" ┃") {
-                    (trimmed.replacen(" ┃", "", 1), 2)
-                } else if trimmed.starts_with("   ") {
-                    (trimmed.replacen("   ", "", 1), 3)
-                } else {
-                    (trimmed.to_string(), 0)
+                let (stripped, prefix_len) = match kind {
+                    crate::ui::cache::BlockKind::Assistant => (trimmed.to_string(), 0),
+                    crate::ui::cache::BlockKind::User => {
+                        if trimmed.starts_with(" ┃ ") {
+                            (trimmed.replacen(" ┃ ", "", 1), 3)
+                        } else if trimmed.starts_with(" ┃") {
+                            (trimmed.replacen(" ┃", "", 1), 2)
+                        } else {
+                            (trimmed.to_string(), 0)
+                        }
+                    }
+                    _ => {
+                        if trimmed.starts_with("   ▎ ") {
+                            (trimmed.replacen("   ▎ ", "", 1), 5)
+                        } else if trimmed.starts_with("   ! ") {
+                            (trimmed.replacen("   ! ", "", 1), 5)
+                        } else if trimmed.starts_with("     ") {
+                            (trimmed.replacen("     ", "", 1), 5)
+                        } else if trimmed.starts_with("   ") {
+                            (trimmed.replacen("   ", "", 1), 3)
+                        } else {
+                            (trimmed.to_string(), 0)
+                        }
+                    }
                 };
                 let chars: Vec<char> = stripped.chars().collect();
                 let sc = s_col.saturating_sub(prefix_len).min(chars.len());
