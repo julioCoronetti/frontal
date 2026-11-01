@@ -1,6 +1,9 @@
 use crossterm::event::KeyEvent;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Modifier, Style};
 use ratatui::Frame;
+
+use crate::ui::theme::{BACKDROP_BG, BACKDROP_FG};
 
 pub mod diff;
 pub mod model_effort;
@@ -99,8 +102,23 @@ impl ModalStack {
 
     pub fn render(&self, frame: &mut Frame, screen_area: Rect) {
         if let Some(top) = self.stack.last() {
+            Self::render_backdrop(frame, screen_area);
             let popup_area = Self::centered_rect(75, 60, screen_area);
             top.render(frame, popup_area);
+        }
+    }
+
+    fn render_backdrop(frame: &mut Frame, area: Rect) {
+        let area = area.intersection(frame.area());
+        let buf = frame.buffer_mut();
+        let backdrop_style = Style::default()
+            .add_modifier(Modifier::DIM)
+            .bg(BACKDROP_BG)
+            .fg(BACKDROP_FG);
+        for y in area.top()..area.bottom() {
+            for x in area.left()..area.right() {
+                buf[(x, y)].set_style(backdrop_style);
+            }
         }
     }
 

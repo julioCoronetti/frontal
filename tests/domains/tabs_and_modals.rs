@@ -1,4 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::backend::TestBackend;
+use ratatui::style::{Color, Modifier};
+use ratatui::Terminal;
 
 use frontal::protocol::{
     EngineEvent, ResultData, ResultStatus, SessionEnvelope, SessionId, StepState, StepType,
@@ -676,4 +679,38 @@ fn test_respawn_active_session_metadata_inheritance() {
         );
         assert!(app.session_manager.interrupt_active().is_ok());
     });
+}
+
+#[test]
+fn test_modal_backdrop_dimming_overlay() {
+    let (mut app, _) = test_app();
+    let backend = TestBackend::new(100, 30);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    app.cache.push_user_message("Testing backdrop overlay text");
+    app.cache.consolidate_active_turn(None);
+    terminal.draw(|f| app.render(f)).unwrap();
+
+    let ctrl_p = press_key(KeyCode::Char('p'), KeyModifiers::CONTROL);
+    app.handle_terminal_event(ctrl_p);
+    assert!(!app.modals.is_empty());
+
+    terminal.draw(|f| app.render(f)).unwrap();
+    let buf = terminal.backend().buffer().clone();
+
+    let cell_outside = &buf[(1, 1)];
+    assert!(cell_outside.modifier.contains(Modifier::DIM));
+    assert_eq!(cell_outside.bg, Color::Black);
+
+    let cell_inside = &buf[(50, 15)];
+    assert_ne!(cell_inside.symbol(), "");
+
+    let esc = press_key(KeyCode::Esc, KeyModifiers::NONE);
+    app.handle_terminal_event(esc);
+    assert!(app.modals.is_empty());
+
+    terminal.draw(|f| app.render(f)).unwrap();
+    let buf_closed = terminal.backend().buffer().clone();
+    let cell_restored = &buf_closed[(1, 1)];
+    assert!(!cell_restored.modifier.contains(Modifier::DIM));
 }

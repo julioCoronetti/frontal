@@ -6,3 +6,5 @@ pub const BORDER_SUBTLE: Color = Color::Rgb(55, 65, 81);
 pub const TEXT_PRIMARY: Color = Color::White;
 pub const TEXT_MUTED: Color = Color::DarkGray;
 pub const TAB_ACTIVE_DOT: Color = Color::Rgb(56, 189, 248);
+pub const BACKDROP_BG: Color = Color::Black;
+pub const BACKDROP_FG: Color = Color::DarkGray;
