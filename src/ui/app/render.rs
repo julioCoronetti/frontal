@@ -91,6 +91,12 @@ impl App {
         let tab_bar_widget = Paragraph::new(Line::from(tab_spans));
         frame.render_widget(tab_bar_widget, tab_bar_area);
 
+        let divider_widget = Paragraph::new(Line::from(vec![Span::styled(
+            "─".repeat(padded_area.width as usize),
+            Style::default().fg(BORDER_SUBTLE),
+        )]));
+        frame.render_widget(divider_widget, chunks[1]);
+
         let total_lines = self.cache.ensure_visual_lines(viewport_area.width);
         let total_with_spinner = total_lines + if self.waiting_for_response { 1 } else { 0 };
         self.viewport

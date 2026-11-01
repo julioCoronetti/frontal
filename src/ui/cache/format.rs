@@ -75,6 +75,22 @@ impl RenderCache {
         match &block.kind {
             BlockKind::User => {
                 let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(6) as usize);
+                let pad_empty = (width as usize).saturating_sub(3);
+                let top_line = Line::from(vec![
+                    Span::styled(
+                        " ┃ ",
+                        Style::default()
+                            .fg(ACCENT_PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        " ".repeat(pad_empty),
+                        Style::default().bg(BG_USER_CONTAINER),
+                    ),
+                ])
+                .style(Style::default().bg(BG_USER_CONTAINER));
+                result.push(top_line);
+
                 for row in wrapped.into_iter() {
                     let row_len = row.chars().count();
                     let pad_len = (width as usize).saturating_sub(3 + row_len);
@@ -91,6 +107,21 @@ impl RenderCache {
                     line = line.style(Style::default().bg(BG_USER_CONTAINER));
                     result.push(line);
                 }
+
+                let bottom_line = Line::from(vec![
+                    Span::styled(
+                        " ┃ ",
+                        Style::default()
+                            .fg(ACCENT_PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        " ".repeat(pad_empty),
+                        Style::default().bg(BG_USER_CONTAINER),
+                    ),
+                ])
+                .style(Style::default().bg(BG_USER_CONTAINER));
+                result.push(bottom_line);
                 result.push(Line::from(""));
             }
             BlockKind::Assistant => {

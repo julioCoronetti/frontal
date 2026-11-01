@@ -55,8 +55,8 @@ fn test_viewport_clean_text_selection_without_trailing_spaces() {
 
     let mut viewport = ConversationViewport::new();
     viewport.sync_dimensions(cache.total_lines(), 20);
-    viewport.start_selection(0, 0);
-    viewport.update_selection(0, 14);
+    viewport.start_selection(1, 0);
+    viewport.update_selection(1, 14);
 
     let selected = viewport.selected_text(&cache).unwrap();
     assert_eq!(selected, "hello world");
@@ -76,21 +76,21 @@ fn test_clipboard_selection_no_padding_or_indent_pollution() {
     let mut viewport = ConversationViewport::new();
     viewport.sync_dimensions(cache.total_lines(), 20);
 
-    viewport.start_selection(0, 3);
-    viewport.update_selection(0, 19);
+    viewport.start_selection(1, 3);
+    viewport.update_selection(1, 19);
     let user_selected = viewport.selected_text(&cache).unwrap();
     assert_eq!(user_selected, "user prompt text");
     assert!(!user_selected.starts_with(" ┃ "));
     assert!(!user_selected.ends_with(' '));
 
-    viewport.start_selection(2, 3);
-    viewport.update_selection(2, 26);
+    viewport.start_selection(4, 3);
+    viewport.update_selection(4, 26);
     let assistant_selected = viewport.selected_text(&cache).unwrap();
     assert_eq!(assistant_selected, "assistant markdown text");
     assert!(!assistant_selected.starts_with("   "));
 
     let total = cache.total_lines();
-    assert!(total >= 5);
+    assert!(total >= 7);
     viewport.start_selection(total - 1, 5);
     viewport.update_selection(total - 1, 31);
     let thought_selected = viewport.selected_text(&cache).unwrap();

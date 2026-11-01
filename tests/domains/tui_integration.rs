@@ -314,8 +314,8 @@ fn test_opencode_visual_layout_and_symmetry() {
     assert!(found_user_bg);
 
     let visual_lines = app.cache.visible_slice(0, 20);
-    assert!(visual_lines.len() >= 3);
-    let assistant_first_line = &visual_lines[2];
+    assert!(visual_lines.len() >= 5);
+    let assistant_first_line = &visual_lines[4];
     assert_eq!(assistant_first_line.spans[0].content.as_ref(), "   ");
 }
 
@@ -403,7 +403,7 @@ fn test_mouse_selection_and_scroll_events_via_app() {
     let mouse_down = Event::Mouse(MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
         column: 5,
-        row: 2,
+        row: 1,
         modifiers: KeyModifiers::NONE,
     });
     app.handle_terminal_event(mouse_down);
@@ -411,7 +411,7 @@ fn test_mouse_selection_and_scroll_events_via_app() {
     let mouse_drag = Event::Mouse(MouseEvent {
         kind: MouseEventKind::Drag(MouseButton::Left),
         column: 15,
-        row: 2,
+        row: 1,
         modifiers: KeyModifiers::NONE,
     });
     app.handle_terminal_event(mouse_drag);
@@ -420,7 +420,7 @@ fn test_mouse_selection_and_scroll_events_via_app() {
     let mouse_up = Event::Mouse(MouseEvent {
         kind: MouseEventKind::Up(MouseButton::Left),
         column: 15,
-        row: 2,
+        row: 1,
         modifiers: KeyModifiers::NONE,
     });
     app.handle_terminal_event(mouse_up);
