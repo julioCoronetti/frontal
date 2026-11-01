@@ -294,16 +294,17 @@ impl ModelEffortModal {
             .border_style(Style::default().fg(BORDER_SUBTLE));
 
         let mut lines = Vec::new();
-        let esc_pad = (area.width as usize).saturating_sub(17);
+        let title = " Select Model:";
+        let esc_pad = (area.width as usize).saturating_sub(title.len() + 5);
         lines.push(Line::from(vec![
             Span::styled(
-                " Switch Model",
+                title,
                 Style::default()
                     .fg(TEXT_PRIMARY)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!("{:>esc_pad$}", "esc"),
+                format!("{:>esc_pad$}", "esc "),
                 Style::default().fg(TEXT_MUTED),
             ),
         ]));
@@ -323,14 +324,16 @@ impl ModelEffortModal {
             query_span,
             Span::styled("█", Style::default().fg(ACCENT_PRIMARY)),
         ]));
+        let line_w = (area.width as usize).saturating_sub(6);
+        let divider = "─".repeat(line_w);
         lines.push(Line::from(vec![Span::styled(
-            "   ─────────────────────",
+            format!("   {}", divider),
             Style::default().fg(BORDER_SUBTLE),
         )]));
         lines.push(Line::raw(""));
 
         let filtered = self.filtered_indices();
-        let visible_count = area.height.saturating_sub(11) as usize;
+        let visible_count = area.height.saturating_sub(10) as usize;
         let visible_count = visible_count.max(1);
         let scroll_offset = if self.selected_model_idx >= visible_count {
             self.selected_model_idx + 1 - visible_count
@@ -358,7 +361,7 @@ impl ModelEffortModal {
                     .map(|cur| cur == &m.id || cur.starts_with(&format!("{}-", m.id)))
                     .unwrap_or(false);
 
-                let prefix = if is_sel { "> " } else { "  " };
+                let bullet = if is_sel { " ● " } else { "   " };
                 let current_label = if is_current { "  (current)" } else { "" };
 
                 let style = if is_sel {
@@ -370,7 +373,10 @@ impl ModelEffortModal {
                 };
 
                 lines.push(Line::from(vec![
-                    Span::styled(format!(" {}", prefix), style),
+                    Span::styled(
+                        bullet,
+                        Style::default().fg(if is_sel { ACCENT_PRIMARY } else { TEXT_MUTED }),
+                    ),
                     Span::styled(&m.name, style),
                     Span::styled(current_label, Style::default().fg(TEXT_MUTED)),
                 ]));
@@ -381,57 +387,67 @@ impl ModelEffortModal {
 
         let efforts = self.current_supported_efforts();
         if !efforts.is_empty() {
+            let seg_len = if efforts.len() <= 3 { 7 } else { 5 };
+            let seg_str = "─".repeat(seg_len);
+            let track_nodes_len = efforts.len().saturating_sub(1) * (seg_len + 1) + 1;
+            let total_track_len = 1 + 2 + track_nodes_len + 2 + 1;
+            let pad_left = (area.width as usize)
+                .saturating_sub(2)
+                .saturating_sub(total_track_len)
+                / 2;
+
             let mut track_spans = Vec::new();
-            track_spans.push(Span::styled(" Effort  ", Style::default().fg(TEXT_PRIMARY)));
-            track_spans.push(Span::styled("◀    ", Style::default().fg(ACCENT_PRIMARY)));
+            if pad_left > 0 {
+                track_spans.push(Span::raw(" ".repeat(pad_left)));
+            }
+            track_spans.push(Span::styled("◀  ", Style::default().fg(ACCENT_PRIMARY)));
 
-            let mut label_spans = Vec::new();
-            label_spans.push(Span::raw("             "));
-
-            for (i, eff) in efforts.iter().enumerate() {
+            for (i, _) in efforts.iter().enumerate() {
                 if i > 0 {
-                    track_spans.push(Span::styled(
-                        "─────────",
-                        Style::default().fg(BORDER_SUBTLE),
-                    ));
+                    let seg_color = if i <= self.selected_effort_idx {
+                        ACCENT_PRIMARY
+                    } else {
+                        BORDER_SUBTLE
+                    };
+                    track_spans.push(Span::styled(seg_str.clone(), Style::default().fg(seg_color)));
                 }
-                let is_active_effort = i == self.selected_effort_idx;
-                if is_active_effort {
+
+                if i == self.selected_effort_idx {
                     track_spans.push(Span::styled(
                         "◎",
                         Style::default()
                             .fg(ACCENT_PRIMARY)
                             .add_modifier(Modifier::BOLD),
                     ));
-                    label_spans.push(Span::styled(
-                        format!("{:<9}", eff),
-                        Style::default()
-                            .fg(ACCENT_PRIMARY)
-                            .add_modifier(Modifier::BOLD),
-                    ));
+                } else if i < self.selected_effort_idx {
+                    track_spans.push(Span::styled("●", Style::default().fg(ACCENT_PRIMARY)));
                 } else {
                     track_spans.push(Span::styled("●", Style::default().fg(TEXT_MUTED)));
-                    label_spans.push(Span::styled(
-                        format!("{:<9}", eff),
-                        Style::default().fg(TEXT_MUTED),
-                    ));
                 }
             }
-            track_spans.push(Span::styled("    ▶", Style::default().fg(ACCENT_PRIMARY)));
+            track_spans.push(Span::styled("  ▶", Style::default().fg(ACCENT_PRIMARY)));
             lines.push(Line::from(track_spans));
-            lines.push(Line::from(label_spans));
 
-            let current_eff = efforts
-                .get(self.selected_effort_idx)
-                .map(|s| s.as_str())
-                .unwrap_or("high");
-            let desc = Self::effort_description(current_eff);
-            lines.push(Line::from(vec![Span::styled(
-                format!("     {}", desc),
-                Style::default()
-                    .fg(TEXT_MUTED)
-                    .add_modifier(Modifier::ITALIC),
-            )]));
+            let mut label_spans = Vec::new();
+            let mut curr_col = 0;
+            for (i, eff) in efforts.iter().enumerate() {
+                let node_col = pad_left + 3 + i * (seg_len + 1);
+                let target_col = node_col.saturating_sub(eff.len() / 2);
+                let spaces = target_col.saturating_sub(curr_col);
+                if spaces > 0 {
+                    label_spans.push(Span::raw(" ".repeat(spaces)));
+                }
+                let label_style = if i == self.selected_effort_idx {
+                    Style::default()
+                        .fg(ACCENT_PRIMARY)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(TEXT_MUTED)
+                };
+                label_spans.push(Span::styled(eff.clone(), label_style));
+                curr_col = target_col + eff.len();
+            }
+            lines.push(Line::from(label_spans));
         }
 
         let widget = Paragraph::new(lines).block(block);

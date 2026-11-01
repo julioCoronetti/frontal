@@ -775,3 +775,43 @@ fn test_model_catalog_normalization_and_effort_decoupling() {
         }
     );
 }
+
+#[test]
+fn test_model_effort_modal_rendering_layout_and_slider() {
+    let mut modal = ModelEffortModal::new();
+    let backend = TestBackend::new(50, 18);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    terminal.draw(|f| modal.render(f, f.area())).unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let mut content = String::new();
+    for y in 0..buffer.area.height {
+        for x in 0..buffer.area.width {
+            content.push_str(buffer[(x, y)].symbol());
+        }
+        content.push('\n');
+    }
+
+    assert!(content.contains("Select Model:"));
+    assert!(content.contains("Search:"));
+    assert!(content.contains('●'));
+    assert!(content.contains('◎'));
+    assert!(content.contains('◀'));
+    assert!(content.contains('▶'));
+
+    let left = KeyEvent::new(KeyCode::Left, KeyModifiers::NONE);
+    modal.handle_key(left);
+    assert_eq!(modal.selected_effort_idx, 1);
+
+    terminal.draw(|f| modal.render(f, f.area())).unwrap();
+    let buffer2 = terminal.backend().buffer().clone();
+    let mut content2 = String::new();
+    for y in 0..buffer2.area.height {
+        for x in 0..buffer2.area.width {
+            content2.push_str(buffer2[(x, y)].symbol());
+        }
+        content2.push('\n');
+    }
+
+    assert!(content2.contains("medium"));
+}

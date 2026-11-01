@@ -62,7 +62,7 @@ impl Modal {
         match self {
             Self::Diff(_) => ModalStack::centered_rect_bounded(85, 75, 50, 160, 14, 40, screen),
             Self::ModelEffort(_) => {
-                ModalStack::centered_rect_bounded(56, 68, 48, 72, 16, 26, screen)
+                ModalStack::centered_rect_bounded(46, 52, 42, 56, 14, 20, screen)
             }
             Self::CommandPalette(_) => {
                 ModalStack::centered_rect_bounded(48, 55, 42, 64, 12, 22, screen)
