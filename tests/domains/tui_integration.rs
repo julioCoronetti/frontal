@@ -462,9 +462,22 @@ fn test_contextual_ctrl_c_and_slash_commands_routing() {
     );
 
     let ctrl_c = press_key(KeyCode::Char('c'), KeyModifiers::CONTROL);
-    let act_idle = app.handle_terminal_event(ctrl_c.clone());
-    assert_eq!(act_idle, Some(AppAction::Quit));
+    let act_idle_first = app.handle_terminal_event(ctrl_c.clone());
+    assert_eq!(act_idle_first, None);
+    assert!(!app.should_quit);
+    assert!(app.status_text.contains("Ctrl+C"));
+
+    let act_idle_second = app.handle_terminal_event(ctrl_c.clone());
+    assert_eq!(act_idle_second, Some(AppAction::Quit));
     assert!(app.should_quit);
+
+    app.should_quit = false;
+    app.last_ctrl_c_at = None;
+    app.editor.insert_str("draft to be cleared");
+    let act_clear = app.handle_terminal_event(ctrl_c.clone());
+    assert_eq!(act_clear, None);
+    assert!(app.editor.is_empty());
+    assert!(!app.should_quit);
 
     app.should_quit = false;
     app.session_manager

@@ -57,6 +57,7 @@ pub struct App {
     pub user_config: crate::config::UserConfig,
     pub viewport_bounds: (u16, u16, u16, u16),
     pub turn_started_at: Option<std::time::Instant>,
+    pub last_ctrl_c_at: Option<std::time::Instant>,
 }
 
 impl App {
@@ -114,6 +115,7 @@ impl App {
             user_config: crate::config::UserConfig::load(),
             viewport_bounds: (0, 0, 80, 20),
             turn_started_at: None,
+            last_ctrl_c_at: None,
         }
     }
 
@@ -149,6 +151,7 @@ impl App {
             user_config: crate::config::UserConfig::new_isolated(),
             viewport_bounds: (0, 0, 80, 20),
             turn_started_at: None,
+            last_ctrl_c_at: None,
         }
     }
 

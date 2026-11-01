@@ -51,21 +51,52 @@ impl App {
                 }
 
                 if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-                    let is_running = self
-                        .session_manager
-                        .get_metadata(&self.active_session)
-                        .map(|m| m.status == SessionStatus::RunningTurn)
-                        .unwrap_or(false);
+                    if let Some(selected) = self.viewport.selected_text(&self.cache) {
+                        if !selected.is_empty() {
+                            let _ = self.clipboard.set_text(&selected);
+                            self.viewport.clear_selection();
+                            self.status_text = String::from("Selection copied to clipboard");
+                            self.dirty = true;
+                            return None;
+                        }
+                    }
+
+                    if !self.editor.is_empty() || !self.input.is_empty() {
+                        self.editor.clear();
+                        self.input.clear();
+                        self.popover.close();
+                        self.draft_snapshot = None;
+                        self.status_text = String::from("Input cleared");
+                        self.dirty = true;
+                        return None;
+                    }
+
+                    let is_running = self.waiting_for_response
+                        || self
+                            .session_manager
+                            .get_metadata(&self.active_session)
+                            .map(|m| m.status == SessionStatus::RunningTurn)
+                            .unwrap_or(false);
+
                     if is_running {
                         let _ = self.session_manager.interrupt_active();
                         self.status_text = String::from("Interrupted by user");
                         self.waiting_for_response = false;
                         self.dirty = true;
                         return Some(AppAction::Interrupt);
-                    } else {
-                        self.should_quit = true;
-                        return Some(AppAction::Quit);
                     }
+
+                    if let Some(last) = self.last_ctrl_c_at {
+                        if last.elapsed() <= std::time::Duration::from_millis(1500) {
+                            self.should_quit = true;
+                            return Some(AppAction::Quit);
+                        }
+                    }
+
+                    self.last_ctrl_c_at = Some(std::time::Instant::now());
+                    self.status_text = String::from("Press Ctrl+C again or Ctrl+Q to quit");
+                    self.dirty = true;
+                    return None;
                 }
 
                 if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('q') {
@@ -128,9 +159,23 @@ impl App {
                     }
                 }
 
-                if key.code == KeyCode::Esc && self.editor.is_empty() && self.input.is_empty() {
-                    self.should_quit = true;
-                    return Some(AppAction::Quit);
+                if key.code == KeyCode::Esc {
+                    if self.viewport.selection.is_some() {
+                        self.viewport.clear_selection();
+                        self.dirty = true;
+                        return None;
+                    }
+                    if self.popover.is_visible() {
+                        self.popover.close();
+                        self.dirty = true;
+                        return None;
+                    }
+                    if !self.status_text.is_empty() && self.status_text != "Ready" {
+                        self.status_text = String::from("Ready");
+                        self.dirty = true;
+                        return None;
+                    }
+                    return None;
                 }
 
                 if key.code == KeyCode::Char('t') && key.modifiers.contains(KeyModifiers::CONTROL) {
