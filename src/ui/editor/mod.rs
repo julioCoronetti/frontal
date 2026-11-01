@@ -129,7 +129,7 @@ impl PromptEditor {
     }
 
     pub fn selection_range(&self) -> Option<(usize, usize)> {
-        self.selection
+        self.selection.map(|(a, b)| (a.min(b), a.max(b)))
     }
 
     pub fn has_selection(&self) -> bool {
@@ -137,7 +137,8 @@ impl PromptEditor {
     }
 
     pub fn selected_text(&self) -> Option<String> {
-        let (start, end) = self.selection?;
+        let (s, e) = self.selection?;
+        let (start, end) = (s.min(e), s.max(e));
         if start >= end || start >= self.rope.len_chars() {
             return None;
         }
@@ -247,6 +248,7 @@ impl PromptEditor {
 
         let final_str = cloned_rope.to_string();
         self.clear();
+        self.undo_stack.clear();
         Some(final_str)
     }
 
@@ -255,7 +257,6 @@ impl PromptEditor {
         self.cursor_char = 0;
         self.extmarks.clear();
         self.paste_registry.clear();
-        self.undo_stack.clear();
         self.selection = None;
         self.last_edit_group = EditGroup::None;
     }

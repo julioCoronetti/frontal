@@ -1,6 +1,6 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
+use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
@@ -154,7 +154,49 @@ impl App {
             0
         };
 
-        let mut input_widget = Paragraph::new(display_content).block(
+        let input_text = if let Some((sel_start, sel_end)) = self.editor.selection_range() {
+            let full_text = self.editor.text();
+            let mut lines = Vec::new();
+            let mut global_char_idx = 0;
+            for line_str in full_text.split('\n') {
+                let line_chars: Vec<char> = line_str.chars().collect();
+                let line_len = line_chars.len();
+                let line_start = global_char_idx;
+                let line_end = line_start + line_len;
+
+                if sel_end <= line_start || sel_start >= line_end {
+                    lines.push(Line::from(line_str.to_string()));
+                } else {
+                    let mut spans = Vec::new();
+                    let overlap_start = sel_start.max(line_start).saturating_sub(line_start);
+                    let overlap_end = sel_end.min(line_end).saturating_sub(line_start);
+
+                    if overlap_start > 0 {
+                        let before: String = line_chars[..overlap_start].iter().collect();
+                        spans.push(Span::raw(before));
+                    }
+                    if overlap_end > overlap_start {
+                        let selected: String =
+                            line_chars[overlap_start..overlap_end].iter().collect();
+                        spans.push(Span::styled(
+                            selected,
+                            Style::default().add_modifier(Modifier::REVERSED),
+                        ));
+                    }
+                    if overlap_end < line_len {
+                        let after: String = line_chars[overlap_end..].iter().collect();
+                        spans.push(Span::raw(after));
+                    }
+                    lines.push(Line::from(spans));
+                }
+                global_char_idx = line_end + 1;
+            }
+            Text::from(lines)
+        } else {
+            Text::from(display_content)
+        };
+
+        let mut input_widget = Paragraph::new(input_text).block(
             Block::default()
                 .borders(Borders::ALL)
                 .title(input_title)

@@ -68,7 +68,19 @@ impl App {
                         }
                     }
 
+                    if let Some(selected) = self.editor.selected_text() {
+                        if !selected.is_empty() {
+                            let _ = self.clipboard.set_text(&selected);
+                            self.editor.clear_selection();
+                            self.last_ctrl_c_at = None;
+                            self.status_text = String::from("Selection copied to clipboard");
+                            self.dirty = true;
+                            return None;
+                        }
+                    }
+
                     if !self.editor.is_empty() || !self.input.is_empty() {
+                        self.editor.record_undo_snapshot();
                         self.editor.clear();
                         self.input.clear();
                         self.popover.close();
@@ -127,6 +139,32 @@ impl App {
                     }
                 }
 
+                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('a') {
+                    self.viewport.clear_selection();
+                    self.editor.select_all();
+                    self.popover.close();
+                    self.dirty = true;
+                    return None;
+                }
+
+                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('z') {
+                    if self.editor.undo() {
+                        self.sync_editor_to_input();
+                        self.dirty = true;
+                        self.update_autocomplete();
+                    }
+                    return None;
+                }
+
+                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('u') {
+                    if self.editor.delete_to_line_start() {
+                        self.sync_editor_to_input();
+                        self.dirty = true;
+                        self.update_autocomplete();
+                    }
+                    return None;
+                }
+
                 if self.popover.is_visible() {
                     match key.code {
                         KeyCode::Up => {
@@ -173,6 +211,11 @@ impl App {
                 }
 
                 if key.code == KeyCode::Esc {
+                    if self.editor.has_selection() {
+                        self.editor.clear_selection();
+                        self.dirty = true;
+                        return None;
+                    }
                     if self.viewport.selection.is_some() {
                         self.viewport.clear_selection();
                         self.dirty = true;
@@ -369,6 +412,10 @@ impl App {
                     self.dirty = true;
                 }
                 MouseEventKind::Down(MouseButton::Left) => {
+                    if self.editor.has_selection() {
+                        self.editor.clear_selection();
+                        self.dirty = true;
+                    }
                     let (vx, vy, vw, vh) = self.viewport_bounds;
                     if column >= vx && column < vx + vw && row >= vy && row < vy + vh {
                         let offset = self.viewport.effective_offset();
