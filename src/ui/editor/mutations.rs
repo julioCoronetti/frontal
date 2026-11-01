@@ -1,13 +1,102 @@
-use super::{sanitize_paste_text, Extmark, ExtmarkId, ExtmarkKind, PasteId, PromptEditor};
+use super::{
+    sanitize_paste_text, EditGroup, Extmark, ExtmarkId, ExtmarkKind, PasteId, PromptEditor,
+};
 
 impl PromptEditor {
+    pub(crate) fn delete_char_range(&mut self, start: usize, end: usize) {
+        if start >= end || self.rope.len_chars() == 0 {
+            return;
+        }
+        let mut exp_start = start.min(self.rope.len_chars());
+        let mut exp_end = end.min(self.rope.len_chars());
+        if exp_start >= exp_end {
+            return;
+        }
+
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for ext in &self.extmarks {
+                if ext.start_char < exp_end && ext.end_char > exp_start {
+                    if ext.start_char < exp_start {
+                        exp_start = ext.start_char;
+                        changed = true;
+                    }
+                    if ext.end_char > exp_end {
+                        exp_end = ext.end_char;
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        let mut removed_pill_ids = Vec::new();
+        self.extmarks.retain(|ext| {
+            let inside = ext.start_char >= exp_start && ext.end_char <= exp_end;
+            if inside {
+                if let ExtmarkKind::PastePill { id, .. } = ext.kind {
+                    removed_pill_ids.push(id);
+                }
+            }
+            !inside
+        });
+        for id in removed_pill_ids {
+            self.paste_registry.remove(&id);
+        }
+
+        self.rope.remove(exp_start..exp_end);
+        let removed_len = exp_end - exp_start;
+        self.shift_extmarks_after(exp_start, -(removed_len as isize));
+        self.cursor_char = exp_start;
+        self.selection = None;
+    }
+
+    pub fn delete_to_line_start(&mut self) -> bool {
+        let (line_idx, _) = self.cursor_coordinates();
+        let line_start = self.rope.line_to_char(line_idx);
+        if self.cursor_char > line_start {
+            self.record_undo_snapshot();
+            self.delete_char_range(line_start, self.cursor_char);
+            self.last_edit_group = EditGroup::None;
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn insert_char(&mut self, ch: char) {
+        let had_selection = if let Some((s, e)) = self.selection {
+            self.record_undo_snapshot();
+            self.delete_char_range(s, e);
+            true
+        } else {
+            false
+        };
+        let current_group = if ch.is_whitespace() {
+            EditGroup::Whitespace
+        } else {
+            EditGroup::Word
+        };
+        if !had_selection
+            && (self.last_edit_group != current_group || self.last_edit_group == EditGroup::None)
+        {
+            self.record_undo_snapshot();
+        }
+        self.last_edit_group = current_group;
         self.rope.insert_char(self.cursor_char, ch);
         self.shift_extmarks_after(self.cursor_char, 1);
         self.cursor_char += 1;
     }
 
     pub fn insert_str(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        self.record_undo_snapshot();
+        if let Some((s, e)) = self.selection {
+            self.delete_char_range(s, e);
+        }
+        self.last_edit_group = EditGroup::None;
         let char_count = text.chars().count();
         self.rope.insert(self.cursor_char, text);
         self.shift_extmarks_after(self.cursor_char, char_count as isize);
@@ -19,6 +108,11 @@ impl PromptEditor {
     }
 
     pub fn insert_extmark(&mut self, kind: ExtmarkKind, display_text: &str) -> ExtmarkId {
+        self.record_undo_snapshot();
+        if let Some((s, e)) = self.selection {
+            self.delete_char_range(s, e);
+        }
+        self.last_edit_group = EditGroup::None;
         let start = self.cursor_char;
         let char_count = display_text.chars().count();
         self.rope.insert(start, display_text);
@@ -37,6 +131,11 @@ impl PromptEditor {
     }
 
     pub fn insert_paste(&mut self, text: &str) {
+        self.record_undo_snapshot();
+        if let Some((s, e)) = self.selection {
+            self.delete_char_range(s, e);
+        }
+        self.last_edit_group = EditGroup::None;
         let normalized = sanitize_paste_text(text);
         let line_count = normalized.lines().count();
         if line_count > 5 {
@@ -44,16 +143,42 @@ impl PromptEditor {
             self.next_paste_id += 1;
             self.paste_registry.insert(id, normalized);
             let pill = format!("[Pasted #{}: ~{} lines]", id.0, line_count);
-            self.insert_extmark(ExtmarkKind::PastePill { id, line_count }, &pill);
+            let start = self.cursor_char;
+            let char_count = pill.chars().count();
+            self.rope.insert(start, &pill);
+            self.shift_extmarks_after(start, char_count as isize);
+            let end = start + char_count;
+            let id_ext = ExtmarkId(self.next_extmark_id);
+            self.next_extmark_id += 1;
+            self.extmarks.push(Extmark {
+                id: id_ext,
+                start_char: start,
+                end_char: end,
+                kind: ExtmarkKind::PastePill { id, line_count },
+            });
+            self.cursor_char = end;
         } else {
-            self.insert_str(&normalized);
+            let char_count = normalized.chars().count();
+            self.rope.insert(self.cursor_char, &normalized);
+            self.shift_extmarks_after(self.cursor_char, char_count as isize);
+            self.cursor_char += char_count;
         }
     }
 
     pub fn backspace(&mut self) {
+        if let Some((s, e)) = self.selection {
+            self.record_undo_snapshot();
+            self.delete_char_range(s, e);
+            self.last_edit_group = EditGroup::None;
+            return;
+        }
+
         if self.cursor_char == 0 {
             return;
         }
+
+        self.record_undo_snapshot();
+        self.last_edit_group = EditGroup::None;
 
         let mut hit_idx = None;
         for (i, ext) in self.extmarks.iter().enumerate() {
@@ -81,9 +206,19 @@ impl PromptEditor {
     }
 
     pub fn delete_forward(&mut self) {
+        if let Some((s, e)) = self.selection {
+            self.record_undo_snapshot();
+            self.delete_char_range(s, e);
+            self.last_edit_group = EditGroup::None;
+            return;
+        }
+
         if self.cursor_char >= self.rope.len_chars() {
             return;
         }
+
+        self.record_undo_snapshot();
+        self.last_edit_group = EditGroup::None;
 
         let mut hit_idx = None;
         for (i, ext) in self.extmarks.iter().enumerate() {

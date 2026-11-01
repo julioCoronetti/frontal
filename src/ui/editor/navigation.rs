@@ -1,12 +1,16 @@
-use super::{PromptEditor, TriggerKind};
+use super::{EditGroup, PromptEditor, TriggerKind};
 
 impl PromptEditor {
     pub fn set_cursor_char(&mut self, pos: usize) {
+        self.selection = None;
+        self.last_edit_group = EditGroup::None;
         self.cursor_char = pos.min(self.rope.len_chars());
         self.adjust_cursor_outside_extmarks();
     }
 
     pub fn move_left(&mut self) {
+        self.selection = None;
+        self.last_edit_group = EditGroup::None;
         if self.cursor_char == 0 {
             return;
         }
@@ -21,6 +25,8 @@ impl PromptEditor {
     }
 
     pub fn move_right(&mut self) {
+        self.selection = None;
+        self.last_edit_group = EditGroup::None;
         if self.cursor_char >= self.rope.len_chars() {
             return;
         }
@@ -35,6 +41,8 @@ impl PromptEditor {
     }
 
     pub fn move_up(&mut self) -> bool {
+        self.selection = None;
+        self.last_edit_group = EditGroup::None;
         let (line_idx, col_idx) = self.cursor_coordinates();
         if line_idx == 0 {
             return false;
@@ -49,6 +57,8 @@ impl PromptEditor {
     }
 
     pub fn move_down(&mut self) -> bool {
+        self.selection = None;
+        self.last_edit_group = EditGroup::None;
         let (line_idx, col_idx) = self.cursor_coordinates();
         if line_idx + 1 >= self.rope.len_lines() {
             return false;
@@ -63,12 +73,16 @@ impl PromptEditor {
     }
 
     pub fn move_home(&mut self) {
+        self.selection = None;
+        self.last_edit_group = EditGroup::None;
         let (line_idx, _) = self.cursor_coordinates();
         self.cursor_char = self.rope.line_to_char(line_idx);
         self.adjust_cursor_outside_extmarks();
     }
 
     pub fn move_end(&mut self) {
+        self.selection = None;
+        self.last_edit_group = EditGroup::None;
         let (line_idx, _) = self.cursor_coordinates();
         let line_chars = self.rope.line(line_idx).len_chars();
         let line_start = self.rope.line_to_char(line_idx);

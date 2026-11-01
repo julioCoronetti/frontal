@@ -1,8 +1,16 @@
 use ropey::Rope;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 mod mutations;
 mod navigation;
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) enum EditGroup {
+    #[default]
+    None,
+    Word,
+    Whitespace,
+}
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PasteId(pub u64);
@@ -39,6 +47,7 @@ pub struct EditorSnapshot {
     pub paste_registry: HashMap<PasteId, String>,
     pub next_paste_id: u64,
     pub next_extmark_id: u64,
+    pub selection: Option<(usize, usize)>,
 }
 
 #[derive(Clone, Default)]
@@ -49,6 +58,9 @@ pub struct PromptEditor {
     pub(crate) paste_registry: HashMap<PasteId, String>,
     pub(crate) next_paste_id: u64,
     pub(crate) next_extmark_id: u64,
+    pub(crate) undo_stack: VecDeque<EditorSnapshot>,
+    pub(crate) selection: Option<(usize, usize)>,
+    pub(crate) last_edit_group: EditGroup,
 }
 
 impl PromptEditor {
@@ -60,6 +72,9 @@ impl PromptEditor {
             paste_registry: HashMap::new(),
             next_paste_id: 1,
             next_extmark_id: 1,
+            undo_stack: VecDeque::new(),
+            selection: None,
+            last_edit_group: EditGroup::None,
         }
     }
 
@@ -71,6 +86,7 @@ impl PromptEditor {
             paste_registry: self.paste_registry.clone(),
             next_paste_id: self.next_paste_id,
             next_extmark_id: self.next_extmark_id,
+            selection: self.selection,
         }
     }
 
@@ -81,6 +97,92 @@ impl PromptEditor {
         self.paste_registry = snap.paste_registry;
         self.next_paste_id = snap.next_paste_id;
         self.next_extmark_id = snap.next_extmark_id;
+        self.selection = snap.selection;
+    }
+
+    pub fn undo(&mut self) -> bool {
+        if let Some(prev) = self.undo_stack.pop_back() {
+            self.restore_snapshot(prev);
+            self.last_edit_group = EditGroup::None;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn record_undo_snapshot(&mut self) {
+        if self.undo_stack.len() >= 100 {
+            self.undo_stack.pop_front();
+        }
+        self.undo_stack.push_back(self.snapshot());
+    }
+
+    pub fn select_all(&mut self) {
+        if self.rope.len_chars() > 0 {
+            self.selection = Some((0, self.rope.len_chars()));
+            self.cursor_char = self.rope.len_chars();
+        }
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.selection = None;
+    }
+
+    pub fn selection_range(&self) -> Option<(usize, usize)> {
+        self.selection
+    }
+
+    pub fn has_selection(&self) -> bool {
+        self.selection.is_some()
+    }
+
+    pub fn selected_text(&self) -> Option<String> {
+        let (start, end) = self.selection?;
+        if start >= end || start >= self.rope.len_chars() {
+            return None;
+        }
+        let safe_end = end.min(self.rope.len_chars());
+        let mut cloned = self.rope.slice(start..safe_end).to_string();
+
+        let mut sorted_pills: Vec<Extmark> = self
+            .extmarks
+            .iter()
+            .filter(|e| {
+                matches!(e.kind, ExtmarkKind::PastePill { .. })
+                    && e.start_char >= start
+                    && e.end_char <= safe_end
+            })
+            .cloned()
+            .collect();
+        sorted_pills.sort_by_key(|e| std::cmp::Reverse(e.start_char));
+
+        for ext in sorted_pills {
+            if let ExtmarkKind::PastePill { id, .. } = ext.kind {
+                if let Some(payload) = self.paste_registry.get(&id) {
+                    let rel_start = ext.start_char - start;
+                    let rel_end = ext.end_char - start;
+                    let pill_str = format!(
+                        "[Pasted #{}: ~{} lines]",
+                        id.0,
+                        match ext.kind {
+                            ExtmarkKind::PastePill { line_count, .. } => line_count,
+                            _ => 0,
+                        }
+                    );
+                    if cloned.contains(&pill_str) {
+                        cloned = cloned.replacen(&pill_str, payload, 1);
+                    } else if rel_start <= cloned.len() && rel_end <= cloned.len() {
+                        cloned.replace_range(rel_start..rel_end, payload);
+                    }
+                }
+            }
+        }
+
+        if cloned.is_empty() {
+            None
+        } else {
+            Some(cloned)
+        }
     }
 
     pub fn text(&self) -> String {
@@ -153,6 +255,9 @@ impl PromptEditor {
         self.cursor_char = 0;
         self.extmarks.clear();
         self.paste_registry.clear();
+        self.undo_stack.clear();
+        self.selection = None;
+        self.last_edit_group = EditGroup::None;
     }
 }
 

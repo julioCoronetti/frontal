@@ -360,3 +360,80 @@ fn test_adversarial_paste_and_selection_sanitization() {
     assert!(pos.y < 6);
     assert!(pos.x < 20);
 }
+
+#[test]
+fn test_prompt_editor_undo_grouped_words_and_restoration() {
+    let mut editor = PromptEditor::new();
+    for c in "hello world".chars() {
+        editor.insert_char(c);
+    }
+    assert_eq!(editor.text(), "hello world");
+
+    assert!(editor.undo());
+    assert_eq!(editor.text(), "hello ");
+
+    assert!(editor.undo());
+    assert_eq!(editor.text(), "hello");
+
+    assert!(editor.undo());
+    assert_eq!(editor.text(), "");
+
+    assert!(!editor.undo());
+}
+
+#[test]
+fn test_prompt_editor_select_all_and_atomic_replacement() {
+    let mut editor = PromptEditor::new();
+    editor.insert_str("conteúdo inicial");
+    editor.select_all();
+    assert!(editor.has_selection());
+    assert_eq!(editor.selected_text(), Some("conteúdo inicial".to_string()));
+
+    editor.insert_char('x');
+    assert_eq!(editor.text(), "x");
+    assert!(!editor.has_selection());
+
+    assert!(editor.undo());
+    assert_eq!(editor.text(), "conteúdo inicial");
+}
+
+#[test]
+fn test_prompt_editor_delete_to_line_start_ctrl_u() {
+    let mut editor = PromptEditor::new();
+    editor.insert_str("linha 1\nprefixo sufixo");
+    assert_eq!(editor.cursor_coordinates(), (1, 14));
+
+    assert!(editor.delete_to_line_start());
+    assert_eq!(editor.text(), "linha 1\n");
+    assert_eq!(editor.cursor_coordinates(), (1, 0));
+
+    assert!(editor.undo());
+    assert_eq!(editor.text(), "linha 1\nprefixo sufixo");
+}
+
+#[test]
+fn test_prompt_editor_range_deletion_preserves_extmarks_and_paste_registry() {
+    let mut editor = PromptEditor::new();
+    editor.insert_str("inicio ");
+    let pill_data = "p1\np2\np3\np4\np5\np6";
+    editor.insert_paste(pill_data);
+    editor.insert_str(" fim");
+
+    editor.select_all();
+    assert_eq!(
+        editor.selected_text(),
+        Some(format!("inicio {} fim", pill_data))
+    );
+
+    editor.backspace();
+    assert_eq!(editor.text(), "");
+    assert_eq!(editor.extmarks().len(), 0);
+
+    assert!(editor.undo());
+    assert!(editor.text().contains("[Pasted #1: ~6 lines]"));
+    assert_eq!(editor.extmarks().len(), 1);
+    assert_eq!(
+        editor.take_submitted_expanded(),
+        Some(format!("inicio {} fim", pill_data))
+    );
+}
