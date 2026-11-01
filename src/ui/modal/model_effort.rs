@@ -6,7 +6,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::ui::modal::ModalAction;
-use crate::ui::theme::{ACCENT_PRIMARY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY};
+use crate::ui::theme::{ACCENT_WARM, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModelEffortStep {
@@ -29,6 +29,7 @@ pub struct ModelEffortModal {
     pub selected_model_idx: usize,
     pub selected_effort_idx: usize,
     pub chosen_model: Option<String>,
+    pub current_model: Option<String>,
 }
 
 impl Default for ModelEffortModal {
@@ -59,6 +60,7 @@ impl ModelEffortModal {
             selected_model_idx: 0,
             selected_effort_idx: 0,
             chosen_model: None,
+            current_model: None,
         }
     }
 
@@ -179,15 +181,15 @@ impl ModelEffortModal {
         match self.step {
             ModelEffortStep::SelectModel => match key.code {
                 KeyCode::Esc => ModalAction::Close,
-                KeyCode::Tab => {
+                KeyCode::Enter | KeyCode::Tab => {
                     let filtered = self.filtered_indices();
                     if let Some(&real_idx) = filtered.get(self.selected_model_idx) {
                         let m = &self.models[real_idx];
                         let (def_idx, _) = Self::default_effort_for_model(&m.supported_efforts);
                         self.chosen_model = Some(m.id.clone());
                         self.selected_effort_idx = def_idx;
+                        self.step = ModelEffortStep::SelectEffort;
                     }
-                    self.step = ModelEffortStep::SelectEffort;
                     ModalAction::None
                 }
                 KeyCode::Up => {
@@ -213,20 +215,6 @@ impl ModelEffortModal {
                     self.query.pop();
                     self.selected_model_idx = 0;
                     ModalAction::None
-                }
-                KeyCode::Enter => {
-                    let filtered = self.filtered_indices();
-                    if let Some(&real_idx) = filtered.get(self.selected_model_idx) {
-                        let m = &self.models[real_idx];
-                        let (_, effort) = Self::default_effort_for_model(&m.supported_efforts);
-                        self.chosen_model = Some(m.id.clone());
-                        ModalAction::SelectModelEffort {
-                            model: m.id.clone(),
-                            effort,
-                        }
-                    } else {
-                        ModalAction::None
-                    }
                 }
                 _ => ModalAction::None,
             },
@@ -289,24 +277,42 @@ impl ModelEffortModal {
             ModelEffortStep::SelectModel => {
                 let block = Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(BORDER_SUBTLE))
-                    .title(" Select Model (Tab: Effort, Enter: Confirm, Esc: Close) ");
+                    .border_style(Style::default().fg(BORDER_SUBTLE));
 
                 let mut lines = Vec::new();
+                let esc_pad = (area.width as usize).saturating_sub(18);
                 lines.push(Line::from(vec![
-                    Span::styled(" Search: ", Style::default().fg(TEXT_MUTED)),
                     Span::styled(
-                        &self.query,
+                        " Select model",
                         Style::default()
                             .fg(TEXT_PRIMARY)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled("█", Style::default().fg(ACCENT_PRIMARY)),
+                    Span::styled(
+                        format!("{:>esc_pad$}", "esc"),
+                        Style::default().fg(TEXT_MUTED),
+                    ),
+                ]));
+                lines.push(Line::raw(""));
+
+                let query_span = if self.query.is_empty() {
+                    Span::styled(" Search", Style::default().fg(TEXT_MUTED))
+                } else {
+                    Span::styled(
+                        format!(" {}", self.query),
+                        Style::default()
+                            .fg(TEXT_PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                };
+                lines.push(Line::from(vec![
+                    query_span,
+                    Span::styled("█", Style::default().fg(ACCENT_WARM)),
                 ]));
                 lines.push(Line::raw(""));
 
                 let filtered = self.filtered_indices();
-                let visible_count = area.height.saturating_sub(5) as usize;
+                let visible_count = area.height.saturating_sub(6) as usize;
                 let visible_count = visible_count.max(1);
                 let scroll_offset = if self.selected_model_idx >= visible_count {
                     self.selected_model_idx + 1 - visible_count
@@ -327,21 +333,41 @@ impl ModelEffortModal {
                         .take(visible_count)
                     {
                         let is_sel = display_idx == self.selected_model_idx;
+                        let m = &self.models[real_idx];
+                        let is_current = self
+                            .current_model
+                            .as_ref()
+                            .map(|cur| cur == &m.id || cur.starts_with(&format!("{}-", m.id)))
+                            .unwrap_or(false);
+
+                        let dot_span = if is_current {
+                            Span::styled("● ", Style::default().fg(ACCENT_WARM))
+                        } else {
+                            Span::raw("  ")
+                        };
+
                         let style = if is_sel {
                             Style::default()
-                                .bg(ACCENT_PRIMARY)
+                                .bg(ACCENT_WARM)
                                 .fg(Color::Black)
                                 .add_modifier(Modifier::BOLD)
                         } else {
                             Style::default().fg(TEXT_PRIMARY)
                         };
-                        let prefix = if is_sel { " > " } else { "   " };
-                        let m = &self.models[real_idx];
+
+                        let efforts_label = m.supported_efforts.join("·");
+                        let total_w = area.width.saturating_sub(6) as usize;
+                        let name_w = total_w.saturating_sub(efforts_label.len() + 1).max(10);
+
                         lines.push(Line::from(vec![
-                            Span::styled(prefix, style),
-                            Span::styled(format!("{:<26} ", m.name), style),
+                            if is_sel {
+                                Span::styled(" ", style)
+                            } else {
+                                dot_span
+                            },
+                            Span::styled(format!("{:<name_w$}", m.name), style),
                             Span::styled(
-                                format!("({})", m.id),
+                                format!(" {}", efforts_label),
                                 if is_sel {
                                     style
                                 } else {
@@ -359,10 +385,24 @@ impl ModelEffortModal {
             ModelEffortStep::SelectEffort => {
                 let block = Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(BORDER_SUBTLE))
-                    .title(" Select Reasoning Effort (Enter: Confirm, Esc: Back) ");
+                    .border_style(Style::default().fg(BORDER_SUBTLE));
 
                 let mut lines = Vec::new();
+                let esc_pad = (area.width as usize).saturating_sub(19);
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        " Select effort",
+                        Style::default()
+                            .fg(TEXT_PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("{:>esc_pad$}", "esc"),
+                        Style::default().fg(TEXT_MUTED),
+                    ),
+                ]));
+                lines.push(Line::raw(""));
+
                 let chosen = self.chosen_model.as_deref().unwrap_or("None");
                 lines.push(Line::from(vec![
                     Span::styled(" Model: ", Style::default().fg(TEXT_MUTED)),
@@ -380,7 +420,7 @@ impl ModelEffortModal {
                     let is_sel = idx == self.selected_effort_idx;
                     let style = if is_sel {
                         Style::default()
-                            .bg(ACCENT_PRIMARY)
+                            .bg(ACCENT_WARM)
                             .fg(Color::Black)
                             .add_modifier(Modifier::BOLD)
                     } else {

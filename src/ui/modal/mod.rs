@@ -1,5 +1,5 @@
 use crossterm::event::KeyEvent;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::Frame;
 
@@ -57,6 +57,21 @@ impl Modal {
             Self::Diff(m) => m.render(frame, area),
         }
     }
+
+    pub fn popup_area(&self, screen: Rect) -> Rect {
+        match self {
+            Self::Diff(_) => ModalStack::centered_rect_bounded(85, 75, 50, 160, 14, 40, screen),
+            Self::ModelEffort(_) => {
+                ModalStack::centered_rect_bounded(48, 55, 42, 64, 12, 22, screen)
+            }
+            Self::CommandPalette(_) => {
+                ModalStack::centered_rect_bounded(48, 55, 42, 64, 12, 22, screen)
+            }
+            Self::HotRespawn(_) => {
+                ModalStack::centered_rect_bounded(52, 58, 44, 68, 14, 24, screen)
+            }
+        }
+    }
 }
 
 pub struct ModalStack {
@@ -103,7 +118,7 @@ impl ModalStack {
     pub fn render(&self, frame: &mut Frame, screen_area: Rect) {
         if let Some(top) = self.stack.last() {
             Self::render_backdrop(frame, screen_area);
-            let popup_area = Self::centered_rect(75, 60, screen_area);
+            let popup_area = top.popup_area(screen_area);
             top.render(frame, popup_area);
         }
     }
@@ -122,24 +137,26 @@ impl ModalStack {
         }
     }
 
-    fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-        let popup_layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Percentage((100 - percent_y) / 2),
-                Constraint::Percentage(percent_y),
-                Constraint::Percentage((100 - percent_y) / 2),
-            ])
-            .split(r);
+    pub fn centered_rect_bounded(
+        percent_x: u16,
+        percent_y: u16,
+        min_w: u16,
+        max_w: u16,
+        min_h: u16,
+        max_h: u16,
+        r: Rect,
+    ) -> Rect {
+        let raw_w = (r.width as u32 * percent_x as u32 / 100) as u16;
+        let raw_h = (r.height as u32 * percent_y as u32 / 100) as u16;
+        let width = raw_w.clamp(min_w, max_w).min(r.width);
+        let height = raw_h.clamp(min_h, max_h).min(r.height);
+        let x = r.x + (r.width.saturating_sub(width)) / 2;
+        let y = r.y + (r.height.saturating_sub(height)) / 2;
+        Rect::new(x, y, width, height)
+    }
 
-        Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage((100 - percent_x) / 2),
-                Constraint::Percentage(percent_x),
-                Constraint::Percentage((100 - percent_x) / 2),
-            ])
-            .split(popup_layout[1])[1]
+    pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+        Self::centered_rect_bounded(percent_x, percent_y, 0, r.width, 0, r.height, r)
     }
 }
 

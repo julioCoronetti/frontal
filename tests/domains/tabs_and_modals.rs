@@ -168,18 +168,20 @@ fn test_model_effort_selector_two_step_flow() {
     modal.handle_key(down);
     assert_eq!(modal.selected_model_idx, 1);
 
+    let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    let act1 = modal.handle_key(enter);
+    assert_eq!(act1, ModalAction::None);
+    assert_eq!(modal.step, ModelEffortStep::SelectEffort);
+    assert_eq!(modal.chosen_model.as_deref(), Some("gemini-4-argon"));
+
     let tab = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
     modal.handle_key(tab);
-    assert_eq!(modal.step, ModelEffortStep::SelectEffort);
-
-    let tab2 = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
-    modal.handle_key(tab2);
     assert_eq!(modal.selected_effort_idx, 0);
 
-    let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-    let act = modal.handle_key(enter);
+    let enter2 = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    let act2 = modal.handle_key(enter2);
     assert_eq!(
-        act,
+        act2,
         ModalAction::SelectModelEffort {
             model: "gemini-4-argon".to_string(),
             effort: "low".to_string(),
@@ -526,8 +528,8 @@ fn test_model_effort_query_filtering_and_effort_cycling() {
         assert!(m.id.contains("so") || m.name.to_lowercase().contains("so"));
     }
 
-    let tab = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
-    modal.handle_key(tab);
+    let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    modal.handle_key(enter);
     assert_eq!(modal.step, ModelEffortStep::SelectEffort);
     let tab2 = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
     modal.handle_key(tab2);
@@ -757,21 +759,30 @@ fn test_model_catalog_normalization_and_effort_decoupling() {
     assert_eq!(modal.models[2].name, "Custom Model");
 
     let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-    let act = modal.handle_key(enter);
+    let act1 = modal.handle_key(enter);
+    assert_eq!(act1, ModalAction::None);
+    assert_eq!(modal.step, ModelEffortStep::SelectEffort);
+    assert_eq!(modal.chosen_model.as_deref(), Some("gemini-3.8-flash"));
+
+    let act_confirm = modal.handle_key(enter);
     assert_eq!(
-        act,
+        act_confirm,
         ModalAction::SelectModelEffort {
             model: "gemini-3.8-flash".to_string(),
             effort: "high".to_string(),
         }
     );
 
+    let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+    let act_back = modal.handle_key(esc);
+    assert_eq!(act_back, ModalAction::None);
+    assert_eq!(modal.step, ModelEffortStep::SelectModel);
+
     let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
     modal.handle_key(down);
     assert_eq!(modal.selected_model_idx, 1);
 
-    let tab = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
-    modal.handle_key(tab);
+    modal.handle_key(enter);
     assert_eq!(modal.step, ModelEffortStep::SelectEffort);
     assert_eq!(modal.current_supported_efforts(), &["medium".to_string()]);
 
