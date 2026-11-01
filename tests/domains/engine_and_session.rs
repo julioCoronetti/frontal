@@ -177,7 +177,7 @@ wait
 
     let session_id = SessionId::new();
     let (tx, mut rx) = mpsc::channel(100);
-    let mut config = EngineConfig::new();
+    let mut config = EngineConfig::new_isolated();
     config.agy_bin = mock_guard.path().to_path_buf();
 
     let mut engine = SubprocessEngine::spawn(session_id.clone(), config, tx)
@@ -226,7 +226,7 @@ async fn test_subprocess_grandchild_process_group_cleanup() {
 
     let session_id = SessionId::new();
     let (tx, _rx) = mpsc::channel(100);
-    let mut config = EngineConfig::new();
+    let mut config = EngineConfig::new_isolated();
     config.agy_bin = script_guard.path().to_path_buf();
 
     let mut engine = SubprocessEngine::spawn(session_id, config, tx)
@@ -272,7 +272,7 @@ done
 
     let session_id = SessionId::new();
     let (tx, mut rx) = mpsc::channel(100);
-    let mut config = EngineConfig::new();
+    let mut config = EngineConfig::new_isolated();
     config.agy_bin = mock_guard.path().to_path_buf();
 
     let mut engine = SubprocessEngine::spawn(session_id, config, tx)
@@ -280,7 +280,7 @@ done
         .unwrap();
     let _ = rx.recv().await;
 
-    let mut new_config = EngineConfig::new();
+    let mut new_config = EngineConfig::new_isolated();
     new_config.agy_bin = mock_guard.path().to_path_buf();
     new_config.model = Some("gemini-2.5-pro".to_string());
 
@@ -319,4 +319,12 @@ fn test_kill_registered_subprocesses_real_termination() {
         let res = libc::kill(pid, 0);
         assert_eq!(res, -1);
     }
+}
+
+#[tokio::test]
+async fn test_session_manager_get_engine_config() {
+    let mut manager = SessionManager::new();
+    let sid = SessionId::new();
+    manager.register_mock_session(sid.clone());
+    assert_eq!(manager.get_engine_config(&sid), None);
 }

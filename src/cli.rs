@@ -142,13 +142,27 @@ pub async fn run_from_env() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(bin) = args.agy_bin {
             config.agy_bin = bin;
         }
-        config.conversation_id = args.conversation_id;
-        config.project = args.project;
-        config.model = args.model;
-        config.mode = args.mode;
-        config.effort = args.effort;
-        config.cwd = args.cwd;
-        config.dangerously_skip_permissions = args.dangerously_skip_permissions;
+        if args.conversation_id.is_some() {
+            config.conversation_id = args.conversation_id;
+        }
+        if args.project.is_some() {
+            config.project = args.project;
+        }
+        if args.model.is_some() {
+            config.model = args.model;
+        }
+        if args.mode.is_some() {
+            config.mode = args.mode;
+        }
+        if args.effort.is_some() {
+            config.effort = args.effort;
+        }
+        if args.cwd.is_some() {
+            config.cwd = args.cwd;
+        }
+        if args.dangerously_skip_permissions {
+            config.dangerously_skip_permissions = true;
+        }
         session_manager.create_subprocess_session(config).await?
     };
 

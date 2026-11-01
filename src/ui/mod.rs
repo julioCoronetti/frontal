@@ -57,7 +57,11 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                                 let _ = app.session_manager.interrupt_active();
                             }
                             AppAction::NewTab => {
-                                let mut config = crate::transport::EngineConfig::new();
+                                let mut config = app
+                                    .session_manager
+                                    .get_engine_config(&app.active_session)
+                                    .unwrap_or_default();
+                                config.conversation_id = None;
                                 config.model = Some(app.active_model_name());
                                 config.effort = Some(app.active_effort_name());
                                 config.mode = Some(app.active_mode_name());

@@ -209,3 +209,26 @@ fn test_user_config_defaults_and_parsing() {
 
     assert!(config.save().is_ok());
 }
+
+#[test]
+fn test_cli_args_engine_config_override_precedence() {
+    let mut config = frontal::transport::EngineConfig::new_isolated();
+    let initial_model = config.model.clone();
+    assert!(initial_model.is_some());
+
+    let empty_args = CliArgs::parse_from(["frontal"].into_iter().map(String::from));
+    if empty_args.model.is_some() {
+        config.model = empty_args.model;
+    }
+    assert_eq!(config.model, initial_model);
+
+    let override_args = CliArgs::parse_from(
+        ["frontal", "--model", "custom-model"]
+            .into_iter()
+            .map(String::from),
+    );
+    if override_args.model.is_some() {
+        config.model = override_args.model;
+    }
+    assert_eq!(config.model.as_deref(), Some("custom-model"));
+}
