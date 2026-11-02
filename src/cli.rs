@@ -21,6 +21,7 @@ pub struct CliArgs {
     pub cwd: Option<PathBuf>,
     pub dangerously_skip_permissions: bool,
     pub show_help: bool,
+    pub show_version: bool,
 }
 
 impl CliArgs {
@@ -38,6 +39,7 @@ impl CliArgs {
             cwd: None,
             dangerously_skip_permissions: true,
             show_help: false,
+            show_version: false,
         };
 
         let mut iter = args.skip(1);
@@ -95,6 +97,9 @@ impl CliArgs {
                 "--help" | "-h" => {
                     cli.show_help = true;
                 }
+                "--version" | "-V" => {
+                    cli.show_version = true;
+                }
                 _ => {}
             }
         }
@@ -122,6 +127,7 @@ impl CliArgs {
         );
         println!("  --cwd <PATH>                   Working directory");
         println!("  --help, -h                     Show this help message");
+        println!("  --version, -V                  Show version information");
     }
 
     pub fn apply_to_config(&self, config: &mut EngineConfig) {
@@ -154,6 +160,10 @@ impl CliArgs {
 
 pub async fn run_from_env() -> Result<(), Box<dyn std::error::Error>> {
     let args = CliArgs::parse_from(env::args());
+    if args.show_version {
+        println!("frontal {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     if args.show_help {
         CliArgs::print_help();
         return Ok(());

@@ -228,3 +228,15 @@ fn test_cli_args_engine_config_override_precedence() {
     override_args.apply_to_config(&mut config);
     assert_eq!(config.model.as_deref(), Some("custom-model"));
 }
+
+#[test]
+fn test_cli_args_show_version() {
+    let long_flag = CliArgs::parse_from(["frontal", "--version"].into_iter().map(String::from));
+    assert!(long_flag.show_version);
+
+    let short_flag = CliArgs::parse_from(["frontal", "-V"].into_iter().map(String::from));
+    assert!(short_flag.show_version);
+
+    let none_flag = CliArgs::parse_from(["frontal"].into_iter().map(String::from));
+    assert!(!none_flag.show_version);
+}
