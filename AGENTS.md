@@ -3,7 +3,7 @@
 ## 1. Visão Geral do Projeto
 - **Projeto**: Frontal.
 - **Objetivo**: Interface de usuário em terminal (TUI) desacoplada, de alta performance e assíncrona para o Antigravity CLI (`agy`) e motores compatíveis com o protocolo `stream-json`.
-- **Status do Projeto**: Arquitetura em Rust implementada e operacional. As Fases 1 a 4 do roadmap foram integralmente concluídas na branch `main` e consolidadas por suíte unificada de integração com 7 domínios (83 testes). O sistema encontra-se em fase de manutenção contínua e evolução de features.
+- **Status do Projeto**: Arquitetura em Rust implementada e operacional (versão `0.5.0`). As Fases 1 a 4 do roadmap foram integralmente concluídas na branch `main` e consolidadas por suíte unificada de integração com 7 domínios (104 testes). A Fase 5 (polimento de UI/UX, ergonomia e alinhamento visual com OpenCode) encontra-se em desenvolvimento ativo.
 - **Stack Oficial Ativa (Crates do `Cargo.toml`)**:
   - `tokio` (features: `rt-multi-thread`, `macros`, `process`, `io-util`, `sync`, `time`, `signal`, `fs`)
   - `tokio-util` (feature: `codec`)
@@ -87,13 +87,18 @@
 ### Suíte Unificada de Testes de Integração (`tests/`)
 - `tests/suite.rs`: Ponto de entrada canônico do binário único de testes (*single integration test crate*).
 - `tests/common/mod.rs`: Utilitários compartilhados herméticos (`test_app`, `press_key`, guards RAII `TempDirGuard`/`TempFileGuard` com gerador atômico de sequência, `PGID_TEST_LOCK`).
-- `tests/domains/protocol_and_cli.rs`: Testes de protocolo `stream-json`, NDJSON, `LinesCodec` (16 MB) e flags CLI (12 testes).
+- `tests/domains/protocol_and_cli.rs`: Testes de protocolo `stream-json`, NDJSON, `LinesCodec` (16 MB), flags CLI e `--version` (13 testes).
 - `tests/domains/engine_and_session.rs`: Testes de subprocesso `agy`, replay de fixtures, POSIX `killpg`/`setpgid` e multiplexação MPSC (9 testes).
 - `tests/domains/cache_and_markdown.rs`: Testes de RenderCache L1/L2 $O(1)$, streaming Markdown, syntax highlighting `syntect`, tool cards e 60 FPS (16 testes).
 - `tests/domains/viewport_and_clipboard.rs`: Testes de sticky scroll, seleção limpa, word-wrap UTF-8, OSC 52, notificações sensoriais e compatibilidade `MinimalInputStub` (8 testes).
 - `tests/domains/editor_and_history.rs`: Testes de editor `ropey`, extmarks atômicos, paste pills, autocomplete popover e persistência SQLite WAL (8 testes).
-- `tests/domains/tabs_and_modals.rs`: Testes de multissessão (`App` ↔ `TabState`), modais, paleta de comandos, hot-respawn, diff viewer e tool lifecycle em background (19 testes).
-- `tests/domains/tui_integration.rs`: Testes fim-a-fim com `TestBackend`, comandos locais (`/quit`, `/clear`, `/help`, etc.), mouse routing, paste/multiline, simetria OpenCode e dimensões adversariais (11 testes).
+- `tests/domains/tabs_and_modals/`: Testes particionados de multissessão e diálogos (< 400 linhas por arquivo, 23 testes):
+  - `tabs.rs`: Ciclo de vida de abas, streaming em segundo plano, contagem de tokens e isolamento de estado.
+  - `modals.rs`: Pilha de modais, paleta de comandos, diff viewer integrado, hot-respawn e backdrop dimming overlay.
+  - `model_effort.rs`: Seletor de modelo/esforço, normalização de catálogo e restauração de seleções.
+- `tests/domains/tui_integration/`: Testes particionados fim-a-fim (< 400 linhas por arquivo, 10 testes):
+  - `rendering.rs`: Layout visual OpenCode, spinner, cabeçalho/rodapé e dimensões adversariais de terminal.
+  - `input_and_events.rs`: Comandos locais (`/quit`, `/clear`, `/help`, etc.), mouse routing e bracketed paste.
 
 ---
 
@@ -108,6 +113,7 @@ Para contexto aprofundado, regras de negócio e histórico técnico, consultar:
    - Issues numeradas no GitHub para critérios de aceite detalhados.
 3. **Documentação Oficial (Wiki do GitHub):**
    - Hub Central: `https://github.com/julioCoronetti/frontal/wiki` e `https://github.com/julioCoronetti/frontal/wiki/Home`
+   - **Espelho Local da Wiki (`.wiki/`):** O repositório `frontal.wiki.git` reside mapeado localmente no diretório `.wiki/` (ignorado no `.gitignore`). Alterações de arquitetura, novos comandos CLI/TUI ou fechamentos de fase devem atualizar a documentação em `.wiki/*.md` no mesmo ciclo de entrega do card.
    - **Dossiê Antigravity CLI (`agy`):**
      - Visão Geral: `https://github.com/julioCoronetti/frontal/wiki/Agy`
      - Arquitetura & Protocolo: `https://github.com/julioCoronetti/frontal/wiki/Agy-Architecture`
@@ -128,18 +134,34 @@ Para contexto aprofundado, regras de negócio e histórico técnico, consultar:
 
 ## 5. Fluxo de Entrega e Governança Git (Padrão de Commits Atômicos)
 
-### Esteira Obrigatória de 5 Gates
-Para cada issue, correção ou funcionalidade, executar obrigatoriamente a esteira de validação antes de qualquer commit:
+### Esteira Obrigatória de 6 Gates Mecânicos (`./scripts/verify.sh`)
+Para cada issue, correção ou funcionalidade, a validação é executada mecanicamente pelo script `./scripts/verify.sh` e pelo hook `.githooks/pre-commit` antes de qualquer commit:
 1. `cargo fmt --check`
-2. `cargo check --all-targets`
-3. `cargo clippy --all-targets -- -D warnings`
-4. `cargo test` (validando a integridade dos 83 testes no binário unificado `tests/suite.rs`)
-5. Verificação mecânica de ausência total de comentários no código:
-   `! grep -rnE '//|/\*' src/ tests/`
+2. Checagem mecânica do teto de 500 linhas em todos os arquivos `.rs` de `src/` e `tests/`.
+3. Verificação mecânica de ausência total de comentários no código (sem falso-positivo em strings com URLs ou globs):
+   `sed -E 's/"([^"\\]|\\.)*"/""/g' $(find src tests -name "*.rs") | grep -nE '//|/\*|#\[doc'`
+4. `cargo check --all-targets`
+5. `cargo clippy --all-targets -- -D warnings`
+6. `cargo test --quiet` (validando a integridade dos 104 testes no binário unificado `tests/suite.rs`)
+
+### Ativação Obrigatória dos Git Hooks
+O repositório possui hooks mecânicos versionados em `.githooks/`. Todo ambiente de desenvolvimento deve ativá-los obrigatoriamente:
+```bash
+git config core.hooksPath .githooks
+```
+
+### Política de Versionamento SemVer
+1. **Série `0.y.z`:** O projeto segue SemVer para softwares em maturação contínua. A versão `0.5.0` reflete a conclusão das Fases 1 a 4 e o ciclo ativo da Fase 5 (Ergonomia e Alinhamento OpenCode).
+2. **Regra de Ouro SemVer:** É terminantemente proibido alterar o campo `version` no `Cargo.toml` em commits intermediários (`Card-Status: In Progress`).
+3. **Bump Exclusivo no Fechamento (`Done`):** O incremento SemVer ocorre exclusivamente no commit de encerramento (`Card-Status: Done`) autorizado pelo Senhor:
+   - **Patch (`0.5.x`):** Para correções de bugs (`fix(...)`) ou refatorações puras.
+   - **Minor (`0.x.0`):** Para fechamento de cards funcionais de features estruturais do Board.
+   - O commit de fechamento deve ser acompanhado imediatamente pela criação da tag Git anotada (`git tag -a vX.Y.Z -m "Release vX.Y.Z"`).
+4. **Simetria de Exposição:** A versão da aplicação deve ser exposta de forma idêntica tanto via CLI (`frontal --version` / `frontal -V`) quanto na TUI (no cabeçalho de resposta do comando `/help`).
 
 ### Disciplina de Commits Atômicos (Fim dos "Phase Dumps")
-1. **1 Commit = 1 Mudança Lógica Indivisível:** Cada commit deve introduzir uma única alteração atômica que compila e passa nos 5 gates da esteira. Nunca misturar na mesma árvore refatoração estrutural, correção de bug e documentação.
-2. **Limite Operacional:** Máximo sugerido de **3 a 5 arquivos alterados por commit** (salvo renomeações estruturais puras via `git mv`).
+1. **1 Commit = 1 Mudança Lógica Indivisível:** Cada commit deve introduzir uma única alteração atômica que compila e passa na esteira de 6 gates. Nunca misturar na mesma árvore refatoração estrutural, correção de bug e documentação.
+2. **Limite Operacional:** Máximo estrito de **3 a 5 arquivos alterados por commit** (salvo renomeações estruturais puras via `git mv` ou flag `ATOMIC_OVERRIDE=1`).
 3. **Registro Arquitetural Permanente:** Como comentários no código são estritamente proibidos, o corpo da mensagem de commit é obrigatório para mudanças não-triviais e atua como a memória histórica do projeto (`git blame`).
 
 ### Template Canônico de Commit
@@ -152,31 +174,36 @@ Para cada issue, correção ou funcionalidade, executar obrigatoriamente a estei
 
 Refs: #<card_ou_issue>
 Card-Status: <In Progress | In Review | Done>
-Reviewed-By: Argon-Advisor <mode:none|review|design|troubleshoot|deep-dive>
+Reviewed-By: Argon-Advisor <mode:none|review|design|troubleshoot|deep-dive|refine>
 ```
 - **Tipos Permitidos:** `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`.
 - **Escopos Padronizados:** `config`, `protocol`, `transport`, `engine`, `session`, `cli`, `ui/app`, `ui/cache`, `ui/editor`, `ui/markdown`, `ui/modal`, `ui/tab`, `ui/viewport`, `tests`, `agents`, `wiki`.
+- **Trava Mecânica do Advisor (`commit-msg`):** Se `Card-Status: In Review` for declarado, o hook rejeita o commit caso `Reviewed-By:` contenha `<mode:none>`. A transição para revisão exige auditoria prévia obrigatória com o Argon Advisor.
 
 ---
 
 ## 6. Metodologia de Desenvolvimento Agêntica e Workflow de Cards
 
-### Ciclo de Fatias Verticais Atômicas (Atomic Vertical Slice TDD)
-Cada demanda do Board é executada em ciclos mínimos de fatias verticais seguindo 4 passos:
-1. **Passo 1 (Spec & Red Test):** O agente Flash escreve o teste no domínio correspondente em `tests/domains/` comprovando a especificação ou reproduzindo o bug. Comandos de validação confirmam a falha esperada.
-2. **Passo 2 (Green Implementation):** O agente Flash implementa o código mínimo em `src/`, respeitando as invariantes, o teto de 500 linhas por arquivo e a regra de zero comentários.
-3. **Passo 3 (Gate Pipeline & Atomic Commit):** O agente Flash executa os 5 gates de validação e realiza o commit atômico imediatamente com o template canônico.
-4. **Passo 4 (Adversarial Review):** Concluídas as fatias da funcionalidade, o card entra em `In Review` para validação com perspectiva adversarial.
+### Ciclo Triádico por Card (Senhor ↔ Flash ↔ Argon)
+Cada demanda do Board é executada em um ciclo estruturado de 4 fases:
 
-### Governança Triádica (Senhor ↔ Flash ↔ Argon)
-- **Senhor (Product Owner & Arquiteto-Chefe):** Define prioridades do Board, aprova mudanças de dependências ou escopo, avalia comportamentos e detém autorização exclusiva para mover cards para `Done`.
-- **Flash (Lead Agent & Executor Autônomo):** Executa fatias verticais, escreve testes e código, cumpre os limites de modularidade (< 500 linhas) e mantém a esteira verde.
-- **Argon (Auditor Estratégico Consultivo):** Auditor sênior read-only acionado estritamente nos 4 gatilhos normativos (`advisor.sh` nos modos `review`, `design`, `troubleshoot` ou `deep-dive`).
+1. **Fase 1 (Design & Action Plan - Kickoff):**
+   - Ao mover o card de `Todo` para `In Progress`, para demandas arquiteturais ou de feature, o agente Flash invoca preventivamente o Advisor:
+     `~/.gemini/config/scripts/advisor.sh --mode design -f <arquivos_afetados> "Plano de acao para o card #N: <titulo>"`
+   - O parecer do Argon antecipa premissas ocultas, blind spots, complexidade ciclomática e riscos de regressão antes de qualquer alteração no código.
 
-### Ciclo de Vida dos Cards no Project Board
-1. **`Todo` -> `In Progress`:** Retirar o card prioritário do Backlog e iniciar a implementação em fatias atômicas.
-2. **`In Progress` -> `In Review`:** Concluída a fatia e aprovada na esteira de 5 gates, o card move-se para `In Review`. Nunca mover diretamente para `Done`.
-3. **Ciclo de Testes Adversariais (`In Review`):** O agente Flash reexecuta testes adotando intencionalmente perspectivas diferentes (cenários adversariais, concorrência, limites de buffers). Havendo correções, realizá-las em commits atômicos permanecendo em `In Review`.
-4. **Transição para `Done`:** Quando nenhum teste falhar e nenhuma alteração restar pendente, emitir o aviso:
-   > *"Revisão completa. Nenhuma alteração pendente."*
-   O card só pode ser movido para `Done` após validação e autorização explícita do Senhor.
+2. **Fase 2 (Execução TDD em Fatias Atômicas):**
+   - O agente Flash implementa em ciclos mínimos de TDD (Teste Vermelho -> Código Verde -> `./scripts/verify.sh` -> Commit Atômico com `Card-Status: In Progress`).
+   - Cada fatia cumpre o teto de 500 linhas por arquivo e a regra de zero comentários.
+
+3. **Fase 3 (Auditoria Adversarial & Trava de Revisão):**
+   - Concluídas todas as fatias do card, o agente Flash executa a auditoria adversarial completa via diff:
+     `git diff HEAD~N | ~/.gemini/config/scripts/advisor.sh --mode review "Auditoria de fechamento do card #N"`
+   - Havendo parecer favorável, o commit de revisão é registrado com `Card-Status: In Review` e `Reviewed-By: Argon-Advisor <mode:review>`.
+   - O agente Flash emite o aviso formal ao Senhor:
+     > *"Revisão completa. Nenhuma alteração pendente."*
+
+4. **Fase 4 (Fechamento do Card & SemVer):**
+   - O Senhor avalia e concede a autorização explícita para `Done`.
+   - O agente Flash executa o bump SemVer no `Cargo.toml` (se aplicável), registra o commit final `Card-Status: Done`, cria a tag Git anotada `vX.Y.Z` e atualiza o status do card no Project Board #8 via GitHub CLI:
+     `gh project item-edit --id <ITEM_ID> --project-id PVT_kwHOC8mDy84Blf4U --field-id PVTSSF_lAHOC8mDy84Blf4UzhkMioY --single-select-option-id 98236657`
