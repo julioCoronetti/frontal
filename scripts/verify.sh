@@ -14,7 +14,7 @@ fi
 
 echo "=== [Gate 3/6] Zero Comments Check ==="
 rs_files=$(find src tests -name "*.rs")
-comments=$(sed -E 's/"([^"\\]|\\.)*"/""/g' $rs_files | grep -nE '//|/\*|#\[doc' || true)
+comments=$(awk '{ line=$0; gsub(/"([^"\\]|\\.)*"/, "\"\"", line); if (line ~ /(\/\/|\/\*|#\[doc)/) print FILENAME ":" FNR ":" $0 }' $rs_files)
 if [[ -n "$comments" ]]; then
   echo "Error: Comments detected in code:" >&2
   echo "$comments" >&2

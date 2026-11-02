@@ -73,7 +73,7 @@
 - `src/ui/viewport.rs`: Viewport da conversa com máquina de estados para sticky scroll e seleção limpa de texto.
 - `src/ui/markdown/`: Parser incremental `pulldown-cmark` particionado (`mod.rs`, `normalize.rs`, `parse.rs`, `render.rs`).
 - `src/ui/highlight.rs`: Realce sintático incremental por linha com `syntect` e checkpoints de estado.
-- `src/ui/editor.rs`: Editor de prompt multilinha sobre B-Tree (`ropey`), extmarks atômicos (`@`, `/`) e pílulas de paste (`[Pasted ~N lines]`).
+- `src/ui/editor/`: Editor de prompt multilinha sobre B-Tree (`ropey`), extmarks atômicos (`@`, `/`) e pílulas de paste (`mod.rs`, `mutations.rs`, `navigation.rs`).
 - `src/ui/autocomplete.rs`: Popover flutuante de autocompletação para comandos e arquivos (`FileSearchWorker`).
 - `src/ui/history.rs`: Persistência de histórico de comandos em SQLite WAL (`PromptHistory`).
 - `src/ui/modal/`: Pilha de diálogos modais flutuantes particionada (`mod.rs`, `diff.rs`, `model_effort.rs`, `palette.rs`, `respawn.rs`).
@@ -88,15 +88,15 @@
 - `tests/suite.rs`: Ponto de entrada canônico do binário único de testes (*single integration test crate*).
 - `tests/common/mod.rs`: Utilitários compartilhados herméticos (`test_app`, `press_key`, guards RAII `TempDirGuard`/`TempFileGuard` com gerador atômico de sequência, `PGID_TEST_LOCK`).
 - `tests/domains/protocol_and_cli.rs`: Testes de protocolo `stream-json`, NDJSON, `LinesCodec` (16 MB), flags CLI e `--version` (13 testes).
-- `tests/domains/engine_and_session.rs`: Testes de subprocesso `agy`, replay de fixtures, POSIX `killpg`/`setpgid` e multiplexação MPSC (9 testes).
+- `tests/domains/engine_and_session.rs`: Testes de subprocesso `agy`, replay de fixtures, POSIX `killpg`/`setpgid` e multiplexação MPSC (10 testes).
 - `tests/domains/cache_and_markdown.rs`: Testes de RenderCache L1/L2 $O(1)$, streaming Markdown, syntax highlighting `syntect`, tool cards e 60 FPS (16 testes).
-- `tests/domains/viewport_and_clipboard.rs`: Testes de sticky scroll, seleção limpa, word-wrap UTF-8, OSC 52, notificações sensoriais e compatibilidade `MinimalInputStub` (8 testes).
-- `tests/domains/editor_and_history.rs`: Testes de editor `ropey`, extmarks atômicos, paste pills, autocomplete popover e persistência SQLite WAL (8 testes).
+- `tests/domains/viewport_and_clipboard.rs`: Testes de sticky scroll, seleção limpa, word-wrap UTF-8, OSC 52, notificações sensoriais e compatibilidade `MinimalInputStub` (15 testes).
+- `tests/domains/editor_and_history.rs`: Testes de editor `ropey`, extmarks atômicos, paste pills, autocomplete popover e persistência SQLite WAL (16 testes).
 - `tests/domains/tabs_and_modals/`: Testes particionados de multissessão e diálogos (< 400 linhas por arquivo, 23 testes):
   - `tabs.rs`: Ciclo de vida de abas, streaming em segundo plano, contagem de tokens e isolamento de estado.
   - `modals.rs`: Pilha de modais, paleta de comandos, diff viewer integrado, hot-respawn e backdrop dimming overlay.
   - `model_effort.rs`: Seletor de modelo/esforço, normalização de catálogo e restauração de seleções.
-- `tests/domains/tui_integration/`: Testes particionados fim-a-fim (< 400 linhas por arquivo, 10 testes):
+- `tests/domains/tui_integration/`: Testes particionados fim-a-fim (< 400 linhas por arquivo, 11 testes):
   - `rendering.rs`: Layout visual OpenCode, spinner, cabeçalho/rodapé e dimensões adversariais de terminal.
   - `input_and_events.rs`: Comandos locais (`/quit`, `/clear`, `/help`, etc.), mouse routing e bracketed paste.
 
@@ -139,7 +139,7 @@ Para cada issue, correção ou funcionalidade, a validação é executada mecani
 1. `cargo fmt --check`
 2. Checagem mecânica do teto de 500 linhas em todos os arquivos `.rs` de `src/` e `tests/`.
 3. Verificação mecânica de ausência total de comentários no código (sem falso-positivo em strings com URLs ou globs):
-   `sed -E 's/"([^"\\]|\\.)*"/""/g' $(find src tests -name "*.rs") | grep -nE '//|/\*|#\[doc'`
+   `awk '{ line=$0; gsub(/"([^"\\]|\\.)*"/, "\"\"", line); if (line ~ /(\/\/|\/\*|#\[doc)/) print FILENAME ":" FNR ":" $0 }' $(find src tests -name "*.rs")`
 4. `cargo check --all-targets`
 5. `cargo clippy --all-targets -- -D warnings`
 6. `cargo test --quiet` (validando a integridade dos 104 testes no binário unificado `tests/suite.rs`)
