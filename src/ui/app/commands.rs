@@ -184,9 +184,10 @@ impl App {
             Some(None)
         } else if trimmed == "/help" {
             self.cache.push_user_message("/help");
-            self.cache.push_error(
-                "Available local commands: /clear, /interrupt, /quit, /exit, /help, /model, /diff, /respawn, /palette",
-            );
+            self.cache.push_error(&format!(
+                "Frontal v{} - Available local commands: /clear, /interrupt, /quit, /exit, /help, /model, /diff, /respawn, /palette",
+                env!("CARGO_PKG_VERSION")
+            ));
             self.status_text = String::from("Ready");
             self.dirty = true;
             Some(None)
