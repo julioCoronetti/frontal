@@ -18,3 +18,6 @@ build/
 # Local session files
 .sessions.json*
 .test_sessions.json
+
+# Local wiki clone
+.wiki/
