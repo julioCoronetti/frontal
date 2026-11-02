@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+COMMIT_MSG_FILE="$1"
+FIRST_LINE=$(head -n 1 "$COMMIT_MSG_FILE")
+MSG_CONTENT=$(cat "$COMMIT_MSG_FILE")
+
+HEADER_REGEX="^(feat|fix|refactor|test|docs|chore|perf)\((config|protocol|transport|engine|session|cli|ui/app|ui/cache|ui/editor|ui/markdown|ui/modal|ui/tab|ui/viewport|tests|agents|wiki)\): .{1,72}$"
+if ! [[ "$FIRST_LINE" =~ $HEADER_REGEX ]]; then
+  echo "Error: Invalid commit header format." >&2
+  echo "Header: '$FIRST_LINE'" >&2
+  echo "Expected format: <type>(<scope>): <summary in english, max 72 chars>" >&2
+  echo "Types: feat, fix, refactor, test, docs, chore, perf" >&2
+  echo "Scopes: config, protocol, transport, engine, session, cli, ui/app, ui/cache, ui/editor, ui/markdown, ui/modal, ui/tab, ui/viewport, tests, agents, wiki" >&2
+  exit 1
+fi
+
+if ! grep -q "^- Why:" "$COMMIT_MSG_FILE"; then
+  echo "Error: Commit message missing mandatory '- Why:' section." >&2
+  exit 1
+fi
+
+if ! grep -q "^- What:" "$COMMIT_MSG_FILE"; then
+  echo "Error: Commit message missing mandatory '- What:' section." >&2
+  exit 1
+fi
+
+if ! grep -q "^- Invariants:" "$COMMIT_MSG_FILE"; then
+  echo "Error: Commit message missing mandatory '- Invariants:' section." >&2
+  exit 1
+fi
+
+if ! grep -qE "^Refs: #[0-9a-zA-Z_-]+" "$COMMIT_MSG_FILE"; then
+  echo "Error: Commit message missing mandatory 'Refs: #<id>' trailer." >&2
+  exit 1
+fi
+
+if ! grep -qE "^Card-Status: (In Progress|In Review|Done)" "$COMMIT_MSG_FILE"; then
+  echo "Error: Commit message missing or invalid 'Card-Status: <In Progress|In Review|Done>'." >&2
+  exit 1
+fi
+
+if ! grep -qE "^Reviewed-By: Argon-Advisor <mode:(none|review|design|troubleshoot|deep-dive|refine)>" "$COMMIT_MSG_FILE"; then
+  echo "Error: Commit message missing or invalid 'Reviewed-By: Argon-Advisor <mode:...>' trailer." >&2
+  exit 1
+fi
+
+if grep -q "Card-Status: In Review" "$COMMIT_MSG_FILE"; then
+  if grep -q "Reviewed-By: Argon-Advisor <mode:none>" "$COMMIT_MSG_FILE"; then
+    echo "Error: Cannot mark Card-Status as 'In Review' with 'mode:none'." >&2
+    echo "Transition to 'In Review' strictly requires prior Argon Advisor audit (e.g. advisor.sh --mode review -d)." >&2
+    exit 1
+  fi
+fi
