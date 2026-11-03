@@ -1,1 +1,0 @@
-See [AGENTS.md](AGENTS.md) for full project architecture, strict invariants, 6-gate pipeline, zero-comment policy, and canonical commit conventions. All contributions must adhere to AGENTS.md.
