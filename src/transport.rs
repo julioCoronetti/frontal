@@ -19,7 +19,6 @@ pub enum EngineError {
     ProcessNotFound(String),
     ProcessNotRunning,
     Protocol(String),
-    SlashCommandNotAllowed(String),
     Timeout,
 }
 
@@ -30,9 +29,6 @@ impl fmt::Display for EngineError {
             Self::ProcessNotFound(bin) => write!(f, "Binary not found: {}", bin),
             Self::ProcessNotRunning => write!(f, "Subprocess is not running"),
             Self::Protocol(err) => write!(f, "Protocol error: {}", err),
-            Self::SlashCommandNotAllowed(cmd) => {
-                write!(f, "Slash command '{}' must be handled locally", cmd)
-            }
             Self::Timeout => write!(f, "Operation timed out"),
         }
     }
@@ -42,10 +38,7 @@ impl std::error::Error for EngineError {}
 
 impl From<ProtocolError> for EngineError {
     fn from(err: ProtocolError) -> Self {
-        match err {
-            ProtocolError::SlashCommandNotAllowed(cmd) => Self::SlashCommandNotAllowed(cmd),
-            other => Self::Protocol(other.to_string()),
-        }
+        Self::Protocol(err.to_string())
     }
 }
 

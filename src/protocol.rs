@@ -51,7 +51,6 @@ impl fmt::Display for SessionId {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProtocolError {
     EmptyPrompt,
-    SlashCommandNotAllowed(String),
     Serialization(String),
     Deserialization(String),
 }
@@ -60,13 +59,6 @@ impl fmt::Display for ProtocolError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::EmptyPrompt => write!(f, "Prompt content cannot be empty"),
-            Self::SlashCommandNotAllowed(cmd) => {
-                write!(
-                    f,
-                    "Slash command '{}' must be handled locally by the harness",
-                    cmd
-                )
-            }
             Self::Serialization(err) => write!(f, "Serialization error: {}", err),
             Self::Deserialization(err) => write!(f, "Deserialization error: {}", err),
         }
@@ -90,9 +82,6 @@ pub fn format_user_message(content: &str) -> Result<String, ProtocolError> {
     let trimmed = content.trim();
     if trimmed.is_empty() {
         return Err(ProtocolError::EmptyPrompt);
-    }
-    if trimmed.starts_with('/') {
-        return Err(ProtocolError::SlashCommandNotAllowed(trimmed.to_string()));
     }
     let event = UserInputEvent {
         event: "user".to_string(),

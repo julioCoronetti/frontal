@@ -25,13 +25,11 @@ fn test_user_message_formatting_and_slash_rejection() {
     let empty = format_user_message("   ");
     assert_eq!(empty.unwrap_err(), ProtocolError::EmptyPrompt);
 
-    let slash = format_user_message("/model gemini");
-    match slash.unwrap_err() {
-        ProtocolError::SlashCommandNotAllowed(cmd) => {
-            assert_eq!(cmd, "/model gemini");
-        }
-        _ => panic!("Expected SlashCommandNotAllowed"),
-    }
+    let slash = format_user_message("/plan analyze architecture").unwrap();
+    assert!(slash.contains("\"content\":\"/plan analyze architecture\""));
+
+    let unix_path = format_user_message("/var/log/syslog").unwrap();
+    assert!(unix_path.contains("\"content\":\"/var/log/syslog\""));
 }
 
 #[test]
