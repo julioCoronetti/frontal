@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
@@ -66,7 +68,7 @@ pub struct DialogSelect<T = String> {
     pub query: String,
     pub items: Vec<SelectItem<T>>,
     pub selected_idx: usize,
-    pub scroll_offset: usize,
+    pub scroll_offset: Cell<usize>,
 }
 
 impl<T: Clone> DialogSelect<T> {
@@ -77,7 +79,7 @@ impl<T: Clone> DialogSelect<T> {
             query: String::new(),
             items,
             selected_idx: 0,
-            scroll_offset: 0,
+            scroll_offset: Cell::new(0),
         }
     }
 
@@ -176,6 +178,7 @@ impl<T: Clone> DialogSelect<T> {
             }
             KeyCode::Home => {
                 self.selected_idx = 0;
+                self.scroll_offset.set(0);
                 SelectResult::None
             }
             KeyCode::End => {
@@ -190,13 +193,13 @@ impl<T: Clone> DialogSelect<T> {
             {
                 self.query.push(c);
                 self.selected_idx = 0;
-                self.scroll_offset = 0;
+                self.scroll_offset.set(0);
                 SelectResult::None
             }
             KeyCode::Backspace => {
                 self.query.pop();
                 self.selected_idx = 0;
-                self.scroll_offset = 0;
+                self.scroll_offset.set(0);
                 SelectResult::None
             }
             _ => SelectResult::None,
@@ -259,12 +262,17 @@ impl<T: Clone> DialogSelect<T> {
             .unwrap_or(0);
 
         let inner_height = area.height.saturating_sub(4) as usize;
-        let mut offset = self.scroll_offset;
+        let mut offset = self.scroll_offset.get();
         if selected_row_idx < offset {
-            offset = selected_row_idx;
+            offset = if selected_row_idx > 0 && rows[selected_row_idx - 1].0 {
+                selected_row_idx - 1
+            } else {
+                selected_row_idx
+            };
         } else if inner_height > 0 && selected_row_idx >= offset + inner_height {
             offset = selected_row_idx + 1 - inner_height;
         }
+        self.scroll_offset.set(offset);
 
         let visible_slice = if inner_height > 0 && !rows.is_empty() {
             let end = (offset + inner_height).min(rows.len());
@@ -303,7 +311,7 @@ impl<T: Clone> DialogSelect<T> {
                 }
                 if let Some(ref shortcut) = item.shortcut {
                     spans.push(Span::styled(
-                        shortcut.clone(),
+                        format!(" {}", shortcut),
                         Style::default().fg(TEXT_MUTED),
                     ));
                 }

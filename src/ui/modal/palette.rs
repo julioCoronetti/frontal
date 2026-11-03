@@ -90,9 +90,13 @@ impl CommandPaletteModal {
     }
 
     pub fn filtered_indices(&self) -> Vec<usize> {
-        let mut select = self.select.clone();
-        select.query = self.query.clone();
-        select.filtered_indices()
+        if self.query == self.select.query {
+            self.select.filtered_indices()
+        } else {
+            let mut select = self.select.clone();
+            select.query = self.query.clone();
+            select.filtered_indices()
+        }
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> ModalAction {
@@ -109,9 +113,13 @@ impl CommandPaletteModal {
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect) {
-        let mut select = self.select.clone();
-        select.query = self.query.clone();
-        select.selected_idx = self.selected_idx;
-        select.render(frame, area);
+        if self.query == self.select.query && self.selected_idx == self.select.selected_idx {
+            self.select.render(frame, area);
+        } else {
+            let mut select = self.select.clone();
+            select.query = self.query.clone();
+            select.selected_idx = self.selected_idx;
+            select.render(frame, area);
+        }
     }
 }

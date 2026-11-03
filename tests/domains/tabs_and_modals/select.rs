@@ -193,6 +193,46 @@ fn test_dialog_select_rendering_and_viewport_clipping() {
         }
     }
     assert!(found_scrolled_entry);
+
+    dialog.handle_key(key(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(dialog.selected_idx, 23);
+    terminal
+        .draw(|f| dialog.render(f, Rect::new(5, 2, 70, 12)))
+        .unwrap();
+
+    let buffer_up = terminal.backend().buffer();
+    let mut found_entry_23 = false;
+    for y in 0..buffer_up.area.height {
+        let mut row_text = String::new();
+        for x in 0..buffer_up.area.width {
+            row_text.push_str(buffer_up[(x, y)].symbol());
+        }
+        if row_text.contains("Entry 23") {
+            found_entry_23 = true;
+            break;
+        }
+    }
+    assert!(found_entry_23);
+
+    dialog.handle_key(key(KeyCode::Home, KeyModifiers::NONE));
+    assert_eq!(dialog.selected_idx, 0);
+    terminal
+        .draw(|f| dialog.render(f, Rect::new(5, 2, 70, 12)))
+        .unwrap();
+
+    let buffer_home = terminal.backend().buffer();
+    let mut found_group_a = false;
+    for y in 0..buffer_home.area.height {
+        let mut row_text = String::new();
+        for x in 0..buffer_home.area.width {
+            row_text.push_str(buffer_home[(x, y)].symbol());
+        }
+        if row_text.contains("[Group A]") {
+            found_group_a = true;
+            break;
+        }
+    }
+    assert!(found_group_a);
 }
 
 #[test]
