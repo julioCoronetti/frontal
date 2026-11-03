@@ -98,8 +98,8 @@ impl App {
         )]));
         frame.render_widget(divider_widget, chunks[1]);
 
-        let (chat_area, sidebar_area) = if self.cache.blocks_count() > 0 && padded_area.width >= 100
-        {
+        let is_welcome = self.cache.blocks_count() == 0 && !self.waiting_for_response;
+        let (chat_area, sidebar_area) = if !is_welcome && padded_area.width >= 100 {
             let cols = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Min(60), Constraint::Length(28)])
@@ -110,7 +110,7 @@ impl App {
         };
         self.viewport_bounds = (chat_area.x, chat_area.y, chat_area.width, chat_area.height);
 
-        if self.cache.blocks_count() == 0 && !self.waiting_for_response {
+        if is_welcome {
             let welcome_lines = vec![
                 Line::from(""),
                 Line::from(vec![
@@ -201,7 +201,7 @@ impl App {
             if !self.viewport.is_anchored()
                 && self.viewport.total_lines() > self.viewport.viewport_height()
             {
-                let indicator_w = 22u16.min(chat_area.width);
+                let indicator_w = 20u16.min(chat_area.width);
                 let indicator_rect = Rect {
                     x: chat_area
                         .x
@@ -219,6 +219,7 @@ impl App {
                         .fg(Color::Black)
                         .add_modifier(Modifier::BOLD),
                 )]));
+                frame.render_widget(Clear, indicator_rect);
                 frame.render_widget(indicator_widget, indicator_rect);
             }
         }
@@ -410,13 +411,23 @@ impl App {
 
             frame.render_widget(Clear, popover_rect);
 
+            let max_visible = 8usize;
+            let total = self.popover.items.len();
+            let sel = self.popover.selected_idx;
+            let start_idx = if total <= max_visible || sel < max_visible {
+                0
+            } else {
+                (sel + 1).saturating_sub(max_visible)
+            };
+
             let mut popover_lines = Vec::new();
             for (idx, item) in self
                 .popover
                 .items
                 .iter()
                 .enumerate()
-                .take(item_count as usize)
+                .skip(start_idx)
+                .take(max_visible)
             {
                 let is_sel = idx == self.popover.selected_idx;
                 let (prefix, cmd_style, desc_style) = if is_sel {

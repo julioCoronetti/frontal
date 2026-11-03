@@ -238,3 +238,86 @@ fn test_slash_command_autocomplete_two_columns_navigation_and_apply() {
     assert!(!app.popover.is_visible());
     assert_eq!(app.editor.text(), "/clear ");
 }
+
+#[tokio::test]
+async fn test_last_turn_usage_persisted_through_result_and_subsequent_prompt() {
+    let (mut app, _) = test_app();
+
+    let usage = frontal::protocol::TokenUsage {
+        input_tokens: 120,
+        output_tokens: 80,
+        thinking_tokens: 20,
+        cache_read_tokens: 30,
+        total_tokens: 250,
+    };
+    let result_data = frontal::protocol::ResultData {
+        conversation_id: Some("conv-1".to_string()),
+        status: Some(frontal::protocol::ResultStatus::Success),
+        response: Some("final answer".to_string()),
+        error: None,
+        duration_seconds: Some(1.2),
+        num_turns: Some(1),
+        usage: Some(usage),
+    };
+    let result_ev = frontal::protocol::StreamEvent::Result(frontal::protocol::ResultEvent {
+        conversation_id: Some("conv-1".to_string()),
+        result: Some(result_data),
+    });
+    app.handle_engine_envelope(frontal::protocol::SessionEnvelope {
+        session_id: app.active_session.clone(),
+        event: frontal::protocol::EngineEvent::Stream(Box::new(result_ev)),
+    });
+
+    assert_eq!(
+        app.last_turn_usage.as_ref().map(|u| u.total_tokens),
+        Some(250)
+    );
+
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    let backend = TestBackend::new(120, 25);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal.draw(|f| app.render(f)).unwrap();
+
+    let buf = terminal.backend().buffer();
+    let rendered = buf
+        .content()
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(rendered.contains("250 tok"));
+}
+
+#[test]
+fn test_autocomplete_popover_scrolling_window_for_large_item_lists() {
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    let (mut app, _) = test_app();
+    let files: Vec<String> = (0..15).map(|i| format!("file_{:02}.rs", i)).collect();
+    app.search_worker.set_cached_files(files);
+
+    app.handle_terminal_event(press_key(KeyCode::Char('@'), KeyModifiers::NONE));
+    assert!(app.popover.is_visible());
+    assert_eq!(app.popover.items.len(), 15);
+
+    for _ in 0..10 {
+        app.handle_terminal_event(press_key(KeyCode::Down, KeyModifiers::NONE));
+    }
+    assert_eq!(app.popover.selected_index(), 10);
+
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal.draw(|f| app.render(f)).unwrap();
+
+    let buf = terminal.backend().buffer();
+    let rendered = buf
+        .content()
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(rendered.contains("file_10.rs"));
+}

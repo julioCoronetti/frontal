@@ -66,13 +66,13 @@ impl App {
                                     .take()
                                     .map(|t| t.elapsed().as_secs_f64())
                             });
-                        let fallback_usage = self.last_turn_usage.take();
-                        let tokens = res
+                        let usage = res
                             .result
                             .as_ref()
-                            .and_then(|r| r.usage.as_ref())
-                            .or(fallback_usage.as_ref())
-                            .map(|u| u.output_tokens);
+                            .and_then(|r| r.usage)
+                            .or(self.last_turn_usage);
+                        let tokens = usage.as_ref().map(|u| u.output_tokens);
+                        self.last_turn_usage = usage;
                         let meta = crate::ui::cache::TurnMeta {
                             mode: self.active_mode_name(),
                             model: self.active_model_name(),
