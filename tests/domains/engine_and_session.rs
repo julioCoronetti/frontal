@@ -4,7 +4,7 @@ use tokio::sync::mpsc;
 use frontal::engine::{
     kill_registered_subprocesses, register_child_pgid, unregister_child_pgid, SubprocessEngine,
 };
-use frontal::protocol::{EngineEvent, SessionId, StreamEvent};
+use frontal::protocol::{EngineEvent, ResultStatus, SessionId, StreamEvent};
 use frontal::session::{SessionManager, SessionStatus};
 use frontal::transport::{EngineConfig, FixtureReplayEngine, ReplayMode};
 
@@ -91,14 +91,21 @@ async fn test_fixture_replay_engine_cancellation() {
 
     engine.start().await.unwrap();
     let init_env = rx.recv().await.unwrap();
-    if let EngineEvent::Stream(s) = init_env.event {
-        if let StreamEvent::Init(ev) = *s {
-            assert_eq!(ev.conversation_id.as_deref(), Some("cancel-conv"));
-        }
+    match init_env.event {
+        EngineEvent::Stream(s) => match *s {
+            StreamEvent::Init(ev) => {
+                assert_eq!(ev.conversation_id.as_deref(), Some("cancel-conv"));
+            }
+            other => panic!("Expected Init event, got: {:?}", other),
+        },
+        other => panic!("Expected Stream event, got: {:?}", other),
     }
 
     engine.interrupt().unwrap();
     let _ = engine.shutdown();
+
+    let timeout_res = tokio::time::timeout(Duration::from_millis(50), rx.recv()).await;
+    assert!(timeout_res.is_err() || timeout_res.unwrap().is_none());
 }
 
 #[tokio::test]
@@ -152,20 +159,21 @@ async fn test_session_manager_multiple_sessions_multiplexing() {
     let meta1 = manager.get_metadata(&s1).unwrap();
     assert_eq!(meta1.status, SessionStatus::Ready);
     assert_eq!(meta1.turns, 1);
+
+    let meta2 = manager.get_metadata(&s2).unwrap();
+    assert_eq!(meta2.status, SessionStatus::Ready);
+    assert_eq!(meta2.turns, 1);
 }
 
 #[tokio::test]
 async fn test_subprocess_mock_lifecycle_signals_and_orphan_cleanup() {
     let _lock = PGID_TEST_LOCK.lock().await;
-    let script = r#"#!/usr/bin/env bash
-trap 'echo "interrupted"; exit 0' SIGINT
-echo '{"event":"init","conversation_id":"mock-conv-1"}'
-read -r line
-echo '{"event":"result","result":{"status":"SUCCESS","response":"done"}}'
-sleep 30 &
-wait
-"#;
-    let mock_guard = TempFileGuard::new("mock_agy_test", "sh", script);
+    let pid_guard = TempFileGuard::new("orphan_pid", "txt", "");
+    let script = format!(
+        "#!/usr/bin/env bash\ntrap 'echo \"interrupted\"; exit 0' SIGINT\necho '{{\"event\":\"init\",\"conversation_id\":\"mock-conv-1\"}}'\nread -r line\necho '{{\"event\":\"result\",\"result\":{{\"status\":\"SUCCESS\",\"response\":\"done\"}}}}'\nsleep 30 &\necho $! > {}\nwait\n",
+        pid_guard.path().display()
+    );
+    let mock_guard = TempFileGuard::new("mock_agy_test", "sh", &script);
 
     #[cfg(unix)]
     {
@@ -198,10 +206,22 @@ wait
         StreamEvent::Result(_)
     ));
 
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let pid_str = std::fs::read_to_string(pid_guard.path()).unwrap();
+    let orphan_pid: i32 = pid_str.trim().parse().unwrap();
+    unsafe {
+        assert_eq!(libc::kill(orphan_pid, 0), 0);
+    }
+
     engine.interrupt().unwrap();
 
     let exit_code = engine.shutdown(Duration::from_millis(500)).await.unwrap();
-    assert!(exit_code.is_some() || exit_code.is_none());
+    assert!(exit_code.is_some());
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    unsafe {
+        assert_eq!(libc::kill(orphan_pid, 0), -1);
+    }
 }
 
 #[tokio::test]
@@ -257,7 +277,7 @@ async fn test_subprocess_engine_reconfigure() {
     let script = r#"#!/usr/bin/env bash
 echo '{"event":"init","conversation_id":"reconfig-conv-1","init":{}}'
 while IFS= read -r line; do
-  echo '{"event":"result","result":{"status":"success"}}'
+  echo '{"event":"result","result":{"status":"SUCCESS"}}'
 done
 "#;
     let mock_guard = TempFileGuard::new("mock_reconfig", "sh", script);
@@ -287,15 +307,64 @@ done
     engine.reconfigure(new_config).await.unwrap();
     assert_eq!(engine.config().model.as_deref(), Some("gemini-2.5-pro"));
 
+    let exit_env = rx.recv().await.unwrap();
+    assert!(matches!(exit_env.event, EngineEvent::ProcessExited { .. }));
+
+    let reinit_env = rx.recv().await.unwrap();
+    match reinit_env.event {
+        EngineEvent::Stream(s) => match *s {
+            StreamEvent::Init(ev) => {
+                assert_eq!(ev.conversation_id.as_deref(), Some("reconfig-conv-1"));
+            }
+            other => panic!("Expected Init event after reconfigure, got: {:?}", other),
+        },
+        other => panic!("Expected Stream event after reconfigure, got: {:?}", other),
+    }
+
+    engine.send_prompt("test after reconfigure").await.unwrap();
+    let res_env = rx.recv().await.unwrap();
+    match res_env.event {
+        EngineEvent::Stream(s) => match *s {
+            StreamEvent::Result(r) => {
+                assert_eq!(
+                    r.result.as_ref().and_then(|d| d.status.as_ref()),
+                    Some(&ResultStatus::Success)
+                );
+            }
+            other => panic!("Expected Result, got: {:?}", other),
+        },
+        other => panic!("Expected Stream, got: {:?}", other),
+    }
+
     let _ = engine.shutdown(Duration::from_millis(200)).await;
 }
 
 #[test]
 fn test_child_pgid_registry_and_kill_safeguard() {
+    use std::os::unix::process::CommandExt;
+    use std::process::Command;
+
     let _lock = PGID_TEST_LOCK.blocking_lock();
-    register_child_pgid(999999);
-    unregister_child_pgid(999999);
+    let mut child = Command::new("sleep")
+        .arg("30")
+        .process_group(0)
+        .spawn()
+        .expect("Failed to spawn sleep");
+    let pid = child.id() as i32;
+
+    register_child_pgid(pid);
+    unregister_child_pgid(pid);
     kill_registered_subprocesses();
+
+    unsafe {
+        assert_eq!(
+            libc::kill(pid, 0),
+            0,
+            "Unregistered child should not be killed by kill_registered_subprocesses"
+        );
+        let _ = libc::kill(pid, libc::SIGKILL);
+    }
+    let _ = child.wait();
 }
 
 #[test]
