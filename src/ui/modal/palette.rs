@@ -79,7 +79,7 @@ impl CommandPaletteModal {
             })
             .collect();
 
-        let select = DialogSelect::new("Command Palette (Enter: Run, Esc: Close)", select_items);
+        let select = DialogSelect::new("Command Palette", select_items);
 
         Self {
             select,

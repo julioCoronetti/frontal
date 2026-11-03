@@ -214,33 +214,59 @@ impl<T: Clone> DialogSelect<T> {
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(BORDER_SUBTLE))
-            .title(format!(" {} ", self.title));
+            .border_style(Style::default().fg(BORDER_SUBTLE));
 
         let filtered = self.filtered_indices();
         let mut lines = Vec::new();
 
+        let title = format!(" {}:", self.title.trim_end_matches(':'));
+        let esc_pad = (area.width as usize).saturating_sub(title.len() + 5);
+        lines.push(Line::from(vec![
+            Span::styled(
+                title,
+                Style::default()
+                    .fg(TEXT_PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("{:>esc_pad$}", "esc "),
+                Style::default().fg(TEXT_MUTED),
+            ),
+        ]));
+        lines.push(Line::raw(""));
+
         let display_query = if self.query.is_empty() && !self.placeholder.is_empty() {
             Span::styled(
-                format!("{}_", self.placeholder),
+                format!("Search: {}", self.placeholder),
                 Style::default().fg(TEXT_MUTED),
             )
+        } else if self.query.is_empty() {
+            Span::styled("Search: ", Style::default().fg(TEXT_MUTED))
         } else {
             Span::styled(
-                format!("{}_", self.query),
-                Style::default().fg(TEXT_PRIMARY),
+                format!("Search: {}", self.query),
+                Style::default()
+                    .fg(TEXT_PRIMARY)
+                    .add_modifier(Modifier::BOLD),
             )
         };
 
         lines.push(Line::from(vec![
             Span::styled(
-                " > ",
+                "   > ",
                 Style::default()
                     .fg(ACCENT_HIGHLIGHT)
                     .add_modifier(Modifier::BOLD),
             ),
             display_query,
+            Span::styled("█", Style::default().fg(ACCENT_HIGHLIGHT)),
         ]));
+        let line_w = (area.width as usize).saturating_sub(6);
+        let divider = "─".repeat(line_w);
+        lines.push(Line::from(vec![Span::styled(
+            format!("   {}", divider),
+            Style::default().fg(BORDER_SUBTLE),
+        )]));
         lines.push(Line::raw(""));
 
         let mut rows = Vec::new();
@@ -261,7 +287,7 @@ impl<T: Clone> DialogSelect<T> {
             .position(|(is_cat, _, pos)| !*is_cat && *pos == self.selected_idx)
             .unwrap_or(0);
 
-        let inner_height = area.height.saturating_sub(4) as usize;
+        let inner_height = area.height.saturating_sub(7) as usize;
         let mut offset = self.scroll_offset.get();
         if selected_row_idx < offset {
             offset = if selected_row_idx > 0 && rows[selected_row_idx - 1].0 {
@@ -298,7 +324,7 @@ impl<T: Clone> DialogSelect<T> {
                 } else {
                     Style::default().fg(TEXT_PRIMARY)
                 };
-                let prefix = if is_sel { " * " } else { "   " };
+                let prefix = if is_sel { " ● " } else { "   " };
                 let mut spans = vec![
                     Span::styled(prefix, style),
                     Span::styled(format!("{:<30}", item.title), style),

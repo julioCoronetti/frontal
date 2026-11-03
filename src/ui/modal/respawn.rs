@@ -100,10 +100,49 @@ impl HotRespawnModal {
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect) {
+        if area.width < 4 || area.height < 4 {
+            frame.render_widget(Clear, area);
+            return;
+        }
+
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(BORDER_SUBTLE))
-            .title(" Hot-Respawn Session (Tab/Shift+Tab: Navigate, Enter: Respawn, Esc: Cancel) ");
+            .border_style(Style::default().fg(BORDER_SUBTLE));
+
+        let mut lines = Vec::new();
+        let title = " Hot-Respawn Session:";
+        let esc_pad = (area.width as usize).saturating_sub(title.len() + 5);
+        lines.push(Line::from(vec![
+            Span::styled(
+                title,
+                Style::default()
+                    .fg(TEXT_PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("{:>esc_pad$}", "esc "),
+                Style::default().fg(TEXT_MUTED),
+            ),
+        ]));
+        lines.push(Line::raw(""));
+
+        let param_title = "   Session Configuration:";
+        let nav_hint = "Tab/Shift+Tab: Navigate  Enter: Run ";
+        let nav_pad = (area.width as usize).saturating_sub(param_title.len() + nav_hint.len() + 2);
+        lines.push(Line::from(vec![
+            Span::styled(param_title, Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(
+                format!("{:>nav_pad$}{}", "", nav_hint),
+                Style::default().fg(TEXT_MUTED),
+            ),
+        ]));
+        let line_w = (area.width as usize).saturating_sub(6);
+        let divider = "─".repeat(line_w);
+        lines.push(Line::from(vec![Span::styled(
+            format!("   {}", divider),
+            Style::default().fg(BORDER_SUBTLE),
+        )]));
+        lines.push(Line::raw(""));
 
         let labels = [
             "Conversation UUID:",
@@ -113,11 +152,14 @@ impl HotRespawnModal {
         ];
         let values = [&self.conversation_id, &self.model, &self.effort, &self.mode];
 
-        let mut lines = Vec::new();
-        lines.push(Line::raw(""));
-
         for i in 0..4 {
             let is_active = i == self.active_field;
+            let bullet = if is_active { " ● " } else { "   " };
+            let bullet_style = Style::default().fg(if is_active {
+                ACCENT_HIGHLIGHT
+            } else {
+                TEXT_MUTED
+            });
             let field_style = if is_active {
                 Style::default()
                     .fg(ACCENT_HIGHLIGHT)
@@ -126,14 +168,20 @@ impl HotRespawnModal {
                 Style::default().fg(TEXT_MUTED)
             };
             let val_style = if is_active {
-                Style::default().bg(ACCENT_RUBY).fg(TEXT_PRIMARY)
+                Style::default()
+                    .bg(ACCENT_RUBY)
+                    .fg(TEXT_PRIMARY)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(TEXT_PRIMARY)
             };
+            let cursor = if is_active { "█" } else { " " };
 
             lines.push(Line::from(vec![
-                Span::styled(format!(" {:<20} ", labels[i]), field_style),
-                Span::styled(format!("{}_", values[i]), val_style),
+                Span::styled(bullet, bullet_style),
+                Span::styled(format!("{:<20} ", labels[i]), field_style),
+                Span::styled(values[i].clone(), val_style),
+                Span::styled(cursor, Style::default().fg(ACCENT_HIGHLIGHT)),
             ]));
             lines.push(Line::raw(""));
         }
