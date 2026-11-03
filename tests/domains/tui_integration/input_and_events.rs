@@ -288,6 +288,13 @@ async fn test_last_turn_usage_persisted_through_result_and_subsequent_prompt() {
         .collect::<Vec<_>>()
         .join("");
     assert!(rendered.contains("250 tok"));
+
+    app.editor.insert_str("/help");
+    app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        app.last_turn_usage.as_ref().map(|u| u.total_tokens),
+        Some(250)
+    );
 }
 
 #[test]

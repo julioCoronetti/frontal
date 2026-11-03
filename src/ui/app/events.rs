@@ -271,12 +271,12 @@ impl App {
                         let prompt = self.editor.take_submitted_expanded();
                         if let Some(p) = prompt {
                             self.draft_snapshot = None;
-                            self.last_turn_usage = None;
                             let trimmed = p.trim();
                             if let Some(cmd_action) = self.execute_local_command(trimmed) {
                                 return cmd_action;
                             }
 
+                            self.last_turn_usage = None;
                             self.history.record_prompt(&p);
                             self.cache.push_user_message(&p);
                             self.viewport.scroll_to_bottom();
