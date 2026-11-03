@@ -59,6 +59,8 @@ A arquitetura do Frontal foi definida para garantir execução determinística a
   - Buffer de edição multilinha sobre `ropey`, primitiva de overlay/popover com foco prioritário, extmarks atômicos para menções (`@`, `/`), colapso de pastes volumosos (`HashMap` externo), busca assíncrona de arquivos e histórico persistente em SQLite WAL (`rusqlite`).
 - **Fase 4: Abas Multissessão, Diálogos Modais e Ergonomia Avançada**
   - Multissessão (`Alt+1..9`) sobre `SessionManager`, pilha de diálogos modais flutuantes, alternância de modelos via *hot-respawn*, paleta de comandos (`Ctrl+P`) e visualizador de diffs integrado.
+- **Fase 5: Polimento de UI/UX, Ergonomia e Alinhamento Visual OpenCode**
+  - Estado de boas-vindas centralizado, transição fluida para layout de duas colunas (chat + Context Sidebar), popover de autocompletação em duas colunas alinhadas com janela deslizante, indicador flutuante de rolagem, erradicação do `MinimalInputStub` com edição nativa $O(1)$ sobre B-Tree Rope e atalhos ergonômicos Readline (`Ctrl+Z`, `Ctrl+A`, `Ctrl+U`).
 
 ---
 

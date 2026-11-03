@@ -62,7 +62,7 @@
 ### Interface de Terminal (`src/ui/`)
 - `src/ui/mod.rs`: Loop assíncrono de eventos TUI (60 FPS, crossterm `EventStream`, cancelamento, ticks de renderização).
 - `src/ui/app/`: Módulo central de aplicação particionado em subarquivos coesos (< 400 linhas):
-  - `src/ui/app/mod.rs`: Struct `App`, enum `AppAction`, construtores (`new`, `new_isolated`), getters de metadados ativos e sincronização interna de inputs.
+  - `src/ui/app/mod.rs`: Struct `App`, enum `AppAction`, construtores (`new`, `new_isolated`) e getters de metadados ativos.
   - `src/ui/app/tabs.rs`: Gestão multisessão e isolamento visual do ciclo de swap (`std::mem::swap`).
   - `src/ui/app/events.rs`: Roteamento não-bloqueante de eventos do terminal (teclado, mouse, paste e autocompletação).
   - `src/ui/app/commands.rs`: Despacho de comandos locais (`/quit`, `/clear`, `/interrupt`, etc.), ações modais e extração de git diff.
