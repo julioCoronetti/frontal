@@ -6,7 +6,7 @@ use crate::ui::cache::{BlockKind, CachedBlockLines, MessageBlock, RenderCache};
 use crate::ui::markdown::{
     parse_markdown_segments, render_markdown_to_lines, render_segments_to_lines,
 };
-use crate::ui::theme::{ACCENT_PRIMARY, BG_USER_CONTAINER, TEXT_MUTED, TEXT_PRIMARY};
+use crate::ui::theme::{ACCENT_PRIMARY, ACCENT_RUBY, BG_USER_CONTAINER, TEXT_MUTED, TEXT_PRIMARY};
 
 pub fn wrap_text_utf8(text: &str, max_width: usize) -> Vec<String> {
     let mut lines = Vec::new();
@@ -189,7 +189,7 @@ impl RenderCache {
                     let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(8) as usize);
                     for row in wrapped {
                         result.push(Line::from(vec![
-                            Span::styled("   ▎ ", Style::default().fg(TEXT_MUTED)),
+                            Span::styled("   ▎ ", Style::default().fg(ACCENT_RUBY)),
                             Span::styled(
                                 row,
                                 Style::default()

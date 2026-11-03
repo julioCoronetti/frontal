@@ -9,7 +9,11 @@ use frontal::ui::cache::{BlockKind, RenderCache, TurnMeta};
 use frontal::ui::modal::{
     CommandPaletteModal, DiffModal, HotRespawnModal, Modal, ModelEffortModal,
 };
-use frontal::ui::theme::BG_USER_CONTAINER;
+use frontal::ui::theme::{
+    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BG_USER_CONTAINER, BORDER_SUBTLE,
+    TAB_ACTIVE_DOT, TEXT_MUTED, TEXT_PRIMARY,
+};
+use ratatui::style::Color;
 
 use crate::common::{press_key, test_app};
 
@@ -388,4 +392,62 @@ fn test_welcome_state_sidebar_and_scroll_down_indicator() {
         .collect::<Vec<_>>()
         .join("");
     assert!(text3.contains("Scroll to bottom"));
+}
+
+#[test]
+fn test_atlas_crimson_theme_constants_and_rendering() {
+    assert_eq!(BG_USER_CONTAINER, Color::Rgb(24, 15, 28));
+    assert_eq!(ACCENT_PRIMARY, Color::Rgb(177, 12, 41));
+    assert_eq!(ACCENT_HIGHLIGHT, Color::Rgb(255, 59, 80));
+    assert_eq!(ACCENT_RUBY, Color::Rgb(134, 16, 44));
+    assert_eq!(BORDER_SUBTLE, Color::Rgb(72, 11, 32));
+    assert_eq!(TEXT_PRIMARY, Color::Rgb(255, 255, 255));
+    assert_eq!(TEXT_MUTED, Color::Rgb(140, 125, 136));
+    assert_eq!(TAB_ACTIVE_DOT, Color::Rgb(177, 12, 41));
+
+    let (mut app, _) = test_app();
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    terminal.draw(|f| app.render(f)).unwrap();
+    let buf = terminal.backend().buffer();
+
+    let mut found_logo_accent = false;
+    let mut found_help_highlight = false;
+    for y in 0..buf.area.height {
+        for x in 0..buf.area.width {
+            let cell = buf.cell((x, y)).unwrap();
+            if cell.symbol() == "f" && cell.fg == ACCENT_PRIMARY {
+                found_logo_accent = true;
+            }
+            if cell.symbol() == "/" && cell.fg == ACCENT_HIGHLIGHT {
+                found_help_highlight = true;
+            }
+        }
+    }
+    assert!(found_logo_accent);
+    assert!(found_help_highlight);
+
+    for i in 0..20 {
+        app.cache.push_user_message(&format!("message {}", i));
+    }
+    terminal.draw(|f| app.render(f)).unwrap();
+    app.viewport.scroll_up(5);
+    terminal.draw(|f| app.render(f)).unwrap();
+    let buf2 = terminal.backend().buffer();
+
+    let mut found_indicator = false;
+    for y in 0..buf2.area.height {
+        for x in 0..buf2.area.width {
+            let cell = buf2.cell((x, y)).unwrap();
+            if cell.symbol() == "▼" && cell.bg == ACCENT_PRIMARY && cell.fg == TEXT_PRIMARY {
+                found_indicator = true;
+                break;
+            }
+        }
+        if found_indicator {
+            break;
+        }
+    }
+    assert!(found_indicator);
 }

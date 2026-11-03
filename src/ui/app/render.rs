@@ -6,7 +6,10 @@ use ratatui::Frame;
 
 use crate::ui::app::App;
 use crate::ui::editor::TriggerKind;
-use crate::ui::theme::{ACCENT_PRIMARY, BORDER_SUBTLE, TAB_ACTIVE_DOT, TEXT_MUTED, TEXT_PRIMARY};
+use crate::ui::theme::{
+    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BORDER_SUBTLE, TAB_ACTIVE_DOT, TEXT_MUTED,
+    TEXT_PRIMARY,
+};
 
 impl App {
     pub fn render(&mut self, frame: &mut Frame) {
@@ -68,7 +71,7 @@ impl App {
             let text_color = if is_active {
                 TEXT_PRIMARY
             } else if tab.has_unread {
-                Color::Yellow
+                ACCENT_HIGHLIGHT
             } else {
                 TEXT_MUTED
             };
@@ -132,28 +135,28 @@ impl App {
                     Span::styled(
                         "/help",
                         Style::default()
-                            .fg(Color::Cyan)
+                            .fg(ACCENT_HIGHLIGHT)
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(" · ", Style::default().fg(TEXT_MUTED)),
                     Span::styled(
                         "/model",
                         Style::default()
-                            .fg(Color::Cyan)
+                            .fg(ACCENT_HIGHLIGHT)
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(" · ", Style::default().fg(TEXT_MUTED)),
                     Span::styled(
                         "/diff",
                         Style::default()
-                            .fg(Color::Cyan)
+                            .fg(ACCENT_HIGHLIGHT)
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(" · ", Style::default().fg(TEXT_MUTED)),
                     Span::styled(
                         "/palette",
                         Style::default()
-                            .fg(Color::Cyan)
+                            .fg(ACCENT_HIGHLIGHT)
                             .add_modifier(Modifier::BOLD),
                     ),
                 ]),
@@ -210,7 +213,7 @@ impl App {
                     " ▼ Scroll to bottom ",
                     Style::default()
                         .bg(ACCENT_PRIMARY)
-                        .fg(Color::Black)
+                        .fg(TEXT_PRIMARY)
                         .add_modifier(Modifier::BOLD),
                 )]));
                 frame.render_widget(Clear, indicator_rect);
@@ -428,16 +431,16 @@ impl App {
                     (
                         " > ",
                         Style::default()
-                            .bg(Color::Cyan)
-                            .fg(Color::Black)
+                            .bg(ACCENT_RUBY)
+                            .fg(TEXT_PRIMARY)
                             .add_modifier(Modifier::BOLD),
-                        Style::default().bg(Color::Cyan).fg(Color::Black),
+                        Style::default().bg(ACCENT_RUBY).fg(TEXT_PRIMARY),
                     )
                 } else {
                     (
                         "   ",
                         Style::default()
-                            .fg(Color::Cyan)
+                            .fg(ACCENT_HIGHLIGHT)
                             .add_modifier(Modifier::BOLD),
                         Style::default().fg(TEXT_MUTED),
                     )
@@ -464,7 +467,7 @@ impl App {
                 Block::default()
                     .borders(Borders::ALL)
                     .title(title)
-                    .border_style(Style::default().fg(Color::Yellow)),
+                    .border_style(Style::default().fg(ACCENT_RUBY)),
             );
             frame.render_widget(popover_widget, popover_rect);
         }
