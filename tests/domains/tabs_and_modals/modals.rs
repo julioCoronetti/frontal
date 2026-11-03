@@ -299,4 +299,26 @@ fn test_modal_palette_and_respawn_atlas_crimson_styling() {
     }
     assert!(found_active_field_highlight);
     assert!(found_active_val_ruby);
+
+    let effort_modal =
+        ModelEffortModal::with_models(vec![("m-1".to_string(), "Model One".to_string())]);
+    terminal
+        .draw(|f| effort_modal.render(f, ratatui::layout::Rect::new(10, 2, 60, 20)))
+        .unwrap();
+    let buf3 = terminal.backend().buffer();
+    let mut found_cursor = false;
+    let mut found_node = false;
+    for y in 0..buf3.area.height {
+        for x in 0..buf3.area.width {
+            let cell = buf3.cell((x, y)).unwrap();
+            if cell.symbol() == "█" && cell.fg == ACCENT_HIGHLIGHT {
+                found_cursor = true;
+            }
+            if cell.symbol() == "◎" && cell.fg == ACCENT_HIGHLIGHT {
+                found_node = true;
+            }
+        }
+    }
+    assert!(found_cursor);
+    assert!(found_node);
 }

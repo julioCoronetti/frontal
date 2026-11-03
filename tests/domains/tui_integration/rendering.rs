@@ -400,7 +400,7 @@ fn test_atlas_crimson_theme_constants_and_rendering() {
     assert_eq!(ACCENT_PRIMARY, Color::Rgb(177, 12, 41));
     assert_eq!(ACCENT_HIGHLIGHT, Color::Rgb(255, 59, 80));
     assert_eq!(ACCENT_RUBY, Color::Rgb(134, 16, 44));
-    assert_eq!(BORDER_SUBTLE, Color::Rgb(72, 11, 32));
+    assert_eq!(BORDER_SUBTLE, Color::Rgb(96, 18, 40));
     assert_eq!(TEXT_PRIMARY, Color::Rgb(255, 255, 255));
     assert_eq!(TEXT_MUTED, Color::Rgb(140, 125, 136));
     assert_eq!(TAB_ACTIVE_DOT, Color::Rgb(177, 12, 41));
@@ -450,4 +450,23 @@ fn test_atlas_crimson_theme_constants_and_rendering() {
         }
     }
     assert!(found_indicator);
+
+    app.editor.insert_str("/");
+    app.update_autocomplete();
+    terminal.draw(|f| app.render(f)).unwrap();
+    let buf3 = terminal.backend().buffer();
+    let mut found_popover_sel_ruby = false;
+    for y in 0..buf3.area.height {
+        for x in 0..buf3.area.width {
+            let cell = buf3.cell((x, y)).unwrap();
+            if cell.bg == ACCENT_RUBY && cell.fg == TEXT_PRIMARY {
+                found_popover_sel_ruby = true;
+                break;
+            }
+        }
+        if found_popover_sel_ruby {
+            break;
+        }
+    }
+    assert!(found_popover_sel_ruby);
 }
