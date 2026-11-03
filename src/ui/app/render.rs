@@ -98,34 +98,189 @@ impl App {
         )]));
         frame.render_widget(divider_widget, chunks[1]);
 
-        let total_lines = self.cache.ensure_visual_lines(viewport_area.width);
-        let total_with_spinner = total_lines + if self.waiting_for_response { 1 } else { 0 };
-        self.viewport
-            .sync_dimensions(total_with_spinner, viewport_area.height as usize);
-        let mut visible_lines = self.viewport.visible_slice(&self.cache);
+        let (chat_area, sidebar_area) = if self.cache.blocks_count() > 0 && padded_area.width >= 100
+        {
+            let cols = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Min(60), Constraint::Length(28)])
+                .split(viewport_area);
+            (cols[0], Some(cols[1]))
+        } else {
+            (viewport_area, None)
+        };
+        self.viewport_bounds = (chat_area.x, chat_area.y, chat_area.width, chat_area.height);
 
-        if self.waiting_for_response {
-            const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-            let spinner = SPINNER_FRAMES[(self.spinner_tick as usize / 4) % SPINNER_FRAMES.len()];
-            visible_lines.push(Line::from(vec![
-                Span::raw("   "),
-                Span::styled(
-                    format!("{} ", spinner),
+        if self.cache.blocks_count() == 0 && !self.waiting_for_response {
+            let welcome_lines = vec![
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(
+                        "frontal",
+                        Style::default()
+                            .fg(ACCENT_PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!(" v{}", env!("CARGO_PKG_VERSION")),
+                        Style::default().fg(TEXT_MUTED),
+                    ),
+                ]),
+                Line::from(vec![Span::styled(
+                    "Async TUI for Antigravity & stream-json engines",
+                    Style::default().fg(TEXT_MUTED),
+                )]),
+                Line::from(""),
+                Line::from(vec![Span::styled(
+                    "Type a prompt below or use slash commands:",
+                    Style::default().fg(TEXT_PRIMARY),
+                )]),
+                Line::from(vec![
+                    Span::styled(
+                        "/help",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(" · ", Style::default().fg(TEXT_MUTED)),
+                    Span::styled(
+                        "/model",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(" · ", Style::default().fg(TEXT_MUTED)),
+                    Span::styled(
+                        "/diff",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(" · ", Style::default().fg(TEXT_MUTED)),
+                    Span::styled(
+                        "/palette",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]),
+            ];
+            let welcome_widget =
+                Paragraph::new(welcome_lines).alignment(ratatui::layout::Alignment::Center);
+            frame.render_widget(welcome_widget, chat_area);
+        } else {
+            let total_lines = self.cache.ensure_visual_lines(chat_area.width);
+            let total_with_spinner = total_lines + if self.waiting_for_response { 1 } else { 0 };
+            self.viewport
+                .sync_dimensions(total_with_spinner, chat_area.height as usize);
+            let mut visible_lines = self.viewport.visible_slice(&self.cache);
+
+            if self.waiting_for_response {
+                const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+                let spinner =
+                    SPINNER_FRAMES[(self.spinner_tick as usize / 4) % SPINNER_FRAMES.len()];
+                visible_lines.push(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled(
+                        format!("{} ", spinner),
+                        Style::default()
+                            .fg(ACCENT_PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        "Thinking / Waiting for response...",
+                        Style::default()
+                            .fg(TEXT_MUTED)
+                            .add_modifier(Modifier::ITALIC),
+                    ),
+                ]));
+            }
+
+            let viewport_widget = Paragraph::new(visible_lines);
+            frame.render_widget(viewport_widget, chat_area);
+
+            if !self.viewport.is_anchored()
+                && self.viewport.total_lines() > self.viewport.viewport_height()
+            {
+                let indicator_w = 22u16.min(chat_area.width);
+                let indicator_rect = Rect {
+                    x: chat_area
+                        .x
+                        .saturating_add(chat_area.width.saturating_sub(indicator_w + 1)),
+                    y: chat_area
+                        .y
+                        .saturating_add(chat_area.height.saturating_sub(1)),
+                    width: indicator_w,
+                    height: 1,
+                };
+                let indicator_widget = Paragraph::new(Line::from(vec![Span::styled(
+                    " ▼ Scroll to bottom ",
                     Style::default()
-                        .fg(ACCENT_PRIMARY)
+                        .bg(ACCENT_PRIMARY)
+                        .fg(Color::Black)
                         .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    "Thinking / Waiting for response...",
-                    Style::default()
-                        .fg(TEXT_MUTED)
-                        .add_modifier(Modifier::ITALIC),
-                ),
-            ]));
+                )]));
+                frame.render_widget(indicator_widget, indicator_rect);
+            }
         }
 
-        let viewport_widget = Paragraph::new(visible_lines);
-        frame.render_widget(viewport_widget, viewport_area);
+        if let Some(sb_area) = sidebar_area {
+            let total_tokens = self
+                .last_turn_usage
+                .as_ref()
+                .map(|u| u.total_tokens)
+                .unwrap_or(0);
+            let pct = (total_tokens as f64 / 1_000_000.0 * 100.0).min(100.0);
+            let filled_blocks = ((pct / 100.0) * 14.0).round() as usize;
+            let bar = format!(
+                "{}{}",
+                "■".repeat(filled_blocks),
+                "░".repeat(14usize.saturating_sub(filled_blocks))
+            );
+            let sb_lines = vec![
+                Line::from(vec![
+                    Span::styled("● ", Style::default().fg(Color::Green)),
+                    Span::styled(
+                        "Session Active",
+                        Style::default()
+                            .fg(TEXT_PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled("ID: ", Style::default().fg(TEXT_MUTED)),
+                    Span::styled(
+                        self.active_session.as_str(),
+                        Style::default().fg(TEXT_PRIMARY),
+                    ),
+                ]),
+                Line::from(""),
+                Line::from(vec![Span::styled(
+                    "Context Window",
+                    Style::default().fg(TEXT_MUTED).add_modifier(Modifier::BOLD),
+                )]),
+                Line::from(vec![Span::styled(
+                    format!("{} tok ({:.1}%)", total_tokens, pct),
+                    Style::default().fg(TEXT_PRIMARY),
+                )]),
+                Line::from(vec![Span::styled(bar, Style::default().fg(ACCENT_PRIMARY))]),
+                Line::from(""),
+                Line::from(vec![Span::styled(
+                    "Workspace",
+                    Style::default().fg(TEXT_MUTED).add_modifier(Modifier::BOLD),
+                )]),
+                Line::from(vec![Span::styled(
+                    &self.cwd_display,
+                    Style::default().fg(TEXT_MUTED),
+                )]),
+            ];
+            let sb_widget = Paragraph::new(sb_lines).block(
+                Block::default()
+                    .borders(Borders::LEFT)
+                    .border_style(Style::default().fg(BORDER_SUBTLE))
+                    .title(" Context "),
+            );
+            frame.render_widget(sb_widget, sb_area);
+        }
 
         let model_name = self.active_model_name();
         let mode_name = self.active_mode_name();

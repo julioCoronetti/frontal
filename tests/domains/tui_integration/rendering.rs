@@ -338,3 +338,54 @@ async fn test_phase3_ui_refinements_on_test_backend() {
     app.handle_terminal_event(down_event);
     assert_eq!(app.cache.blocks_count(), initial_blocks);
 }
+
+#[test]
+fn test_welcome_state_sidebar_and_scroll_down_indicator() {
+    let (mut app, _) = test_app();
+    let backend = TestBackend::new(120, 25);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    terminal.draw(|f| app.render(f)).unwrap();
+    let buf = terminal.backend().buffer();
+    let text = buf
+        .content()
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(text.contains("frontal"));
+    assert!(text.contains("Async TUI for Antigravity"));
+
+    for i in 0..30 {
+        app.cache.push_user_message(&format!("user prompt {}", i));
+    }
+    app.last_turn_usage = Some(frontal::protocol::TokenUsage {
+        input_tokens: 500,
+        output_tokens: 200,
+        thinking_tokens: 50,
+        cache_read_tokens: 100,
+        total_tokens: 700,
+    });
+    terminal.draw(|f| app.render(f)).unwrap();
+    let buf2 = terminal.backend().buffer();
+    let text2 = buf2
+        .content()
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(text2.contains("Context Window"));
+    assert!(text2.contains("700 tok"));
+    assert!(text2.contains("Session Active"));
+
+    app.viewport.scroll_up(10);
+    terminal.draw(|f| app.render(f)).unwrap();
+    let buf3 = terminal.backend().buffer();
+    let text3 = buf3
+        .content()
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(text3.contains("Scroll to bottom"));
+}
