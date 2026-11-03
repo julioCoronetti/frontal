@@ -264,21 +264,35 @@ impl App {
                 .take(item_count as usize)
             {
                 let is_sel = idx == self.popover.selected_idx;
-                let (prefix, style) = if is_sel {
+                let (prefix, cmd_style, desc_style) = if is_sel {
                     (
                         " > ",
                         Style::default()
                             .bg(Color::Cyan)
                             .fg(Color::Black)
                             .add_modifier(Modifier::BOLD),
+                        Style::default().bg(Color::Cyan).fg(Color::Black),
                     )
                 } else {
-                    ("   ", Style::default().fg(Color::White))
+                    (
+                        "   ",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                        Style::default().fg(TEXT_MUTED),
+                    )
                 };
-                popover_lines.push(Line::from(vec![
-                    Span::styled(prefix, style),
-                    Span::styled(&item.label, style),
-                ]));
+                let mut spans = vec![Span::styled(prefix, desc_style)];
+                if let Some(desc) = &item.description {
+                    let cmd_col_w: usize = 14;
+                    let pad = " ".repeat(cmd_col_w.saturating_sub(item.label.len()).max(1));
+                    spans.push(Span::styled(&item.label, cmd_style));
+                    spans.push(Span::styled(pad, desc_style));
+                    spans.push(Span::styled(desc, desc_style));
+                } else {
+                    spans.push(Span::styled(&item.label, cmd_style));
+                }
+                popover_lines.push(Line::from(spans));
             }
 
             let title = match self.popover.kind {

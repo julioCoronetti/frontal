@@ -215,3 +215,26 @@ fn test_contextual_ctrl_c_and_slash_commands_routing() {
         .join("\n");
     assert!(full_text.contains("is not supported locally"));
 }
+
+#[test]
+fn test_slash_command_autocomplete_two_columns_navigation_and_apply() {
+    let (mut app, _) = test_app();
+
+    app.handle_terminal_event(press_key(KeyCode::Char('/'), KeyModifiers::NONE));
+    assert!(app.popover.is_visible());
+    assert!(!app.popover.items.is_empty());
+
+    let first = &app.popover.items[0];
+    assert!(first.description.is_some());
+    assert_eq!(first.label, "/help");
+
+    app.handle_terminal_event(press_key(KeyCode::Down, KeyModifiers::NONE));
+    assert_eq!(app.popover.selected_index(), 1);
+
+    let second = app.popover.selected_item().unwrap();
+    assert_eq!(second.label, "/clear");
+
+    app.handle_terminal_event(press_key(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(!app.popover.is_visible());
+    assert_eq!(app.editor.text(), "/clear ");
+}

@@ -8,6 +8,7 @@ use crate::ui::editor::TriggerKind;
 pub struct AutocompleteItem {
     pub label: String,
     pub insert_text: String,
+    pub description: Option<String>,
     pub kind: TriggerKind,
 }
 
@@ -99,8 +100,9 @@ impl AutocompletePopover {
 
         cmds.into_iter()
             .map(|(c, desc)| AutocompleteItem {
-                label: format!("{} - {}", c, desc),
+                label: c.to_string(),
                 insert_text: format!("{} ", c),
+                description: Some(desc.to_string()),
                 kind: TriggerKind::Command,
             })
             .collect()
@@ -113,7 +115,14 @@ impl AutocompletePopover {
             return all;
         }
         all.into_iter()
-            .filter(|item| item.insert_text.to_lowercase().contains(&q))
+            .filter(|item| {
+                item.label.to_lowercase().contains(&q)
+                    || item
+                        .description
+                        .as_deref()
+                        .map(|d| d.to_lowercase().contains(&q))
+                        .unwrap_or(false)
+            })
             .collect()
     }
 }
@@ -169,6 +178,7 @@ impl FileSearchWorker {
                     results.push(AutocompleteItem {
                         label: file.clone(),
                         insert_text: format!("@{} ", file),
+                        description: None,
                         kind: TriggerKind::File,
                     });
                     if results.len() >= limit {
