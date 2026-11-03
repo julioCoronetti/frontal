@@ -3,7 +3,7 @@
 ## 1. Visão Geral do Projeto
 - **Projeto**: Frontal.
 - **Objetivo**: Interface de usuário em terminal (TUI) desacoplada, de alta performance e assíncrona para o Antigravity CLI (`agy`) e motores compatíveis com o protocolo `stream-json`.
-- **Status do Projeto**: Arquitetura em Rust implementada e operacional (versão `0.5.0`). As Fases 1 a 4 do roadmap foram integralmente concluídas na branch `main` e consolidadas por suíte unificada de integração com 8 domínios (110 testes). A Fase 5 (polimento de UI/UX, ergonomia e alinhamento visual com OpenCode) encontra-se em desenvolvimento ativo.
+- **Status do Projeto**: Arquitetura em Rust implementada e operacional (versão `0.5.0`). As Fases 1 a 4 do roadmap foram integralmente concluídas na branch `main` e consolidadas por suíte unificada de integração com 8 domínios (111 testes). A Fase 5 (polimento de UI/UX, ergonomia e alinhamento visual com OpenCode) encontra-se em desenvolvimento ativo.
 - **Stack Oficial Ativa (Crates do `Cargo.toml`)**:
   - `tokio` (features: `rt-multi-thread`, `macros`, `process`, `io-util`, `sync`, `time`, `signal`, `fs`)
   - `tokio-util` (feature: `codec`)
@@ -86,7 +86,7 @@
 ### Suíte Unificada de Testes de Integração (`tests/`)
 - `tests/suite.rs`: Ponto de entrada canônico do binário único de testes (*single integration test crate*).
 - `tests/common/mod.rs`: Utilitários compartilhados herméticos (`test_app`, `press_key`, guards RAII `TempDirGuard`/`TempFileGuard` com gerador atômico de sequência, `PGID_TEST_LOCK`).
-- `tests/domains/architecture.rs`: Testes de invariantes mecânicas de arquitetura (teto de 500 linhas e ausência de comentários, 2 testes).
+- `tests/domains/architecture.rs`: Testes de invariantes mecânicas de arquitetura (teto de 500 linhas, ausência de comentários e matriz adversarial, 3 testes).
 - `tests/domains/protocol_and_cli.rs`: Testes de protocolo `stream-json`, NDJSON, `LinesCodec` (16 MB), flags CLI e `--version` (13 testes).
 - `tests/domains/engine_and_session.rs`: Testes de subprocesso `agy`, replay de fixtures, POSIX `killpg`/`setpgid` e multiplexação MPSC (10 testes).
 - `tests/domains/cache_and_markdown.rs`: Testes de RenderCache L1/L2 $O(1)$, streaming Markdown, syntax highlighting `syntect`, tool cards e 60 FPS (16 testes).
@@ -138,7 +138,7 @@ Para contexto aprofundado, regras de negócio e histórico técnico, consultar:
 Para cada issue, correção ou funcionalidade, a validação é executada nativamente pelo Cargo e assegurada pelo hook `.githooks/pre-commit` antes de qualquer commit:
 1. `cargo fmt --check`: Formatação canônica do código.
 2. `cargo clippy --all-targets -- -D warnings`: Compilação e linting estrito sem avisos (*zero warnings*).
-3. `cargo test --quiet`: Execução dos 110 testes na suíte unificada `tests/suite.rs` (validando tanto as regras de arquitetura em `architecture.rs` quanto os 7 domínios funcionais).
+3. `cargo test --quiet`: Execução dos 111 testes na suíte unificada `tests/suite.rs` (validando tanto as regras de arquitetura em `architecture.rs` quanto os 7 domínios funcionais).
 
 ### Ativação Obrigatória dos Git Hooks
 O repositório possui hooks mecânicos versionados em `.githooks/`. Todo ambiente de desenvolvimento deve ativá-los obrigatoriamente:
