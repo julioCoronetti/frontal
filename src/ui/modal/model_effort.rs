@@ -6,7 +6,9 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::ui::modal::ModalAction;
-use crate::ui::theme::{ACCENT_PRIMARY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY};
+use crate::ui::theme::{
+    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModelEffortStep {
@@ -353,7 +355,7 @@ impl ModelEffortModal {
         };
         lines.push(Line::from(vec![
             query_span,
-            Span::styled("█", Style::default().fg(ACCENT_PRIMARY)),
+            Span::styled("█", Style::default().fg(ACCENT_HIGHLIGHT)),
         ]));
         let line_w = (area.width as usize).saturating_sub(6);
         let divider = "─".repeat(line_w);
@@ -436,7 +438,7 @@ impl ModelEffortModal {
             for (i, _) in efforts.iter().enumerate() {
                 if i > 0 {
                     let seg_color = if i <= self.selected_effort_idx {
-                        ACCENT_PRIMARY
+                        ACCENT_RUBY
                     } else {
                         BORDER_SUBTLE
                     };
@@ -450,7 +452,7 @@ impl ModelEffortModal {
                     track_spans.push(Span::styled(
                         "◎",
                         Style::default()
-                            .fg(ACCENT_PRIMARY)
+                            .fg(ACCENT_HIGHLIGHT)
                             .add_modifier(Modifier::BOLD),
                     ));
                 } else if i < self.selected_effort_idx {

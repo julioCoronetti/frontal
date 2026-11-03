@@ -1,12 +1,12 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::ui::modal::ModalAction;
-use crate::ui::theme::BORDER_SUBTLE;
+use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_RUBY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY};
 
 pub struct HotRespawnModal {
     pub conversation_id: String,
@@ -120,15 +120,15 @@ impl HotRespawnModal {
             let is_active = i == self.active_field;
             let field_style = if is_active {
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(ACCENT_HIGHLIGHT)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(TEXT_MUTED)
             };
             let val_style = if is_active {
-                Style::default().bg(Color::DarkGray).fg(Color::White)
+                Style::default().bg(ACCENT_RUBY).fg(TEXT_PRIMARY)
             } else {
-                Style::default().fg(Color::White)
+                Style::default().fg(TEXT_PRIMARY)
             };
 
             lines.push(Line::from(vec![

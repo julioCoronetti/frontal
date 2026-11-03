@@ -5,6 +5,7 @@ use ratatui::Terminal;
 
 use frontal::ui::diff::{DiffLineKind, DiffViewer};
 use frontal::ui::modal::{CommandPaletteModal, HotRespawnModal, ModalAction, ModelEffortModal};
+use frontal::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_RUBY, BORDER_SUBTLE, TEXT_PRIMARY};
 
 use crate::common::{press_key, test_app};
 
@@ -241,4 +242,61 @@ fn test_modal_backdrop_dimming_overlay() {
     let buf_closed = terminal.backend().buffer().clone();
     let cell_restored = &buf_closed[(1, 1)];
     assert!(!cell_restored.modifier.contains(Modifier::DIM));
+}
+
+#[test]
+fn test_modal_palette_and_respawn_atlas_crimson_styling() {
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    let palette = CommandPaletteModal::new();
+    terminal
+        .draw(|f| palette.render(f, ratatui::layout::Rect::new(10, 2, 60, 20)))
+        .unwrap();
+    let buf = terminal.backend().buffer();
+
+    let mut found_prompt_highlight = false;
+    let mut found_selected_ruby = false;
+    for y in 0..buf.area.height {
+        for x in 0..buf.area.width {
+            let cell = buf.cell((x, y)).unwrap();
+            if cell.symbol() == ">" && cell.fg == ACCENT_HIGHLIGHT {
+                found_prompt_highlight = true;
+            }
+            if cell.bg == ACCENT_RUBY && cell.fg == TEXT_PRIMARY {
+                found_selected_ruby = true;
+            }
+        }
+    }
+    let border_cell = buf.cell((10, 2)).unwrap();
+    assert_eq!(border_cell.fg, BORDER_SUBTLE);
+    assert!(found_prompt_highlight);
+    assert!(found_selected_ruby);
+
+    let respawn = HotRespawnModal::new(
+        Some("c-1".to_string()),
+        Some("m-1".to_string()),
+        Some("high".to_string()),
+        Some("auto".to_string()),
+    );
+    terminal
+        .draw(|f| respawn.render(f, ratatui::layout::Rect::new(10, 2, 60, 20)))
+        .unwrap();
+    let buf2 = terminal.backend().buffer();
+
+    let mut found_active_field_highlight = false;
+    let mut found_active_val_ruby = false;
+    for y in 0..buf2.area.height {
+        for x in 0..buf2.area.width {
+            let cell = buf2.cell((x, y)).unwrap();
+            if cell.symbol() == "C" && cell.fg == ACCENT_HIGHLIGHT {
+                found_active_field_highlight = true;
+            }
+            if cell.bg == ACCENT_RUBY && cell.fg == TEXT_PRIMARY {
+                found_active_val_ruby = true;
+            }
+        }
+    }
+    assert!(found_active_field_highlight);
+    assert!(found_active_val_ruby);
 }

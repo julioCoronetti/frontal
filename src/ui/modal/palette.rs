@@ -1,12 +1,12 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::ui::modal::ModalAction;
-use crate::ui::theme::BORDER_SUBTLE;
+use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_RUBY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY};
 
 pub struct PaletteItem {
     pub id: String,
@@ -144,12 +144,12 @@ impl CommandPaletteModal {
             Span::styled(
                 " > ",
                 Style::default()
-                    .fg(Color::Magenta)
+                    .fg(ACCENT_HIGHLIGHT)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 format!("{}_", self.query),
-                Style::default().fg(Color::White),
+                Style::default().fg(TEXT_PRIMARY),
             ),
         ]));
         lines.push(Line::raw(""));
@@ -159,17 +159,17 @@ impl CommandPaletteModal {
             let is_sel = pos == self.selected_idx;
             let style = if is_sel {
                 Style::default()
-                    .bg(Color::Magenta)
-                    .fg(Color::Black)
+                    .bg(ACCENT_RUBY)
+                    .fg(TEXT_PRIMARY)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::White)
+                Style::default().fg(TEXT_PRIMARY)
             };
             let prefix = if is_sel { " * " } else { "   " };
             lines.push(Line::from(vec![
                 Span::styled(prefix, style),
                 Span::styled(format!("{:<30}", item.title), style),
-                Span::styled(item.shortcut.clone(), Style::default().fg(Color::DarkGray)),
+                Span::styled(item.shortcut.clone(), Style::default().fg(TEXT_MUTED)),
             ]));
         }
 
