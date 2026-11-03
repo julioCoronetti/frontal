@@ -34,7 +34,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Run Verification Pipeline
-        run: |
-          chmod +x ./scripts/verify.sh
-          ./scripts/verify.sh
+      - name: Formatting Check
+        run: cargo fmt --check
+
+      - name: Strict Linting
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test Suite & Architectural Verification
+        run: cargo test

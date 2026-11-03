@@ -3,7 +3,7 @@
 ## 1. Visão Geral do Projeto
 - **Projeto**: Frontal.
 - **Objetivo**: Interface de usuário em terminal (TUI) desacoplada, de alta performance e assíncrona para o Antigravity CLI (`agy`) e motores compatíveis com o protocolo `stream-json`.
-- **Status do Projeto**: Arquitetura em Rust implementada e operacional (versão `0.5.0`). As Fases 1 a 4 do roadmap foram integralmente concluídas na branch `main` e consolidadas por suíte unificada de integração com 7 domínios (108 testes). A Fase 5 (polimento de UI/UX, ergonomia e alinhamento visual com OpenCode) encontra-se em desenvolvimento ativo.
+- **Status do Projeto**: Arquitetura em Rust implementada e operacional (versão `0.5.0`). As Fases 1 a 4 do roadmap foram integralmente concluídas na branch `main` e consolidadas por suíte unificada de integração com 8 domínios (110 testes). A Fase 5 (polimento de UI/UX, ergonomia e alinhamento visual com OpenCode) encontra-se em desenvolvimento ativo.
 - **Stack Oficial Ativa (Crates do `Cargo.toml`)**:
   - `tokio` (features: `rt-multi-thread`, `macros`, `process`, `io-util`, `sync`, `time`, `signal`, `fs`)
   - `tokio-util` (feature: `codec`)
@@ -86,6 +86,7 @@
 ### Suíte Unificada de Testes de Integração (`tests/`)
 - `tests/suite.rs`: Ponto de entrada canônico do binário único de testes (*single integration test crate*).
 - `tests/common/mod.rs`: Utilitários compartilhados herméticos (`test_app`, `press_key`, guards RAII `TempDirGuard`/`TempFileGuard` com gerador atômico de sequência, `PGID_TEST_LOCK`).
+- `tests/domains/architecture.rs`: Testes de invariantes mecânicas de arquitetura (teto de 500 linhas e ausência de comentários, 2 testes).
 - `tests/domains/protocol_and_cli.rs`: Testes de protocolo `stream-json`, NDJSON, `LinesCodec` (16 MB), flags CLI e `--version` (13 testes).
 - `tests/domains/engine_and_session.rs`: Testes de subprocesso `agy`, replay de fixtures, POSIX `killpg`/`setpgid` e multiplexação MPSC (10 testes).
 - `tests/domains/cache_and_markdown.rs`: Testes de RenderCache L1/L2 $O(1)$, streaming Markdown, syntax highlighting `syntect`, tool cards e 60 FPS (16 testes).
@@ -133,15 +134,11 @@ Para contexto aprofundado, regras de negócio e histórico técnico, consultar:
 
 ## 5. Fluxo de Entrega e Governança Git (Padrão de Commits Atômicos)
 
-### Esteira Obrigatória de 6 Gates Mecânicos (`./scripts/verify.sh`)
-Para cada issue, correção ou funcionalidade, a validação é executada mecanicamente pelo script `./scripts/verify.sh` e pelo hook `.githooks/pre-commit` antes de qualquer commit:
-1. `cargo fmt --check`
-2. Checagem mecânica do teto de 500 linhas em todos os arquivos `.rs` de `src/` e `tests/`.
-3. Verificação mecânica de ausência total de comentários no código (sem falso-positivo em strings com URLs ou globs):
-   `awk '{ line=$0; gsub(/"([^"\\]|\\.)*"/, "\"\"", line); if (line ~ /(\/\/|\/\*|#\[doc)/) print FILENAME ":" FNR ":" $0 }' $(find src tests -name "*.rs")`
-4. `cargo check --all-targets`
-5. `cargo clippy --all-targets -- -D warnings`
-6. `cargo test --quiet` (validando a integridade dos 108 testes no binário unificado `tests/suite.rs`)
+### Esteira Mecânica Nativa de Qualidade (Tríade Cargo)
+Para cada issue, correção ou funcionalidade, a validação é executada nativamente pelo Cargo e assegurada pelo hook `.githooks/pre-commit` antes de qualquer commit:
+1. `cargo fmt --check`: Formatação canônica do código.
+2. `cargo clippy --all-targets -- -D warnings`: Compilação e linting estrito sem avisos (*zero warnings*).
+3. `cargo test --quiet`: Execução dos 110 testes na suíte unificada `tests/suite.rs` (validando tanto as regras de arquitetura em `architecture.rs` quanto os 7 domínios funcionais).
 
 ### Ativação Obrigatória dos Git Hooks
 O repositório possui hooks mecânicos versionados em `.githooks/`. Todo ambiente de desenvolvimento deve ativá-los obrigatoriamente:
@@ -192,7 +189,7 @@ Cada demanda do Board é executada em um ciclo estruturado de 4 fases:
    - O parecer do Argon antecipa premissas ocultas, blind spots, complexidade ciclomática e riscos de regressão antes de qualquer alteração no código.
 
 2. **Fase 2 (Execução TDD em Fatias Atômicas):**
-   - O agente Flash implementa em ciclos mínimos de TDD (Teste Vermelho -> Código Verde -> `./scripts/verify.sh` -> Commit Atômico com `Card-Status: In Progress`).
+   - O agente Flash implementa em ciclos mínimos de TDD (Teste Vermelho -> Código Verde -> `cargo test` -> Commit Atômico com `Card-Status: In Progress`).
    - Cada fatia cumpre o teto de 500 linhas por arquivo e a regra de zero comentários.
 
 3. **Fase 3 (Auditoria Adversarial & Trava de Revisão):**
