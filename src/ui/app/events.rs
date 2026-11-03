@@ -79,10 +79,9 @@ impl App {
                         }
                     }
 
-                    if !self.editor.is_empty() || !self.input.is_empty() {
+                    if !self.editor.is_empty() {
                         self.editor.record_undo_snapshot();
                         self.editor.clear();
-                        self.input.clear();
                         self.popover.close();
                         self.draft_snapshot = None;
                         self.last_ctrl_c_at = None;
@@ -132,7 +131,7 @@ impl App {
                 if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('v') {
                     if let Some(text) = self.clipboard.get_text() {
                         self.editor.insert_paste(&text);
-                        self.sync_editor_to_input();
+                        self.draft_snapshot = None;
                         self.dirty = true;
                         self.update_autocomplete();
                         return None;
@@ -149,7 +148,7 @@ impl App {
 
                 if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('z') {
                     if self.editor.undo() {
-                        self.sync_editor_to_input();
+                        self.draft_snapshot = None;
                         self.dirty = true;
                         self.update_autocomplete();
                     }
@@ -158,7 +157,7 @@ impl App {
 
                 if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('u') {
                     if self.editor.delete_to_line_start() {
-                        self.sync_editor_to_input();
+                        self.draft_snapshot = None;
                         self.dirty = true;
                         self.update_autocomplete();
                     }
@@ -200,7 +199,7 @@ impl App {
                                     kind,
                                     &item.insert_text,
                                 );
-                                self.sync_editor_to_input();
+                                self.draft_snapshot = None;
                             }
                             self.popover.close();
                             self.dirty = true;
@@ -261,7 +260,7 @@ impl App {
 
                 if is_multiline_newline {
                     self.editor.insert_newline();
-                    self.sync_editor_to_input();
+                    self.draft_snapshot = None;
                     self.dirty = true;
                     self.update_autocomplete();
                     return None;
@@ -269,12 +268,8 @@ impl App {
 
                 match key.code {
                     KeyCode::Enter => {
-                        let prompt = self
-                            .editor
-                            .take_submitted_expanded()
-                            .or_else(|| self.input.take_submitted());
+                        let prompt = self.editor.take_submitted_expanded();
                         if let Some(p) = prompt {
-                            self.input.clear();
                             self.draft_snapshot = None;
                             self.last_turn_usage = None;
                             let trimmed = p.trim();
@@ -300,13 +295,13 @@ impl App {
                     }
                     KeyCode::Backspace => {
                         self.editor.backspace();
-                        self.sync_editor_to_input();
+                        self.draft_snapshot = None;
                         self.dirty = true;
                         self.update_autocomplete();
                     }
                     KeyCode::Delete => {
                         self.editor.delete_forward();
-                        self.sync_editor_to_input();
+                        self.draft_snapshot = None;
                         self.dirty = true;
                         self.update_autocomplete();
                     }
@@ -339,8 +334,6 @@ impl App {
                             if let Some(prev) = self.history.prev_history(&draft) {
                                 self.editor.clear();
                                 self.editor.insert_str(&prev);
-                                self.input.clear();
-                                self.input.insert_str(&prev);
                                 self.dirty = true;
                             } else {
                                 self.viewport.scroll_up(1);
@@ -355,25 +348,17 @@ impl App {
                             if self.history.is_navigating() {
                                 self.editor.clear();
                                 self.editor.insert_str(&next);
-                                self.input.clear();
-                                self.input.insert_str(&next);
                                 self.dirty = true;
                             } else if let Some(draft) = self.draft_snapshot.take() {
                                 self.editor.restore_snapshot(draft);
-                                self.input.clear();
-                                self.input.insert_str(&self.editor.text());
                                 self.dirty = true;
                             } else {
                                 self.editor.clear();
                                 self.editor.insert_str(&next);
-                                self.input.clear();
-                                self.input.insert_str(&next);
                                 self.dirty = true;
                             }
                         } else if let Some(draft) = self.draft_snapshot.take() {
                             self.editor.restore_snapshot(draft);
-                            self.input.clear();
-                            self.input.insert_str(&self.editor.text());
                             self.dirty = true;
                         } else {
                             self.viewport.scroll_down(1);
@@ -393,7 +378,7 @@ impl App {
                             self.viewport.clear_selection();
                         }
                         self.editor.insert_char(c);
-                        self.sync_editor_to_input();
+                        self.draft_snapshot = None;
                         self.dirty = true;
                         self.update_autocomplete();
                     }
@@ -451,7 +436,7 @@ impl App {
                     self.viewport.clear_selection();
                 }
                 self.editor.insert_paste(&text);
-                self.sync_editor_to_input();
+                self.draft_snapshot = None;
                 self.dirty = true;
                 self.update_autocomplete();
             }

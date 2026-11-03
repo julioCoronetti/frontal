@@ -6,7 +6,6 @@ pub mod diff;
 pub mod editor;
 pub mod highlight;
 pub mod history;
-pub mod input_stub;
 pub mod markdown;
 pub mod modal;
 pub mod notify;

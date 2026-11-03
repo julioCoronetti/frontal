@@ -135,17 +135,8 @@ impl App {
         } else {
             format!(" Input [{}] · {} ({}) ", mode_name, model_name, effort_name)
         };
-        let display_content = if !self.editor.is_empty() {
-            self.editor.text()
-        } else {
-            self.input.content().to_string()
-        };
-
-        let (cur_line, cur_col) = if !self.editor.is_empty() {
-            self.editor.cursor_coordinates()
-        } else {
-            (0, self.input.cursor_char_idx())
-        };
+        let display_content = self.editor.text();
+        let (cur_line, cur_col) = self.editor.cursor_coordinates();
 
         let max_visible = input_area.height.saturating_sub(2) as usize;
         let scroll_y = if max_visible > 0 && cur_line >= max_visible {

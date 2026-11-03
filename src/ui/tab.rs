@@ -1,7 +1,6 @@
 use crate::protocol::{SessionId, StepState, StreamEvent, TokenUsage};
 use crate::ui::cache::{BlockKind, RenderCache};
 use crate::ui::editor::{EditorSnapshot, PromptEditor};
-use crate::ui::input_stub::MinimalInputStub;
 use crate::ui::viewport::ConversationViewport;
 
 pub struct TabState {
@@ -10,7 +9,6 @@ pub struct TabState {
     pub cache: RenderCache,
     pub viewport: ConversationViewport,
     pub editor: PromptEditor,
-    pub input: MinimalInputStub,
     pub draft_snapshot: Option<EditorSnapshot>,
     pub waiting_for_response: bool,
     pub status_text: String,
@@ -27,7 +25,6 @@ impl TabState {
             cache: RenderCache::new(),
             viewport: ConversationViewport::new(),
             editor: PromptEditor::new(),
-            input: MinimalInputStub::new(),
             draft_snapshot: None,
             waiting_for_response: false,
             status_text: String::from("Ready"),

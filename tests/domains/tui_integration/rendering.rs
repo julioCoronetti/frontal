@@ -33,7 +33,7 @@ async fn test_app_ui_rendering_and_fixture_flow_with_test_backend() {
 
     terminal.draw(|f| app.render(f)).unwrap();
 
-    app.input.insert_str("ola");
+    app.editor.insert_str("ola");
     let enter_event = Event::Key(KeyEvent {
         code: KeyCode::Enter,
         modifiers: KeyModifiers::NONE,

@@ -5,7 +5,6 @@ use frontal::protocol::StepState;
 use frontal::ui::cache::{BlockKind, RenderCache, TurnMeta};
 use frontal::ui::clipboard::SystemClipboard;
 use frontal::ui::editor::PromptEditor;
-use frontal::ui::input_stub::MinimalInputStub;
 use frontal::ui::notify::{osc777_notification, osc9_notification, terminal_bell};
 use frontal::ui::viewport::{ConversationViewport, ScrollMode};
 
@@ -130,27 +129,27 @@ fn test_sensory_notifications_generation() {
 }
 
 #[test]
-fn test_minimal_input_stub_editing_and_submit() {
-    let mut input = MinimalInputStub::new();
-    assert_eq!(input.take_submitted(), None);
+fn test_prompt_editor_editing_and_submit() {
+    let mut editor = PromptEditor::new();
+    assert_eq!(editor.take_submitted_expanded(), None);
 
-    input.insert_char('h');
-    input.insert_char('i');
-    assert_eq!(input.content(), "hi");
-    assert_eq!(input.cursor_char_idx(), 2);
+    editor.insert_char('h');
+    editor.insert_char('i');
+    assert_eq!(editor.text(), "hi");
+    assert_eq!(editor.cursor_coordinates(), (0, 2));
 
-    input.backspace();
-    assert_eq!(input.content(), "h");
-    assert_eq!(input.cursor_char_idx(), 1);
+    editor.backspace();
+    assert_eq!(editor.text(), "h");
+    assert_eq!(editor.cursor_coordinates(), (0, 1));
 
-    input.insert_str("ello world");
-    assert_eq!(input.content(), "hello world");
-    assert_eq!(input.cursor_char_idx(), 11);
+    editor.insert_str("ello world");
+    assert_eq!(editor.text(), "hello world");
+    assert_eq!(editor.cursor_coordinates(), (0, 11));
 
-    let submitted = input.take_submitted();
+    let submitted = editor.take_submitted_expanded();
     assert_eq!(submitted.as_deref(), Some("hello world"));
-    assert_eq!(input.content(), "");
-    assert_eq!(input.cursor_char_idx(), 0);
+    assert_eq!(editor.text(), "");
+    assert_eq!(editor.cursor_coordinates(), (0, 0));
 }
 
 #[test]

@@ -2,7 +2,6 @@ use crate::protocol::SessionId;
 use crate::ui::app::App;
 use crate::ui::cache::RenderCache;
 use crate::ui::editor::PromptEditor;
-use crate::ui::input_stub::MinimalInputStub;
 use crate::ui::tab::TabState;
 use crate::ui::viewport::ConversationViewport;
 
@@ -27,7 +26,6 @@ impl App {
             std::mem::swap(&mut self.cache, &mut tab.cache);
             std::mem::swap(&mut self.viewport, &mut tab.viewport);
             std::mem::swap(&mut self.editor, &mut tab.editor);
-            std::mem::swap(&mut self.input, &mut tab.input);
             tab.waiting_for_response = self.waiting_for_response;
             tab.turn_started_at = self.turn_started_at;
             std::mem::swap(&mut self.status_text, &mut tab.status_text);
@@ -42,7 +40,6 @@ impl App {
             std::mem::swap(&mut self.cache, &mut tab.cache);
             std::mem::swap(&mut self.viewport, &mut tab.viewport);
             std::mem::swap(&mut self.editor, &mut tab.editor);
-            std::mem::swap(&mut self.input, &mut tab.input);
             self.waiting_for_response = tab.waiting_for_response;
             self.turn_started_at = tab.turn_started_at;
             std::mem::swap(&mut self.status_text, &mut tab.status_text);
@@ -83,7 +80,6 @@ impl App {
             self.cache = RenderCache::new();
             self.viewport = ConversationViewport::new();
             self.editor = PromptEditor::new();
-            self.input = MinimalInputStub::new();
             self.draft_snapshot = None;
             self.waiting_for_response = false;
             self.turn_started_at = None;

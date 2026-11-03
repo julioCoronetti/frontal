@@ -11,7 +11,6 @@ use crate::ui::cache::RenderCache;
 use crate::ui::clipboard::SystemClipboard;
 use crate::ui::editor::{EditorSnapshot, PromptEditor};
 use crate::ui::history::PromptHistory;
-use crate::ui::input_stub::MinimalInputStub;
 use crate::ui::modal::ModalStack;
 use crate::ui::tab::TabState;
 use crate::ui::viewport::ConversationViewport;
@@ -37,7 +36,6 @@ pub struct App {
     pub active_session: SessionId,
     pub cache: RenderCache,
     pub viewport: ConversationViewport,
-    pub input: MinimalInputStub,
     pub editor: PromptEditor,
     pub popover: AutocompletePopover,
     pub search_worker: FileSearchWorker,
@@ -96,7 +94,6 @@ impl App {
             active_session,
             cache: RenderCache::new(),
             viewport: ConversationViewport::new(),
-            input: MinimalInputStub::new(),
             editor: PromptEditor::new(),
             popover: AutocompletePopover::new(),
             search_worker,
@@ -133,7 +130,6 @@ impl App {
             active_session,
             cache: RenderCache::new(),
             viewport: ConversationViewport::new(),
-            input: MinimalInputStub::new(),
             editor: PromptEditor::new(),
             popover: AutocompletePopover::new(),
             search_worker,
@@ -181,11 +177,5 @@ impl App {
             .get_metadata(&self.active_session)
             .and_then(|m| m.effort.clone())
             .unwrap_or_else(|| self.user_config.effort.clone())
-    }
-
-    pub(crate) fn sync_editor_to_input(&mut self) {
-        self.input.clear();
-        self.input.insert_str(&self.editor.text());
-        self.draft_snapshot = None;
     }
 }
