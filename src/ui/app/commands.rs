@@ -88,6 +88,8 @@ impl App {
                     }
                     "clear" => {
                         self.cache.clear();
+                        self.viewport.clear_selection();
+                        self.viewport.scroll_to_bottom();
                         self.last_turn_usage = None;
                         if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
                             tab.last_turn_usage = None;
@@ -122,6 +124,8 @@ impl App {
             Some(Some(AppAction::Quit))
         } else if trimmed == "/clear" {
             self.cache.clear();
+            self.viewport.clear_selection();
+            self.viewport.scroll_to_bottom();
             self.last_turn_usage = None;
             if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
                 tab.last_turn_usage = None;

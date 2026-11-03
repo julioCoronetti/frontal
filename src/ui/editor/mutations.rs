@@ -251,6 +251,9 @@ impl PromptEditor {
         kind: ExtmarkKind,
         display_text: &str,
     ) {
+        self.record_undo_snapshot();
+        self.last_edit_group = EditGroup::None;
+
         let (token_text, has_trailing_space) =
             if let Some(stripped) = display_text.strip_suffix(' ') {
                 (stripped, true)

@@ -40,12 +40,6 @@ impl App {
         let viewport_area = chunks[2];
         let input_area = chunks[3];
         let footer_area = chunks[4];
-        self.viewport_bounds = (
-            viewport_area.x,
-            viewport_area.y,
-            viewport_area.width,
-            viewport_area.height,
-        );
 
         const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
         let spinner_char = SPINNER_FRAMES[(self.spinner_tick as usize / 4) % SPINNER_FRAMES.len()];
