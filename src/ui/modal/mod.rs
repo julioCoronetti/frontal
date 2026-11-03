@@ -9,11 +9,13 @@ pub mod diff;
 pub mod model_effort;
 pub mod palette;
 pub mod respawn;
+pub mod select;
 
 pub use diff::DiffModal;
 pub use model_effort::{ModelEffortModal, ModelEffortStep, ModelItem};
 pub use palette::{CommandPaletteModal, PaletteItem};
 pub use respawn::HotRespawnModal;
+pub use select::{DialogSelect, SelectItem, SelectResult};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModalAction {
@@ -37,6 +39,7 @@ pub enum Modal {
     HotRespawn(HotRespawnModal),
     CommandPalette(CommandPaletteModal),
     Diff(DiffModal),
+    Select(DialogSelect<ModalAction>),
 }
 
 impl Modal {
@@ -46,6 +49,11 @@ impl Modal {
             Self::HotRespawn(m) => m.handle_key(key),
             Self::CommandPalette(m) => m.handle_key(key),
             Self::Diff(m) => m.handle_key(key),
+            Self::Select(m) => match m.handle_key(key) {
+                SelectResult::Selected(item) => item.value.clone(),
+                SelectResult::Cancel => ModalAction::Close,
+                SelectResult::None => ModalAction::None,
+            },
         }
     }
 
@@ -55,6 +63,7 @@ impl Modal {
             Self::HotRespawn(m) => m.render(frame, area),
             Self::CommandPalette(m) => m.render(frame, area),
             Self::Diff(m) => m.render(frame, area),
+            Self::Select(m) => m.render(frame, area),
         }
     }
 
@@ -64,7 +73,7 @@ impl Modal {
             Self::ModelEffort(_) => {
                 ModalStack::centered_rect_bounded(46, 52, 42, 56, 14, 20, screen)
             }
-            Self::CommandPalette(_) => {
+            Self::CommandPalette(_) | Self::Select(_) => {
                 ModalStack::centered_rect_bounded(48, 55, 42, 64, 12, 22, screen)
             }
             Self::HotRespawn(_) => {
