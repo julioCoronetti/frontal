@@ -67,40 +67,43 @@ fn test_consolidate_active_turn_fallback_response() {
     cache.push_user_message("hello");
     cache.consolidate_active_turn(Some("fallback text"));
     assert_eq!(cache.blocks_count(), 2);
-    let lines = cache.ensure_visual_lines(80);
-    assert!(lines > 0);
+    assert!(cache.ensure_visual_lines(80) > 0);
+    let text1: String = cache
+        .visible_slice(0, 10)
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
+    assert!(text1.contains("fallback text"));
 
     let mut cache2 = RenderCache::new();
     cache2.push_user_message("hello");
     cache2.append_streaming_delta(BlockKind::Assistant, "actual response");
     cache2.consolidate_active_turn(Some("fallback text"));
     assert_eq!(cache2.blocks_count(), 2);
+    assert!(cache2.ensure_visual_lines(80) > 0);
+    let text2: String = cache2
+        .visible_slice(0, 10)
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
+    assert!(text2.contains("actual response") && !text2.contains("fallback text"));
 }
 
 #[test]
 fn test_markdown_streaming_fuzzing_and_unclosed_fences() {
     let doc = r#"# Main Title
-Here is some intro text with `inline code` and **bold text**.
-
+Intro text with `inline code` and **bold text**.
 ## Section 1
 - Item 1
 - Item 2 with *italic*
 - [x] Completed task
-
 | Header 1 | Header 2 |
 |---|---|
 | Value A | Value B |
-
 ```rust
 fn compute(val: i32) -> i32 {
     val * 2
 }
-```
-
-And a python script:
-```python
-def hello():
-    print("world")
 ```
 "#;
 
@@ -381,13 +384,18 @@ fn test_zero_markdown_reparse_on_resize_of_consolidated_block() {
     cache.consolidate_active_turn(None);
 
     let lines_80 = cache.ensure_visual_lines(80);
-    assert!(lines_80 > 0);
+    assert!(lines_80 > 0 && cache.cache_misses() == 1 && cache.cache_hits() == 0);
 
     let lines_60 = cache.ensure_visual_lines(60);
-    assert!(lines_60 > 0);
+    assert!(lines_60 > 0 && cache.cache_misses() == 2 && cache.cache_hits() == 0);
+
+    let lines_60_cached = cache.ensure_visual_lines(60);
+    assert_eq!(lines_60, lines_60_cached);
+    assert_eq!(cache.cache_hits(), 1);
+    assert_eq!(cache.cache_misses(), 2);
 
     let lines_100 = cache.ensure_visual_lines(100);
-    assert!(lines_100 > 0);
+    assert!(lines_100 > 0 && cache.cache_misses() == 3);
 }
 
 #[test]

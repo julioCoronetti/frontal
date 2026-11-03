@@ -36,17 +36,39 @@ fn test_local_slash_commands_execution() {
     let act = app.handle_terminal_event(enter.clone());
     assert_eq!(act, None);
     assert!(!app.waiting_for_response);
+    assert!(!app.modals.is_empty());
+    assert!(matches!(
+        app.modals.top(),
+        Some(frontal::ui::modal::Modal::ModelEffort(m)) if m.query == "gemini"
+    ));
+
+    let esc = press_key(KeyCode::Esc, KeyModifiers::NONE);
+    app.handle_terminal_event(esc);
+    assert!(app.modals.is_empty());
 
     let _ = app.cache.upsert_tool_call(
         Some(1),
         "test_tool",
         frontal::protocol::StepState::Done,
         None,
-        Some("output"),
+        Some("output line 1\noutput line 2\noutput line 3"),
     );
+    let initial_lines = app.cache.ensure_visual_lines(80);
+    assert!(initial_lines > 1);
+
     let backtab = press_key(KeyCode::BackTab, KeyModifiers::NONE);
     let act = app.handle_terminal_event(backtab);
     assert_eq!(act, None);
+
+    let collapsed_lines = app.cache.ensure_visual_lines(80);
+    assert!(collapsed_lines < initial_lines);
+
+    let slice = app.cache.visible_slice(0, collapsed_lines);
+    let collapsed_text: String = slice
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
+    assert!(collapsed_text.contains("[collapsed]"));
 }
 
 #[test]
