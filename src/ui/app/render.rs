@@ -355,7 +355,7 @@ impl App {
 
         let footer_chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Min(10), Constraint::Length(38)])
+            .constraints([Constraint::Min(10), Constraint::Length(18)])
             .split(footer_area);
 
         let cwd_widget = Paragraph::new(Line::from(vec![Span::styled(
@@ -365,7 +365,7 @@ impl App {
         frame.render_widget(cwd_widget, footer_chunks[0]);
 
         let shortcuts_widget = Paragraph::new(Line::from(vec![Span::styled(
-            "Ctrl+P: Palette · Ctrl+C: Interrupt",
+            "Ctrl+P: Palette",
             Style::default().fg(TEXT_MUTED),
         )]))
         .alignment(ratatui::layout::Alignment::Right);
