@@ -222,20 +222,8 @@ fn test_contextual_ctrl_c_and_slash_commands_routing() {
 
     app.editor.insert_str("/unknown_cmd");
     app.handle_terminal_event(enter);
-    assert_eq!(app.cache.blocks_count(), 2);
-    app.cache.ensure_visual_lines(80);
-    let all_lines = app.cache.visible_slice(0, app.cache.total_lines());
-    let full_text = all_lines
-        .iter()
-        .map(|l| {
-            l.spans
-                .iter()
-                .map(|s| s.content.as_ref())
-                .collect::<String>()
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(full_text.contains("is not supported locally"));
+    assert_eq!(app.cache.blocks_count(), 1);
+    assert!(app.waiting_for_response);
 }
 
 #[test]

@@ -154,7 +154,7 @@ impl App {
                     ),
                     Span::styled(" · ", Style::default().fg(TEXT_MUTED)),
                     Span::styled(
-                        "/palette",
+                        "Ctrl+P",
                         Style::default()
                             .fg(ACCENT_HIGHLIGHT)
                             .add_modifier(Modifier::BOLD),

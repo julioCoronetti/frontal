@@ -1,7 +1,5 @@
 use crate::ui::app::{App, AppAction};
-use crate::ui::modal::{
-    CommandPaletteModal, DiffModal, HotRespawnModal, Modal, ModalAction, ModelEffortModal,
-};
+use crate::ui::modal::{DiffModal, HotRespawnModal, Modal, ModalAction, ModelEffortModal};
 
 impl App {
     pub fn load_git_diff() -> String {
@@ -181,25 +179,11 @@ impl App {
             )));
             self.dirty = true;
             Some(None)
-        } else if trimmed == "/palette" {
-            self.modals
-                .push(Modal::CommandPalette(CommandPaletteModal::new()));
-            self.dirty = true;
-            Some(None)
         } else if trimmed == "/help" {
             self.cache.push_user_message("/help");
             self.cache.push_error(&format!(
-                "Frontal v{} - Available local commands: /clear, /interrupt, /quit, /exit, /help, /model, /diff, /respawn, /palette",
+                "Frontal v{} - Available local commands: /clear, /interrupt, /quit, /exit, /help, /model, /diff, /respawn",
                 env!("CARGO_PKG_VERSION")
-            ));
-            self.status_text = String::from("Ready");
-            self.dirty = true;
-            Some(None)
-        } else if trimmed.starts_with('/') {
-            self.cache.push_user_message(trimmed);
-            self.cache.push_error(&format!(
-                "Command '{}' is not supported locally. Type /help for available commands.",
-                trimmed
             ));
             self.status_text = String::from("Ready");
             self.dirty = true;
