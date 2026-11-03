@@ -8,4 +8,6 @@ if [[ $changed_count -gt 5 && "${ATOMIC_OVERRIDE:-0}" != "1" ]]; then
   exit 1
 fi
 
-./scripts/verify.sh
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test --quiet

@@ -1,3 +1,4 @@
+pub mod architecture;
 pub mod cache_and_markdown;
 pub mod editor_and_history;
 pub mod engine_and_session;
