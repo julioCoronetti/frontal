@@ -3,7 +3,7 @@
 ## 1. Visão Geral do Projeto
 - **Projeto**: Frontal.
 - **Objetivo**: Interface de usuário em terminal (TUI) desacoplada, de alta performance e assíncrona para o Antigravity CLI (`agy`) e motores compatíveis com o protocolo `stream-json`.
-- **Status do Projeto**: Arquitetura em Rust implementada e operacional (versão `0.5.0`). As Fases 1 a 4 do roadmap foram integralmente concluídas na branch `main` e consolidadas por suíte unificada de integração com 7 domínios (104 testes). A Fase 5 (polimento de UI/UX, ergonomia e alinhamento visual com OpenCode) encontra-se em desenvolvimento ativo.
+- **Status do Projeto**: Arquitetura em Rust implementada e operacional (versão `0.5.0`). As Fases 1 a 4 do roadmap foram integralmente concluídas na branch `main` e consolidadas por suíte unificada de integração com 7 domínios (108 testes). A Fase 5 (polimento de UI/UX, ergonomia e alinhamento visual com OpenCode) encontra-se em desenvolvimento ativo.
 - **Stack Oficial Ativa (Crates do `Cargo.toml`)**:
   - `tokio` (features: `rt-multi-thread`, `macros`, `process`, `io-util`, `sync`, `time`, `signal`, `fs`)
   - `tokio-util` (feature: `codec`)
@@ -82,7 +82,6 @@
 - `src/ui/notify.rs`: Notificações sensoriais de terminal (campainha auditiva e flashes visuais).
 - `src/ui/terminal.rs`: Inicialização de modo raw, bracketed paste e panic hook para restauração de TTY.
 - `src/ui/theme.rs`: Definições visuais e paleta de cores inspirada no OpenCode.
-- `src/ui/input_stub.rs`: *Stub legado de entrada provisório preservado estritamente para compatibilidade de testes.*
 
 ### Suíte Unificada de Testes de Integração (`tests/`)
 - `tests/suite.rs`: Ponto de entrada canônico do binário único de testes (*single integration test crate*).
@@ -90,13 +89,13 @@
 - `tests/domains/protocol_and_cli.rs`: Testes de protocolo `stream-json`, NDJSON, `LinesCodec` (16 MB), flags CLI e `--version` (13 testes).
 - `tests/domains/engine_and_session.rs`: Testes de subprocesso `agy`, replay de fixtures, POSIX `killpg`/`setpgid` e multiplexação MPSC (10 testes).
 - `tests/domains/cache_and_markdown.rs`: Testes de RenderCache L1/L2 $O(1)$, streaming Markdown, syntax highlighting `syntect`, tool cards e 60 FPS (16 testes).
-- `tests/domains/viewport_and_clipboard.rs`: Testes de sticky scroll, seleção limpa, word-wrap UTF-8, OSC 52, notificações sensoriais e compatibilidade `MinimalInputStub` (15 testes).
+- `tests/domains/viewport_and_clipboard.rs`: Testes de sticky scroll, seleção limpa, word-wrap UTF-8, OSC 52, notificações sensoriais e PromptEditor (15 testes).
 - `tests/domains/editor_and_history.rs`: Testes de editor `ropey`, extmarks atômicos, paste pills, autocomplete popover e persistência SQLite WAL (16 testes).
 - `tests/domains/tabs_and_modals/`: Testes particionados de multissessão e diálogos (< 400 linhas por arquivo, 23 testes):
   - `tabs.rs`: Ciclo de vida de abas, streaming em segundo plano, contagem de tokens e isolamento de estado.
   - `modals.rs`: Pilha de modais, paleta de comandos, diff viewer integrado, hot-respawn e backdrop dimming overlay.
   - `model_effort.rs`: Seletor de modelo/esforço, normalização de catálogo e restauração de seleções.
-- `tests/domains/tui_integration/`: Testes particionados fim-a-fim (< 400 linhas por arquivo, 11 testes):
+- `tests/domains/tui_integration/`: Testes particionados fim-a-fim (< 400 linhas por arquivo, 15 testes):
   - `rendering.rs`: Layout visual OpenCode, spinner, cabeçalho/rodapé e dimensões adversariais de terminal.
   - `input_and_events.rs`: Comandos locais (`/quit`, `/clear`, `/help`, etc.), mouse routing e bracketed paste.
 
@@ -142,7 +141,7 @@ Para cada issue, correção ou funcionalidade, a validação é executada mecani
    `awk '{ line=$0; gsub(/"([^"\\]|\\.)*"/, "\"\"", line); if (line ~ /(\/\/|\/\*|#\[doc)/) print FILENAME ":" FNR ":" $0 }' $(find src tests -name "*.rs")`
 4. `cargo check --all-targets`
 5. `cargo clippy --all-targets -- -D warnings`
-6. `cargo test --quiet` (validando a integridade dos 104 testes no binário unificado `tests/suite.rs`)
+6. `cargo test --quiet` (validando a integridade dos 108 testes no binário unificado `tests/suite.rs`)
 
 ### Ativação Obrigatória dos Git Hooks
 O repositório possui hooks mecânicos versionados em `.githooks/`. Todo ambiente de desenvolvimento deve ativá-los obrigatoriamente:
