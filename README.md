@@ -1,12 +1,12 @@
 # Frontal
 
-Terminal User Interface (TUI) harness desacoplado, assíncrono e de alta performance desenvolvido em **Rust** para o Antigravity CLI (`agy`) e motores agênticos compatíveis com o protocolo `stream-json`.
+Terminal User Interface (TUI) harness desacoplado, assíncrono e de alta performance desenvolvido em **Rust** (versão `0.7.0`) para o Antigravity CLI (`agy`) e motores agênticos compatíveis com o protocolo `stream-json`.
 
 ---
 
 ## 1. Visão Geral
 
-O Frontal provê uma camada de apresentação em terminal de altíssima performance focada na renderização estável e responsiva de fluxos contínuos de tokens de LLM. O harness consome eventos estruturados (NDJSON) emitidos via pipes de processo (`stdin`/`stdout`), desacoplando integralmente o ciclo de vida do motor de IA da interface visual.
+O Frontal provê uma camada de apresentação em terminal de altíssima performance focada na renderização estável e responsiva de fluxos contínuos de tokens de LLM. O harness consome eventos estruturados (NDJSON) emitidos via pipes de processo (`stdin`/`stdout`), desacoplando integralmente o ciclo de vida do motor de IA da interface visual. A estabilidade mecânica da arquitetura é validada por uma suíte unificada de **119 testes automatizados em 8 domínios**.
 
 O design arquitetural é fundamentado na engenharia reversa e análise comparativa de dois harnesses de referência:
 - **Antigravity CLI (`agy`)**: Referência em simplicidade operacional, estabilidade de processos e protocolo enxuto `stream-json`.
@@ -28,7 +28,9 @@ A arquitetura do Frontal foi definida para garantir execução determinística a
 | **Realce de Sintaxe** | `syntect` | Destaque sintático incremental por linha com 150+ gramáticas embutidas sem necessidade de compilação de código C nativo. |
 | **Persistência Local** | `rusqlite` (WAL mode) | SQLite embutido leve para metadados de sessão, histórico de comandos e cache. |
 | **Área de Transferência** | `arboard` + OSC 52 | Suporte nativo ao clipboard do sistema com fallback para escape sequences OSC 52 em sessões remotas (SSH). |
-| **Terminal Virtual (PTY)** | `portable-pty` | Pseudo-terminais assíncronos multiplataforma para execução de comandos interativos (extensão opcional futura). |
+| **Isolamento de Processo & POSIX** | `libc` | Grupos de processo POSIX (`setpgid` / `killpg`) e hook de terminação de processos órfãos (`PR_SET_PDEATHSIG`). |
+| **Buffers & Utilitários Async** | `bytes` + `futures-util` | Gerenciamento de buffers de rede e manipuladores de stream assíncrono com alocação mínima. |
+| **Terminal Virtual (PTY)** | `portable-pty` (RFC futuro, fora do `Cargo.toml`) | Pseudo-terminais assíncronos multiplataforma para comandos interativos (extensão opcional futura). |
 
 ---
 
@@ -49,33 +51,68 @@ A arquitetura do Frontal foi definida para garantir execução determinística a
 
 ## 4. Roadmap de Implementação
 
-- **Fase 1: Fundação, Protocolo e IPC Headless (MVP Engine)**
+- **Fase 1: Fundação, Protocolo e IPC Headless (MVP Engine) [CONCLUÍDA]**
   - Workspace Cargo, multiplexação interna via `SessionId`, tipagem `stream-json`, abstração `EngineTransport` (`SubprocessEngine` e `FixtureReplayEngine`), orquestração assíncrona com `LinesCodec` (16 MB) e isolamento POSIX robusto (`setpgid`/`killpg`/`PR_SET_PDEATHSIG`).
-- **Fase 2A: Core TUI, Viewport da Conversa e Cache de 2 Níveis**
-  - Loop assíncrono Ratatui a 60 FPS debounced, *bracketed paste*, *panic hook* de restauração de TTY, sticky scroll determinístico, cache de 2 níveis (AST semântica imutável no Nível 1 e linhas indexadas por `(width, revision)` no Nível 2) e widget `MinimalInputStub` provisório para validação de múltiplos turnos.
-- **Fase 2B: Streaming de Markdown, Realce Incremental e Tool Cards**
+- **Fase 2A: Core TUI, Viewport da Conversa e Cache de 2 Níveis [CONCLUÍDA]**
+  - Loop assíncrono Ratatui a 60 FPS debounced, *bracketed paste*, *panic hook* de restauração de TTY, sticky scroll determinístico e cache de 2 níveis (AST semântica imutável no Nível 1 e linhas indexadas por `(width, revision)` no Nível 2).
+- **Fase 2B: Streaming de Markdown, Realce Incremental e Tool Cards [CONCLUÍDA]**
   - Pipeline incremental `pulldown-cmark` resiliente a cercas incompletas, realce `syntect` com checkpoints de estado por linha e cards dinâmicos colapsáveis para chamadas de ferramentas e raciocínio.
-- **Fase 3: Editor de Prompt com Tokens Semânticos, Autocomplete e Persistência**
+- **Fase 3: Editor de Prompt com Tokens Semânticos, Autocomplete e Persistência [CONCLUÍDA]**
   - Buffer de edição multilinha sobre `ropey`, primitiva de overlay/popover com foco prioritário, extmarks atômicos para menções (`@`, `/`), colapso de pastes volumosos (`HashMap` externo), busca assíncrona de arquivos e histórico persistente em SQLite WAL (`rusqlite`).
-- **Fase 4: Abas Multissessão, Diálogos Modais e Ergonomia Avançada**
-  - Multissessão (`Alt+1..9`) sobre `SessionManager`, pilha de diálogos modais flutuantes, alternância de modelos via *hot-respawn*, paleta de comandos (`Ctrl+P`) e visualizador de diffs integrado.
-- **Fase 5: Polimento de UI/UX, Ergonomia e Alinhamento Visual OpenCode**
-  - Estado de boas-vindas centralizado, transição fluida para layout de duas colunas (chat + Context Sidebar), popover de autocompletação em duas colunas alinhadas com janela deslizante, indicador flutuante de rolagem, erradicação do `MinimalInputStub` com edição nativa $O(1)$ sobre B-Tree Rope e atalhos ergonômicos Readline (`Ctrl+Z`, `Ctrl+A`, `Ctrl+U`).
+- **Fase 4: Abas Multissessão, Diálogos Modais e Ergonomia Avançada [CONCLUÍDA]**
+  - Multissessão (`Alt+1..9`) sobre `SessionManager`, pilha de diálogos modais flutuantes com *backdrop dimming*, componente unificado `DialogSelect`, alternância de modelos via *hot-respawn*, paleta de comandos (`Ctrl+P`) e visualizador de diffs integrado.
+- **Fase 5: Polimento de UI/UX, Ergonomia e Alinhamento Visual OpenCode [EM PROGRESSO — v0.7.0]**
+  - Estado de boas-vindas centralizado, transição fluida para layout de duas colunas (chat + Context Sidebar), popover de autocompletação em duas colunas alinhadas com janela deslizante, indicador flutuante de rolagem, tema visual **Atlas Crimson**, seletor `/model` normalizado com *slider* horizontal de esforço (`◀ ●──◎──● ▶`), seleção granular de texto no viewport e cópia fiel para a área de transferência.
 
 ---
 
-## 5. Documentação e Especificações Técnicas
+## 5. Compilação, Testes e Execução
 
-A documentação detalhada de engenharia reversa e arquitetura reside na [Wiki Oficial do GitHub](https://github.com/julioCoronetti/frontal/wiki):
+### Pré-requisitos
+- Toolchain Rust estável (`cargo`, `rustc` 2021 edition).
+- Subprocesso `agy` ou motor compatível acessível no `PATH` (ou configurado via `--agy-bin`).
 
-- **[[Home]](https://github.com/julioCoronetti/frontal/wiki/Home)**: Hub central de documentação.
-- **[[Board-Roadmap]](https://github.com/julioCoronetti/frontal/wiki/Board-Roadmap)**: Especificação completa da stack em Rust, diretrizes arquiteturais e fases.
+### Comandos de Build e Teste
+```bash
+# Compilação otimizada para release
+cargo build --release
+
+# Validação integral da suíte unificada de 119 testes em 8 domínios
+cargo test --quiet
+```
+
+### Inicialização e Opções CLI
+```bash
+# Inicialização interativa padrão (TUI)
+cargo run --release
+
+# Especificação de modelo, esforço de raciocínio e modo de execução
+cargo run --release -- --model gemini-3.8-flash-high --effort high --mode plan
+
+# Retomada de conversa existente por UUID
+cargo run --release -- --conversation <UUID>
+
+# Execução headless automatizada com prompt único
+cargo run --release -- --headless -p "Descreva a arquitetura do projeto"
+```
+
+---
+
+## 6. Documentação e Especificações Técnicas
+
+A documentação técnica oficial reside na [Wiki do GitHub](https://github.com/julioCoronetti/frontal/wiki):
+
+- **[Home](https://github.com/julioCoronetti/frontal/wiki/Home)**: Hub central de documentação.
+- **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: Dossiê oficial da arquitetura implementada em Rust (v0.7.0), módulos, tema Atlas Crimson e suíte de 119 testes.
+- **[Board-Roadmap](https://github.com/julioCoronetti/frontal/wiki/Board-Roadmap)**: Especificação completa da stack em Rust, diretrizes arquiteturais e fases.
 - **Dossiê Antigravity CLI (`agy`)**:
-  - [[Agy-Architecture]](https://github.com/julioCoronetti/frontal/wiki/Agy-Architecture): Binário Go, orquestração e protocolo `stream-json`.
-  - [[Agy-Backend]](https://github.com/julioCoronetti/frontal/wiki/Agy-Backend): Motor Cortex, ferramentas, segurança e persistência SQLite.
-  - [[Agy-UI]](https://github.com/julioCoronetti/frontal/wiki/Agy-UI): Bubble Tea v2, 48 modelos, EditArea e viewports.
+  - [Agy](https://github.com/julioCoronetti/frontal/wiki/Agy): Visão geral do CLI oficial.
+  - [Agy-Architecture](https://github.com/julioCoronetti/frontal/wiki/Agy-Architecture): Binário Go, orquestração e protocolo `stream-json`.
+  - [Agy-Backend](https://github.com/julioCoronetti/frontal/wiki/Agy-Backend): Motor Cortex, ferramentas, segurança e persistência SQLite.
+  - [Agy-UI](https://github.com/julioCoronetti/frontal/wiki/Agy-UI): Bubble Tea v2, 48 modelos, EditArea e viewports.
 - **Dossiê OpenCode**:
-  - [[OpenCode-Architecture]](https://github.com/julioCoronetti/frontal/wiki/OpenCode-Architecture): Monorepo de 34 pacotes, runtime Effect-TS e bi-processo RPC.
-  - [[OpenCode-Backend]](https://github.com/julioCoronetti/frontal/wiki/OpenCode-Backend): Ciclo de turnos, bounding de ferramentas, Git sombra, compactação e retentativas.
-  - [[OpenCode-UI]](https://github.com/julioCoronetti/frontal/wiki/OpenCode-UI): SolidJS + OpenTUI, Tree-sitter WASM, extmarks, keymaps e theming.
-- **[[Legacy]](https://github.com/julioCoronetti/frontal/wiki/Legacy)**: Registro técnico do protótipo inicial v0.1 em Python / Textual (código integral preservado na branch [`legacy`](https://github.com/julioCoronetti/frontal/tree/legacy)).
+  - [OpenCode](https://github.com/julioCoronetti/frontal/wiki/OpenCode): Visão geral da referência ergonômica.
+  - [OpenCode-Architecture](https://github.com/julioCoronetti/frontal/wiki/OpenCode-Architecture): Monorepo de 34 pacotes, runtime Effect-TS e bi-processo RPC.
+  - [OpenCode-Backend](https://github.com/julioCoronetti/frontal/wiki/OpenCode-Backend): Ciclo de turnos, bounding de ferramentas, Git sombra e compactação.
+  - [OpenCode-UI](https://github.com/julioCoronetti/frontal/wiki/OpenCode-UI): SolidJS + OpenTUI, Tree-sitter WASM, extmarks, keymaps e theming.
+- **[Legacy](https://github.com/julioCoronetti/frontal/wiki/Legacy)**: Registro técnico do protótipo inicial v0.1 em Python / Textual (código integral preservado na branch [`legacy`](https://github.com/julioCoronetti/frontal/tree/legacy)).

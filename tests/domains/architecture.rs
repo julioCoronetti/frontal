@@ -265,3 +265,213 @@ fn test_stateful_scanner_adversarial_matrix() {
     let neg4 = "let raw = r#\"{\"event\":\"init\"}\"#;";
     assert!(scan_rust_source_violations(neg4).is_empty());
 }
+
+#[test]
+fn test_documentation_and_metadata_sync() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let version = env!("CARGO_PKG_VERSION");
+
+    let agents_path = root.join("AGENTS.md");
+    let readme_path = root.join("README.md");
+    let agents_content = fs::read_to_string(&agents_path).unwrap();
+    let readme_content = fs::read_to_string(&readme_path).unwrap();
+
+    assert!(
+        agents_content.match_indices(version).count() >= 2,
+        "AGENTS.md must contain active package version {} in header and semver section",
+        version
+    );
+    assert!(
+        readme_content.contains(version),
+        "README.md does not contain active package version {}",
+        version
+    );
+
+    let patch_series = match version.rfind('.') {
+        Some(idx) => format!("{}.x", &version[..idx]),
+        None => format!("{}.x", version),
+    };
+    assert!(
+        agents_content.contains(&patch_series),
+        "AGENTS.md missing patch series token {}",
+        patch_series
+    );
+
+    let wiki_dir = root.join(".wiki");
+    let arch_wiki_content = if wiki_dir.exists() {
+        let arch_wiki = wiki_dir.join("Frontal-Architecture.md");
+        if arch_wiki.exists() {
+            let content = fs::read_to_string(&arch_wiki).unwrap();
+            assert!(
+                content.contains(version),
+                "Frontal-Architecture.md does not contain active package version {}",
+                version
+            );
+            Some(content)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if wiki_dir.exists() {
+        let home_wiki = wiki_dir.join("Home.md");
+        if home_wiki.exists() {
+            let content = fs::read_to_string(&home_wiki).unwrap();
+            assert!(
+                content.contains(version),
+                "Home.md does not contain active package version {}",
+                version
+            );
+        }
+        let roadmap_wiki = wiki_dir.join("Board-Roadmap.md");
+        if roadmap_wiki.exists() {
+            let content = fs::read_to_string(&roadmap_wiki).unwrap();
+            assert!(
+                content.contains(version),
+                "Board-Roadmap.md does not contain active package version {}",
+                version
+            );
+        }
+    }
+
+    let extinct_paths = ["tests/ui_polish_gate.rs", "< 400 linhas"];
+    for extinct in extinct_paths {
+        assert!(
+            !readme_content.contains(extinct),
+            "README.md references extinct token: {}",
+            extinct
+        );
+        assert!(
+            !agents_content.contains(extinct),
+            "AGENTS.md references extinct token: {}",
+            extinct
+        );
+        if wiki_dir.exists() {
+            for entry in fs::read_dir(&wiki_dir).unwrap() {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("md") {
+                    let content = fs::read_to_string(&path).unwrap();
+                    assert!(
+                        !content.contains(extinct),
+                        "{} references extinct token: {}",
+                        path.display(),
+                        extinct
+                    );
+                }
+            }
+        }
+    }
+
+    let mut total_tests = 0usize;
+    let mut domain_counts = std::collections::HashMap::new();
+    let test_domains_dir = root.join("tests").join("domains");
+    let rs_files = collect_rs_files(&test_domains_dir);
+
+    for file in rs_files {
+        let file_name = file.file_name().unwrap().to_str().unwrap();
+        if file_name == "mod.rs" {
+            continue;
+        }
+        let content = fs::read_to_string(&file).unwrap();
+        let count = content
+            .lines()
+            .filter(|l| {
+                let t = l.trim();
+                t.starts_with("#[test]") || t.starts_with("#[tokio::test]")
+            })
+            .count();
+
+        total_tests += count;
+        let parent_name = file
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        let domain_key = if parent_name == "domains" {
+            file_name.to_string()
+        } else {
+            parent_name.to_string()
+        };
+        *domain_counts.entry(domain_key).or_insert(0) += count;
+    }
+
+    let expected_total_str = format!("{} testes", total_tests);
+    assert!(
+        agents_content.match_indices(&expected_total_str).count() >= 2,
+        "AGENTS.md missing dynamic test count token {} in both header and verification sections",
+        expected_total_str
+    );
+    assert!(
+        readme_content.contains(&expected_total_str),
+        "README.md missing dynamic test count token: {}",
+        expected_total_str
+    );
+
+    if wiki_dir.exists() {
+        if let Some(arch_content) = arch_wiki_content.as_ref() {
+            assert!(
+                arch_content.contains(&expected_total_str),
+                "Frontal-Architecture.md missing dynamic test count token: {}",
+                expected_total_str
+            );
+        }
+        let home_wiki = wiki_dir.join("Home.md");
+        if home_wiki.exists() {
+            let content = fs::read_to_string(&home_wiki).unwrap();
+            assert!(
+                content.contains(&expected_total_str),
+                "Home.md missing dynamic test count token: {}",
+                expected_total_str
+            );
+        }
+        let roadmap_wiki = wiki_dir.join("Board-Roadmap.md");
+        if roadmap_wiki.exists() {
+            let content = fs::read_to_string(&roadmap_wiki).unwrap();
+            assert!(
+                content.contains(&expected_total_str),
+                "Board-Roadmap.md missing dynamic test count token: {}",
+                expected_total_str
+            );
+        }
+    }
+
+    for (domain_key, count) in &domain_counts {
+        let expected_domain_str = format!("{} testes", count);
+        let path_token = if domain_key.ends_with(".rs") {
+            format!("tests/domains/{}", domain_key)
+        } else {
+            format!("tests/domains/{}/", domain_key)
+        };
+        assert!(
+            agents_content.contains(&path_token),
+            "AGENTS.md missing path token: {}",
+            path_token
+        );
+        let domain_line = agents_content
+            .lines()
+            .find(|l| l.contains(&path_token))
+            .unwrap_or("");
+        assert!(
+            domain_line.contains(&expected_domain_str),
+            "AGENTS.md domain {} count mismatch: expected {}",
+            path_token,
+            expected_domain_str
+        );
+
+        if let Some(arch_content) = arch_wiki_content.as_ref() {
+            let arch_line = arch_content
+                .lines()
+                .find(|l| l.contains(&path_token))
+                .unwrap_or("");
+            assert!(
+                arch_line.contains(&expected_domain_str),
+                "Frontal-Architecture.md domain {} count mismatch: expected {}",
+                path_token,
+                expected_domain_str
+            );
+        }
+    }
+}

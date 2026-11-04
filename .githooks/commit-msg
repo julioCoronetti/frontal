@@ -45,10 +45,18 @@ if ! grep -qE "^Reviewed-By: Argon-Advisor <mode:(none|review|design|troubleshoo
   exit 1
 fi
 
-if grep -q "Card-Status: In Review" "$COMMIT_MSG_FILE"; then
+if grep -q "^Card-Status: In Review" "$COMMIT_MSG_FILE"; then
   if grep -q "Reviewed-By: Argon-Advisor <mode:none>" "$COMMIT_MSG_FILE"; then
     echo "Error: Cannot mark Card-Status as 'In Review' with 'mode:none'." >&2
     echo "Transition to 'In Review' strictly requires prior Argon Advisor audit (e.g. advisor.sh --mode review -d)." >&2
+    exit 1
+  fi
+fi
+
+if grep -qE "^Card-Status: (In Review|Done)" "$COMMIT_MSG_FILE"; then
+  if [[ -d ".wiki/.git" ]] && [[ -n "$(git -C .wiki status --porcelain 2>/dev/null)" ]]; then
+    echo "Error: Uncommitted changes detected in .wiki/ mirror." >&2
+    echo "Synchronize and commit your documentation changes in .wiki/ before marking Card-Status as 'In Review' or 'Done'." >&2
     exit 1
   fi
 fi

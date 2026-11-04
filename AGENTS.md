@@ -3,7 +3,7 @@
 ## 1. Visão Geral do Projeto
 - **Projeto**: Frontal.
 - **Objetivo**: Interface de usuário em terminal (TUI) desacoplada, de alta performance e assíncrona para o Antigravity CLI (`agy`) e motores compatíveis com o protocolo `stream-json`.
-- **Status do Projeto**: Arquitetura em Rust implementada e operacional (versão `0.7.0`). As Fases 1 a 4 do roadmap foram integralmente concluídas na branch `main` e consolidadas por suíte unificada de integração com 8 domínios (118 testes). A Fase 5 (polimento de UI/UX, ergonomia e alinhamento visual com OpenCode) encontra-se em desenvolvimento ativo.
+- **Status do Projeto**: Arquitetura em Rust implementada e operacional (versão `0.7.0`). As Fases 1 a 4 do roadmap foram integralmente concluídas na branch `main` e consolidadas por suíte unificada de integração com 8 domínios (119 testes). A Fase 5 (polimento de UI/UX, ergonomia e alinhamento visual com OpenCode) encontra-se em desenvolvimento ativo.
 - **Stack Oficial Ativa (Crates do `Cargo.toml`)**:
   - `tokio` (features: `rt-multi-thread`, `macros`, `process`, `io-util`, `sync`, `time`, `signal`, `fs`)
   - `tokio-util` (feature: `codec`)
@@ -61,7 +61,7 @@
 
 ### Interface de Terminal (`src/ui/`)
 - `src/ui/mod.rs`: Loop assíncrono de eventos TUI (60 FPS, crossterm `EventStream`, cancelamento, ticks de renderização).
-- `src/ui/app/`: Módulo central de aplicação particionado em subarquivos coesos (< 400 linhas):
+- `src/ui/app/`: Módulo central de aplicação particionado em subarquivos coesos (< 500 linhas):
   - `src/ui/app/mod.rs`: Struct `App`, enum `AppAction`, construtores (`new`, `new_isolated`) e getters de metadados ativos.
   - `src/ui/app/tabs.rs`: Gestão multisessão e isolamento visual do ciclo de swap (`std::mem::swap`).
   - `src/ui/app/events.rs`: Roteamento não-bloqueante de eventos do terminal (teclado, mouse, paste e autocompletação).
@@ -86,18 +86,18 @@
 ### Suíte Unificada de Testes de Integração (`tests/`)
 - `tests/suite.rs`: Ponto de entrada canônico do binário único de testes (*single integration test crate*).
 - `tests/common/mod.rs`: Utilitários compartilhados herméticos (`test_app`, `press_key`, guards RAII `TempDirGuard`/`TempFileGuard` com gerador atômico de sequência, `PGID_TEST_LOCK`).
-- `tests/domains/architecture.rs`: Testes de invariantes mecânicas de arquitetura (teto de 500 linhas, ausência de comentários e matriz adversarial, 3 testes).
+- `tests/domains/architecture.rs`: Testes de invariantes mecânicas de arquitetura (teto de 500 linhas, ausência de comentários, matriz adversarial e sincronização de metadados, 4 testes).
 - `tests/domains/protocol_and_cli.rs`: Testes de protocolo `stream-json`, NDJSON, `LinesCodec` (16 MB), flags CLI e `--version` (13 testes).
 - `tests/domains/engine_and_session.rs`: Testes de subprocesso `agy`, replay de fixtures, POSIX `killpg`/`setpgid` e multiplexação MPSC (10 testes).
 - `tests/domains/cache_and_markdown.rs`: Testes de RenderCache L1/L2 $O(1)$, streaming Markdown, syntax highlighting `syntect`, tool cards e 60 FPS (16 testes).
 - `tests/domains/viewport_and_clipboard.rs`: Testes de sticky scroll, seleção limpa, word-wrap UTF-8, OSC 52, notificações sensoriais e PromptEditor (15 testes).
 - `tests/domains/editor_and_history.rs`: Testes de editor `ropey`, extmarks atômicos, paste pills, autocomplete popover e persistência SQLite WAL (16 testes).
-- `tests/domains/tabs_and_modals/`: Testes particionados de multissessão e diálogos (< 400 linhas por arquivo, 28 testes):
+- `tests/domains/tabs_and_modals/`: Testes particionados de multissessão e diálogos (< 500 linhas por arquivo, 29 testes):
   - `tabs.rs`: Ciclo de vida de abas, streaming em segundo plano, contagem de tokens e isolamento de estado.
   - `modals.rs`: Pilha de modais, paleta de comandos, diff viewer integrado, hot-respawn e backdrop dimming overlay.
   - `model_effort.rs`: Seletor de modelo/esforço, normalização de catálogo e restauração de seleções.
   - `select.rs`: Componente genérico DialogSelect, filtragem multitermo, navegação por teclado, scroll offset e viewport clipping.
-- `tests/domains/tui_integration/`: Testes particionados fim-a-fim (< 400 linhas por arquivo, 15 testes):
+- `tests/domains/tui_integration/`: Testes particionados fim-a-fim (< 500 linhas por arquivo, 16 testes):
   - `rendering.rs`: Layout visual OpenCode, spinner, cabeçalho/rodapé e dimensões adversariais de terminal.
   - `input_and_events.rs`: Comandos locais (`/quit`, `/clear`, `/help`, etc.), mouse routing e bracketed paste.
 
@@ -114,6 +114,7 @@ Para contexto aprofundado, regras de negócio e histórico técnico, consultar:
    - Issues numeradas no GitHub para critérios de aceite detalhados.
 3. **Documentação Oficial (Wiki do GitHub):**
    - Hub Central: `https://github.com/julioCoronetti/frontal/wiki` e `https://github.com/julioCoronetti/frontal/wiki/Home`
+   - **Arquitetura Implementada (Rust):** `https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture` (espelho local em `.wiki/Frontal-Architecture.md`)
    - **Espelho Local da Wiki (`.wiki/`):** O repositório `frontal.wiki.git` reside mapeado localmente no diretório `.wiki/` (ignorado no `.gitignore`). Alterações de arquitetura, novos comandos CLI/TUI ou fechamentos de fase devem atualizar a documentação em `.wiki/*.md` no mesmo ciclo de entrega do card.
    - **Dossiê Antigravity CLI (`agy`):**
      - Visão Geral: `https://github.com/julioCoronetti/frontal/wiki/Agy`
@@ -139,7 +140,7 @@ Para contexto aprofundado, regras de negócio e histórico técnico, consultar:
 Para cada issue, correção ou funcionalidade, a validação é executada nativamente pelo Cargo e assegurada pelo hook `.githooks/pre-commit` antes de qualquer commit:
 1. `cargo fmt --check`: Formatação canônica do código.
 2. `cargo clippy --all-targets -- -D warnings`: Compilação e linting estrito sem avisos (*zero warnings*).
-3. `cargo test --quiet`: Execução dos 111 testes na suíte unificada `tests/suite.rs` (validando tanto as regras de arquitetura em `architecture.rs` quanto os 7 domínios funcionais).
+3. `cargo test --quiet`: Execução da suíte unificada de integração em `tests/suite.rs` (validando as regras de arquitetura em `architecture.rs` e os 8 domínios funcionais, 119 testes).
 
 ### Ativação Obrigatória dos Git Hooks
 O repositório possui hooks mecânicos versionados em `.githooks/`. Todo ambiente de desenvolvimento deve ativá-los obrigatoriamente:
@@ -148,10 +149,10 @@ git config core.hooksPath .githooks
 ```
 
 ### Política de Versionamento SemVer
-1. **Série `0.y.z`:** O projeto segue SemVer para softwares em maturação contínua. A versão `0.5.0` reflete a conclusão das Fases 1 a 4 e o ciclo ativo da Fase 5 (Ergonomia e Alinhamento OpenCode).
+1. **Série `0.y.z`:** O projeto segue SemVer para softwares em maturação contínua. A versão `0.7.0` reflete a conclusão das Fases 1 a 4 e o ciclo ativo da Fase 5 (Ergonomia e Alinhamento OpenCode).
 2. **Regra de Ouro SemVer:** É terminantemente proibido alterar o campo `version` no `Cargo.toml` em commits intermediários (`Card-Status: In Progress`).
 3. **Bump Exclusivo no Fechamento (`Done`):** O incremento SemVer ocorre exclusivamente no commit de encerramento (`Card-Status: Done`) autorizado pelo Senhor:
-   - **Patch (`0.5.x`):** Para correções de bugs (`fix(...)`) ou refatorações puras.
+   - **Patch (`0.7.x`):** Para correções de bugs (`fix(...)`) ou refatorações puras.
    - **Minor (`0.x.0`):** Para fechamento de cards funcionais de features estruturais do Board.
    - O commit de fechamento deve ser acompanhado imediatamente pela criação da tag Git anotada (`git tag -a vX.Y.Z -m "Release vX.Y.Z"`).
 4. **Simetria de Exposição:** A versão da aplicação deve ser exposta de forma idêntica tanto via CLI (`frontal --version` / `frontal -V`) quanto na TUI (no cabeçalho de resposta do comando `/help`).
