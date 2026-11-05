@@ -2,7 +2,7 @@ use std::cell::Cell;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
@@ -214,13 +214,14 @@ impl<T: Clone> DialogSelect<T> {
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(BORDER_SUBTLE));
+            .border_style(Style::default().fg(BORDER_SUBTLE))
+            .style(Style::default().bg(Color::Reset));
 
         let filtered = self.filtered_indices();
         let mut lines = Vec::new();
 
         let title = format!(" {}:", self.title.trim_end_matches(':'));
-        let esc_pad = (area.width as usize).saturating_sub(title.len() + 5);
+        let esc_pad = (area.width as usize).saturating_sub(title.chars().count() + 5);
         lines.push(Line::from(vec![
             Span::styled(
                 title,
@@ -316,36 +317,48 @@ impl<T: Clone> DialogSelect<T> {
             } else {
                 let item = &self.items[filtered[*pos]];
                 let is_sel = *pos == self.selected_idx;
-                let style = if is_sel {
-                    Style::default()
-                        .bg(ACCENT_RUBY)
-                        .fg(TEXT_PRIMARY)
-                        .add_modifier(Modifier::BOLD)
+                let (style, badge_style, shortcut_style, desc_style) = if is_sel {
+                    (
+                        Style::default()
+                            .bg(ACCENT_RUBY)
+                            .fg(TEXT_PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .bg(ACCENT_RUBY)
+                            .fg(ACCENT_HIGHLIGHT)
+                            .add_modifier(Modifier::BOLD),
+                        Style::default().bg(ACCENT_RUBY).fg(TEXT_PRIMARY),
+                        Style::default().bg(ACCENT_RUBY).fg(TEXT_MUTED),
+                    )
                 } else {
-                    Style::default().fg(TEXT_PRIMARY)
+                    (
+                        Style::default().fg(TEXT_PRIMARY),
+                        Style::default().fg(ACCENT_HIGHLIGHT),
+                        Style::default().fg(TEXT_MUTED),
+                        Style::default().fg(TEXT_MUTED),
+                    )
                 };
                 let prefix = if is_sel { " ● " } else { "   " };
                 let mut spans = vec![
                     Span::styled(prefix, style),
                     Span::styled(format!("{:<30}", item.title), style),
                 ];
+                let mut total_len = 3 + item.title.chars().count().max(30);
                 if let Some(ref badge) = item.badge {
-                    spans.push(Span::styled(
-                        format!(" [{}]", badge),
-                        Style::default().fg(ACCENT_HIGHLIGHT),
-                    ));
+                    spans.push(Span::styled(format!(" [{}]", badge), badge_style));
+                    total_len += badge.chars().count() + 3;
                 }
                 if let Some(ref shortcut) = item.shortcut {
-                    spans.push(Span::styled(
-                        format!(" {}", shortcut),
-                        Style::default().fg(TEXT_MUTED),
-                    ));
+                    spans.push(Span::styled(format!(" {}", shortcut), shortcut_style));
+                    total_len += shortcut.chars().count() + 1;
                 }
                 if let Some(ref desc) = item.description {
-                    spans.push(Span::styled(
-                        format!(" - {}", desc),
-                        Style::default().fg(TEXT_MUTED),
-                    ));
+                    spans.push(Span::styled(format!(" - {}", desc), desc_style));
+                    total_len += desc.chars().count() + 3;
+                }
+                let inner_w = (area.width as usize).saturating_sub(2);
+                if is_sel && inner_w > total_len {
+                    spans.push(Span::styled(" ".repeat(inner_w - total_len), style));
                 }
                 lines.push(Line::from(spans));
             }

@@ -229,7 +229,13 @@ fn test_modal_backdrop_dimming_overlay() {
 
     let cell_outside = &buf[(1, 1)];
     assert!(cell_outside.modifier.contains(Modifier::DIM));
-    assert_eq!(cell_outside.bg, Color::Black);
+    assert_eq!(cell_outside.bg, Color::Reset);
+
+    for y in 0..buf.area.height {
+        for x in 0..buf.area.width {
+            assert_ne!(buf[(x, y)].bg, Color::Black);
+        }
+    }
 
     let cell_inside = &buf[(50, 15)];
     assert_ne!(cell_inside.symbol(), "");

@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
@@ -322,20 +322,24 @@ impl ModelEffortModal {
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect) {
+        if area.width < 4 || area.height < 4 {
+            frame.render_widget(Clear, area);
+            return;
+        }
+
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(BORDER_SUBTLE));
+            .border_style(Style::default().fg(BORDER_SUBTLE))
+            .style(Style::default().bg(Color::Reset));
 
         let mut lines = Vec::new();
         let title = " Select Model:";
-        let esc_pad = (area.width as usize).saturating_sub(title.len() + 5);
+        let esc_pad = (area.width as usize).saturating_sub(title.chars().count() + 5);
+        let title_style = Style::default()
+            .fg(TEXT_PRIMARY)
+            .add_modifier(Modifier::BOLD);
         lines.push(Line::from(vec![
-            Span::styled(
-                title,
-                Style::default()
-                    .fg(TEXT_PRIMARY)
-                    .add_modifier(Modifier::BOLD),
-            ),
+            Span::styled(title, title_style),
             Span::styled(
                 format!("{:>esc_pad$}", "esc "),
                 Style::default().fg(TEXT_MUTED),
