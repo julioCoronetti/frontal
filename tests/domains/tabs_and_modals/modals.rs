@@ -328,3 +328,151 @@ fn test_modal_palette_and_respawn_atlas_crimson_styling() {
     assert!(found_cursor);
     assert!(found_node);
 }
+
+fn make_tool_event(cmd: &str) -> frontal::protocol::StreamEvent {
+    use frontal::protocol::{
+        StepState, StepType, StepUpdateData, StepUpdateEvent, StreamEvent, ToolInfo,
+    };
+    StreamEvent::StepUpdate(StepUpdateEvent {
+        conversation_id: None,
+        step_update: Some(StepUpdateData {
+            step_index: Some(1),
+            step_type: Some(StepType::Tool),
+            state: Some(StepState::Active),
+            tool_name: Some("run_command".to_string()),
+            tool_info: Some(ToolInfo {
+                name: Some("run_command".to_string()),
+                parameters: Some(serde_json::json!({ "CommandLine": cmd })),
+                output: None,
+            }),
+            ..Default::default()
+        }),
+    })
+}
+
+#[test]
+fn test_security_risk_matrix_classification_and_zero_false_positives() {
+    use frontal::security::{evaluate_command, RiskCategory};
+
+    let cases = [
+        ("rm -rf /tmp/test", RiskCategory::RecursiveDeletion),
+        ("rm -r src/", RiskCategory::RecursiveDeletion),
+        ("rm -fr target/", RiskCategory::RecursiveDeletion),
+        ("rmdir old_dir", RiskCategory::RecursiveDeletion),
+        ("bash -c \"rm -rf /build\"", RiskCategory::RecursiveDeletion),
+        ("sudo rm -rf /var/cache", RiskCategory::RecursiveDeletion),
+        ("git reset --hard HEAD~1", RiskCategory::DestructiveVcs),
+        ("git clean -fd", RiskCategory::DestructiveVcs),
+        ("git push origin main -f", RiskCategory::DestructiveVcs),
+        ("git branch -D feat-broken", RiskCategory::DestructiveVcs),
+        (
+            "dd if=/dev/zero of=/dev/sda",
+            RiskCategory::DiskManipulation,
+        ),
+        ("mkfs.ext4 /dev/sdb1", RiskCategory::DiskManipulation),
+        ("shred -u /dev/sdb", RiskCategory::DiskManipulation),
+        ("DROP TABLE users;", RiskCategory::DestructiveSql),
+        ("DROP DATABASE production;", RiskCategory::DestructiveSql),
+        ("TRUNCATE TABLE session_logs;", RiskCategory::DestructiveSql),
+    ];
+    for (cmd, cat) in cases {
+        assert_eq!(evaluate_command(cmd).unwrap().category, cat);
+    }
+
+    let safe = [
+        "cat rm -rf.txt",
+        "grep -rn \"rm -rf\" .",
+        "git status",
+        "git diff",
+        "git log -n 5",
+        "echo \"DROP TABLE users\"",
+        "SELECT * FROM users WHERE drop_count > 0",
+        "padding hidden add",
+    ];
+    for cmd in safe {
+        assert!(evaluate_command(cmd).is_none());
+    }
+}
+
+#[test]
+fn test_danger_tool_call_interception_opens_modal_and_suspends_stream() {
+    use frontal::protocol::{
+        EngineEvent, SessionEnvelope, StepUpdateData, StepUpdateEvent, StreamEvent,
+    };
+    let (mut app, _) = test_app();
+
+    app.handle_engine_envelope(SessionEnvelope {
+        session_id: app.active_session.clone(),
+        event: EngineEvent::Stream(Box::new(make_tool_event("rm -rf /tmp/dangerous"))),
+    });
+
+    assert!(app.pending_danger.is_some());
+    assert!(!app.modals.is_empty());
+    assert_eq!(app.status_text, "Security confirmation required");
+
+    let text_ev = StreamEvent::StepUpdate(StepUpdateEvent {
+        conversation_id: None,
+        step_update: Some(StepUpdateData {
+            step_index: Some(1),
+            text_delta: Some("Streaming after danger".to_string()),
+            ..Default::default()
+        }),
+    });
+    app.handle_engine_envelope(SessionEnvelope {
+        session_id: app.active_session.clone(),
+        event: EngineEvent::Stream(Box::new(text_ev)),
+    });
+
+    assert_eq!(app.suspended_events.len(), 1);
+    assert_eq!(app.cache.blocks_count(), 1);
+}
+
+#[test]
+fn test_danger_modal_approve_resumes_suspended_events() {
+    use frontal::protocol::{
+        EngineEvent, SessionEnvelope, StepUpdateData, StepUpdateEvent, StreamEvent,
+    };
+    let (mut app, _) = test_app();
+
+    app.handle_engine_envelope(SessionEnvelope {
+        session_id: app.active_session.clone(),
+        event: EngineEvent::Stream(Box::new(make_tool_event("git reset --hard HEAD"))),
+    });
+
+    let next_ev = StreamEvent::StepUpdate(StepUpdateEvent {
+        conversation_id: None,
+        step_update: Some(StepUpdateData {
+            step_index: Some(1),
+            text_delta: Some("Execution resumed".to_string()),
+            ..Default::default()
+        }),
+    });
+    app.handle_engine_envelope(SessionEnvelope {
+        session_id: app.active_session.clone(),
+        event: EngineEvent::Stream(Box::new(next_ev)),
+    });
+    assert_eq!(app.suspended_events.len(), 1);
+
+    app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(app.modals.is_empty());
+    assert!(app.pending_danger.is_none());
+    assert!(app.suspended_events.is_empty());
+    assert_eq!(app.status_text, "Streaming...");
+}
+
+#[test]
+fn test_danger_modal_reject_aborts_command_and_records_security_block() {
+    use frontal::protocol::{EngineEvent, SessionEnvelope};
+    let (mut app, _) = test_app();
+
+    app.handle_engine_envelope(SessionEnvelope {
+        session_id: app.active_session.clone(),
+        event: EngineEvent::Stream(Box::new(make_tool_event("DROP TABLE users;"))),
+    });
+
+    app.handle_terminal_event(press_key(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(app.modals.is_empty());
+    assert!(app.pending_danger.is_none());
+    assert_eq!(app.status_text, "Blocked destructive command");
+    assert!(!app.waiting_for_response);
+}
