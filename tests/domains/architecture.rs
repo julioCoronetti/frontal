@@ -336,7 +336,17 @@ fn test_documentation_and_metadata_sync() {
         }
     }
 
-    let extinct_paths = ["tests/ui_polish_gate.rs", "< 400 linhas"];
+    let extinct_paths = [
+        "tests/ui_polish_gate.rs",
+        "< 400 linhas",
+        "Fase 1",
+        "Fase 2",
+        "Fase 3",
+        "Fase 4",
+        "Fase 5",
+        "Fases 1",
+        "Phase Dumps",
+    ];
     for extinct in extinct_paths {
         assert!(
             !readme_content.contains(extinct),

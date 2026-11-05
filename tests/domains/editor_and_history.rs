@@ -129,7 +129,7 @@ fn test_autocomplete_popover_and_file_search() {
     searcher.set_cached_files(vec![
         "src/lib.rs".to_string(),
         "src/main.rs".to_string(),
-        "tests/phase1_gate.rs".to_string(),
+        "tests/suite.rs".to_string(),
     ]);
     let items = searcher.search(&query, 10);
     assert_eq!(items.len(), 2);

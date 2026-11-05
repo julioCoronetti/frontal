@@ -106,7 +106,7 @@ fn test_spinner_visibility_when_total_lines_exceed_height() {
 }
 
 #[test]
-fn test_phase4_ui_rendering_on_test_backend() {
+fn test_multisession_tabs_ui_rendering_on_test_backend() {
     let (mut app, _) = test_app();
 
     let id2 = SessionId::new();
@@ -296,7 +296,7 @@ fn test_adversarial_terminal_dimensions_no_panic() {
 }
 
 #[tokio::test]
-async fn test_phase3_ui_refinements_on_test_backend() {
+async fn test_markdown_headings_and_ui_refinements_on_test_backend() {
     let (mut app, _) = test_app();
 
     let backend = TestBackend::new(80, 24);
