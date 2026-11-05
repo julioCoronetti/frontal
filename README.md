@@ -49,19 +49,21 @@ A arquitetura do Frontal foi definida para garantir execução determinística a
 
 ---
 
-## 4. Roadmap de Implementação
+## 4. Capacidades Arquiteturais Consolidadas e Evolução Contínua
 
-- **Fase 1: Fundação, Protocolo e IPC Headless (MVP Engine) [CONCLUÍDA]**
+A arquitetura do Frontal encontra-se implementada e operacional (versão `0.7.1`), validada por **119 testes automatizados em 8 domínios**. O desenvolvimento opera em fluxo contínuo orientado por demandas e cards no GitHub Project Board #8, estruturado nos seguintes domínios consolidados:
+
+- **Fundação, Protocolo `stream-json` e IPC Headless:**
   - Workspace Cargo, multiplexação interna via `SessionId`, tipagem `stream-json`, abstração `EngineTransport` (`SubprocessEngine` e `FixtureReplayEngine`), orquestração assíncrona com `LinesCodec` (16 MB) e isolamento POSIX robusto (`setpgid`/`killpg`/`PR_SET_PDEATHSIG`).
-- **Fase 2A: Core TUI, Viewport da Conversa e Cache de 2 Níveis [CONCLUÍDA]**
+- **Core TUI (60 FPS), Viewport Sticky Scroll e Cache em 2 Níveis:**
   - Loop assíncrono Ratatui a 60 FPS debounced, *bracketed paste*, *panic hook* de restauração de TTY, sticky scroll determinístico e cache de 2 níveis (AST semântica imutável no Nível 1 e linhas indexadas por `(width, revision)` no Nível 2).
-- **Fase 2B: Streaming de Markdown, Realce Incremental e Tool Cards [CONCLUÍDA]**
+- **Streaming Incremental de Markdown, Realce `syntect` e Tool Cards:**
   - Pipeline incremental `pulldown-cmark` resiliente a cercas incompletas, realce `syntect` com checkpoints de estado por linha e cards dinâmicos colapsáveis para chamadas de ferramentas e raciocínio.
-- **Fase 3: Editor de Prompt com Tokens Semânticos, Autocomplete e Persistência [CONCLUÍDA]**
+- **Editor `ropey` com Extmarks Atômicos, Autocomplete e Persistência SQLite WAL:**
   - Buffer de edição multilinha sobre `ropey`, primitiva de overlay/popover com foco prioritário, extmarks atômicos para menções (`@`, `/`), colapso de pastes volumosos (`HashMap` externo), busca assíncrona de arquivos e histórico persistente em SQLite WAL (`rusqlite`).
-- **Fase 4: Abas Multissessão, Diálogos Modais e Ergonomia Avançada [CONCLUÍDA]**
+- **Multissessão (`TabState`), Pilha de Modais (`DialogSelect`) e Hot-Respawn:**
   - Multissessão (`Alt+1..9`) sobre `SessionManager`, pilha de diálogos modais flutuantes com *backdrop dimming*, componente unificado `DialogSelect`, alternância de modelos via *hot-respawn*, paleta de comandos (`Ctrl+P`) e visualizador de diffs integrado.
-- **Fase 5: Polimento de UI/UX, Ergonomia e Alinhamento Visual OpenCode [EM PROGRESSO — v0.7.1]**
+- **Ergonomia Visual OpenCode, Tema Atlas Crimson e Fidelidade de Clipboard:**
   - Estado de boas-vindas centralizado, transição fluida para layout de duas colunas (chat + Context Sidebar), popover de autocompletação em duas colunas alinhadas com janela deslizante, indicador flutuante de rolagem, tema visual **Atlas Crimson**, seletor `/model` normalizado com *slider* horizontal de esforço (`◀ ●──◎──● ▶`), seleção granular de texto no viewport e cópia fiel para a área de transferência.
 
 ---
@@ -104,7 +106,7 @@ A documentação técnica oficial reside na [Wiki do GitHub](https://github.com/
 
 - **[Home](https://github.com/julioCoronetti/frontal/wiki/Home)**: Hub central de documentação.
 - **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: Dossiê oficial da arquitetura implementada em Rust (v0.7.1), módulos, tema Atlas Crimson e suíte de 119 testes.
-- **[Board-Roadmap](https://github.com/julioCoronetti/frontal/wiki/Board-Roadmap)**: Especificação completa da stack em Rust, diretrizes arquiteturais e fases.
+- **[Board-Roadmap](https://github.com/julioCoronetti/frontal/wiki/Board-Roadmap)**: Especificação completa da stack em Rust, diretrizes arquiteturais, capacidades consolidadas e evolução contínua.
 - **Dossiê Antigravity CLI (`agy`)**:
   - [Agy](https://github.com/julioCoronetti/frontal/wiki/Agy): Visão geral do CLI oficial.
   - [Agy-Architecture](https://github.com/julioCoronetti/frontal/wiki/Agy-Architecture): Binário Go, orquestração e protocolo `stream-json`.

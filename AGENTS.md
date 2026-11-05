@@ -3,7 +3,7 @@
 ## 1. Visão Geral do Projeto
 - **Projeto**: Frontal.
 - **Objetivo**: Interface de usuário em terminal (TUI) desacoplada, de alta performance e assíncrona para o Antigravity CLI (`agy`) e motores compatíveis com o protocolo `stream-json`.
-- **Status do Projeto**: Arquitetura em Rust implementada e operacional (versão `0.7.1`). As Fases 1 a 4 do roadmap foram integralmente concluídas na branch `main` e consolidadas por suíte unificada de integração com 8 domínios (119 testes). A Fase 5 (polimento de UI/UX, ergonomia e alinhamento visual com OpenCode) encontra-se em desenvolvimento ativo.
+- **Status do Projeto**: Arquitetura em Rust implementada e operacional (versão `0.7.1`), consolidada na branch `main` por suíte unificada de integração com 8 domínios (119 testes). O desenvolvimento evolui em fluxo contínuo orientado por cards e issues do GitHub Project Board #8.
 - **Stack Oficial Ativa (Crates do `Cargo.toml`)**:
   - `tokio` (features: `rt-multi-thread`, `macros`, `process`, `io-util`, `sync`, `time`, `signal`, `fs`)
   - `tokio-util` (feature: `codec`)
@@ -106,7 +106,7 @@
 ## 4. Fontes de Informação e Documentação
 Para contexto aprofundado, regras de negócio e histórico técnico, consultar:
 1. **Documentação Local:**
-   - `README.md`: Especificação técnica oficial da arquitetura em Rust, diretrizes de cache em 2 níveis, sticky scroll e detalhamento das fases concluídas.
+   - `README.md`: Especificação técnica oficial da arquitetura em Rust, diretrizes de cache em 2 níveis, sticky scroll e detalhamento das capacidades consolidadas do sistema.
    - `Cargo.toml`: Definição declarativa estrita das dependências ativas.
 2. **Rastreamento de Demandas e GitHub:**
    - Repositório Git: `https://github.com/julioCoronetti/frontal`
@@ -115,7 +115,7 @@ Para contexto aprofundado, regras de negócio e histórico técnico, consultar:
 3. **Documentação Oficial (Wiki do GitHub):**
    - Hub Central: `https://github.com/julioCoronetti/frontal/wiki` e `https://github.com/julioCoronetti/frontal/wiki/Home`
    - **Arquitetura Implementada (Rust):** `https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture` (espelho local em `.wiki/Frontal-Architecture.md`)
-   - **Espelho Local da Wiki (`.wiki/`):** O repositório `frontal.wiki.git` reside mapeado localmente no diretório `.wiki/` (ignorado no `.gitignore`). Alterações de arquitetura, novos comandos CLI/TUI ou fechamentos de fase devem atualizar a documentação em `.wiki/*.md` no mesmo ciclo de entrega do card.
+   - **Espelho Local da Wiki (`.wiki/`):** O repositório `frontal.wiki.git` reside mapeado localmente no diretório `.wiki/` (ignorado no `.gitignore`). Alterações de arquitetura, novos comandos CLI/TUI ou entregas de cards devem atualizar a documentação em `.wiki/*.md` no mesmo ciclo de entrega do card.
    - **Dossiê Antigravity CLI (`agy`):**
      - Visão Geral: `https://github.com/julioCoronetti/frontal/wiki/Agy`
      - Arquitetura & Protocolo: `https://github.com/julioCoronetti/frontal/wiki/Agy-Architecture`
@@ -128,7 +128,7 @@ Para contexto aprofundado, regras de negócio e histórico técnico, consultar:
      - Interface & TUI: `https://github.com/julioCoronetti/frontal/wiki/OpenCode-UI`
    - **Planejamento e Roadmap (`Board-Roadmap`):**
      - Página: `https://github.com/julioCoronetti/frontal/wiki/Board-Roadmap`
-     - *Diretriz de Uso:* O conteúdo do `Board-Roadmap` documenta a proposta conceitual derivada da pesquisa técnica. A especificação formal consolidada encontra-se no `README.md` e o código funcional encontra-se 100% entregue nas Fases 1 a 4 em `main`.
+     - *Diretriz de Uso:* O conteúdo do `Board-Roadmap` documenta a proposta conceitual derivada da pesquisa técnica. A especificação formal consolidada encontra-se no `README.md` e as capacidades arquiteturais encontram-se consolidadas em `main`, evoluindo continuamente via cards do Project Board #8.
    - **Histórico do Legado:**
      - Página: `https://github.com/julioCoronetti/frontal/wiki/Legacy` (protótipo Python/Textual preservado na branch `origin/legacy`).
 
@@ -149,7 +149,7 @@ git config core.hooksPath .githooks
 ```
 
 ### Política de Versionamento SemVer
-1. **Série `0.y.z`:** O projeto segue SemVer para softwares em maturação contínua. A versão `0.7.1` reflete a conclusão das Fases 1 a 4 e o ciclo ativo da Fase 5 (Ergonomia e Alinhamento OpenCode).
+1. **Série `0.y.z`:** O projeto segue SemVer para softwares em maturação contínua. A versão `0.7.1` reflete a arquitetura consolidada em produção e a evolução contínua guiada por cards do Project Board.
 2. **Regra de Ouro SemVer:** É terminantemente proibido alterar o campo `version` no `Cargo.toml` em commits intermediários (`Card-Status: In Progress`).
 3. **Bump Exclusivo no Fechamento (`Done`):** O incremento SemVer ocorre exclusivamente no commit de encerramento (`Card-Status: Done`) autorizado pelo Senhor:
    - **Patch (`0.7.x`):** Para correções de bugs (`fix(...)`) ou refatorações puras.
@@ -157,7 +157,7 @@ git config core.hooksPath .githooks
    - O commit de fechamento deve ser acompanhado imediatamente pela criação da tag Git anotada (`git tag -a vX.Y.Z -m "Release vX.Y.Z"`).
 4. **Simetria de Exposição:** A versão da aplicação deve ser exposta de forma idêntica tanto via CLI (`frontal --version` / `frontal -V`) quanto na TUI (no cabeçalho de resposta do comando `/help`).
 
-### Disciplina de Commits Atômicos (Fim dos "Phase Dumps")
+### Disciplina de Commits Atômicos (Proibição de Commits Monolíticos)
 1. **1 Commit = 1 Mudança Lógica Indivisível:** Cada commit deve introduzir uma única alteração atômica que compila e passa na esteira de 6 gates. Nunca misturar na mesma árvore refatoração estrutural, correção de bug e documentação.
 2. **Limite Operacional:** Máximo estrito de **3 a 5 arquivos alterados por commit** (salvo renomeações estruturais puras via `git mv` ou flag `ATOMIC_OVERRIDE=1`).
 3. **Registro Arquitetural Permanente:** Como comentários no código são estritamente proibidos, o corpo da mensagem de commit é obrigatório para mudanças não-triviais e atua como a memória histórica do projeto (`git blame`).
@@ -183,25 +183,25 @@ Reviewed-By: Argon-Advisor <mode:none|review|design|troubleshoot|deep-dive|refin
 ## 6. Metodologia de Desenvolvimento Agêntica e Workflow de Cards
 
 ### Ciclo Triádico por Card (Senhor ↔ Flash ↔ Argon)
-Cada demanda do Board é executada em um ciclo estruturado de 4 fases:
+Cada demanda do Board é executada em um ciclo estruturado de 4 etapas:
 
-1. **Fase 1 (Design & Action Plan - Kickoff):**
+1. **Etapa 1 (Design & Action Plan - Kickoff):**
    - Ao mover o card de `Todo` para `In Progress`, para demandas arquiteturais ou de feature, o agente Flash invoca preventivamente o Advisor:
      `~/.gemini/config/scripts/advisor.sh --mode design -f <arquivos_afetados> "Plano de acao para o card #N: <titulo>"`
    - O parecer do Argon antecipa premissas ocultas, blind spots, complexidade ciclomática e riscos de regressão antes de qualquer alteração no código.
 
-2. **Fase 2 (Execução TDD em Fatias Atômicas):**
+2. **Etapa 2 (Execução TDD em Fatias Atômicas):**
    - O agente Flash implementa em ciclos mínimos de TDD (Teste Vermelho -> Código Verde -> `cargo test` -> Commit Atômico com `Card-Status: In Progress`).
    - Cada fatia cumpre o teto de 500 linhas por arquivo e a regra de zero comentários.
 
-3. **Fase 3 (Auditoria Adversarial & Trava de Revisão):**
+3. **Etapa 3 (Auditoria Adversarial & Trava de Revisão):**
    - Concluídas todas as fatias do card, o agente Flash executa a auditoria adversarial completa via diff:
      `git diff HEAD~N | ~/.gemini/config/scripts/advisor.sh --mode review "Auditoria de fechamento do card #N"`
    - Havendo parecer favorável, o commit de revisão é registrado com `Card-Status: In Review` e `Reviewed-By: Argon-Advisor <mode:review>`.
    - O agente Flash emite o aviso formal ao Senhor:
      > *"Revisão completa. Nenhuma alteração pendente."*
 
-4. **Fase 4 (Fechamento do Card & SemVer):**
+4. **Etapa 4 (Fechamento do Card & SemVer):**
    - O Senhor avalia e concede a autorização explícita para `Done`.
    - O agente Flash executa o bump SemVer no `Cargo.toml` (se aplicável), registra o commit final `Card-Status: Done`, cria a tag Git anotada `vX.Y.Z` e atualiza o status do card no Project Board #8 via GitHub CLI:
      `gh project item-edit --id <ITEM_ID> --project-id PVT_kwHOC8mDy84Blf4U --field-id PVTSSF_lAHOC8mDy84Blf4UzhkMioY --single-select-option-id 98236657`
