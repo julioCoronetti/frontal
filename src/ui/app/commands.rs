@@ -46,15 +46,13 @@ impl App {
                 self.suspended_events.clear();
                 let _ = self.session_manager.interrupt(&self.active_session);
                 if let Some(d) = danger {
-                    if let Some(idx) = d.step_index {
-                        self.cache.upsert_tool_call(
-                            Some(idx),
-                            &d.tool_name,
-                            crate::protocol::StepState::Error,
-                            None,
-                            Some("Execution rejected by operator"),
-                        );
-                    }
+                    self.cache.upsert_tool_call(
+                        d.step_index,
+                        &d.tool_name,
+                        crate::protocol::StepState::Error,
+                        None,
+                        Some("Execution rejected by operator"),
+                    );
                     self.cache.push_error(&format!(
                         "Security Guardian blocked destructive command: {}",
                         d.command
@@ -62,6 +60,10 @@ impl App {
                 }
                 self.waiting_for_response = false;
                 self.status_text = String::from("Blocked destructive command");
+                if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
+                    tab.waiting_for_response = false;
+                    tab.status_text = self.status_text.clone();
+                }
                 self.dirty = true;
                 Some(Some(AppAction::Interrupt))
             }

@@ -34,8 +34,10 @@ pub fn evaluate_command(raw: &str) -> Option<DangerAssessment> {
     if trimmed.is_empty() {
         return None;
     }
-    if let Some(danger) = check_sql_statement(trimmed) {
-        return Some(danger);
+    if is_likely_sql(trimmed) {
+        if let Some(danger) = check_sql_statement(trimmed) {
+            return Some(danger);
+        }
     }
     for seg in split_shell_segments(trimmed) {
         if let Some(danger) = evaluate_shell_segment(seg, trimmed) {
@@ -43,6 +45,22 @@ pub fn evaluate_command(raw: &str) -> Option<DangerAssessment> {
         }
     }
     None
+}
+
+fn is_likely_sql(raw: &str) -> bool {
+    let mut s = raw.trim();
+    while s.starts_with("--") || s.starts_with("/*") {
+        if s.starts_with("--") {
+            s = s.find('\n').map(|p| &s[p + 1..]).unwrap_or("").trim();
+        } else if s.starts_with("/*") {
+            s = s.find("*/").map(|p| &s[p + 2..]).unwrap_or("").trim();
+        }
+    }
+    let first = s.split_whitespace().next().unwrap_or("");
+    matches!(
+        first.to_ascii_uppercase().as_str(),
+        "SELECT" | "INSERT" | "UPDATE" | "DELETE" | "DROP" | "TRUNCATE" | "ALTER" | "CREATE"
+    )
 }
 
 pub fn evaluate_tool_call(
@@ -71,8 +89,7 @@ fn split_shell_segments(cmd: &str) -> Vec<&str> {
 
     while idx < n {
         let (byte_pos, ch) = chars[idx];
-        if escaped {
-            escaped = false;
+        if std::mem::take(&mut escaped) {
             idx += 1;
             continue;
         }
@@ -115,9 +132,8 @@ fn tokenize_words(segment: &str) -> Vec<String> {
     let (mut in_single, mut in_double, mut escaped) = (false, false, false);
 
     for ch in segment.chars() {
-        if escaped {
+        if std::mem::take(&mut escaped) {
             current.push(ch);
-            escaped = false;
         } else if ch == '\\' && !in_single {
             escaped = true;
         } else if ch == '\'' && !in_double {
@@ -126,8 +142,7 @@ fn tokenize_words(segment: &str) -> Vec<String> {
             in_double = !in_double;
         } else if ch.is_whitespace() && !in_single && !in_double {
             if !current.is_empty() {
-                words.push(current);
-                current = String::new();
+                words.push(std::mem::take(&mut current));
             }
         } else {
             current.push(ch);
@@ -186,42 +201,46 @@ fn evaluate_shell_segment(seg: &str, full_cmd: &str) -> Option<DangerAssessment>
                     && (a.contains('r') || a.contains('R')))
         });
         if is_rec {
-            let target = args
-                .iter()
-                .find(|a| !a.starts_with('-'))
-                .cloned()
-                .unwrap_or_else(|| String::from("filesystem paths"));
             return Some(danger_assessment(
                 RiskCategory::RecursiveDeletion,
                 full_cmd,
-                target,
+                first_positional_arg(args, "filesystem paths"),
                 "Recursive file or directory deletion",
             ));
         }
     }
     if exe == "rmdir" {
-        let target = args
-            .iter()
-            .find(|a| !a.starts_with('-'))
-            .cloned()
-            .unwrap_or_else(|| String::from("directory"));
         return Some(danger_assessment(
             RiskCategory::RecursiveDeletion,
             full_cmd,
-            target,
+            first_positional_arg(args, "directory"),
             "Directory removal",
         ));
     }
     if exe == "git" && !args.is_empty() {
         return evaluate_git_command(args, full_cmd);
     }
+    if matches!(
+        exe.as_str(),
+        "psql" | "sqlite3" | "sqlite" | "mysql" | "duckdb" | "mariadb"
+    ) {
+        for arg in args {
+            if let Some(danger) = check_sql_statement(arg) {
+                return Some(danger_assessment(
+                    danger.category,
+                    full_cmd,
+                    danger.target,
+                    "Destructive SQL executed via database CLI",
+                ));
+            }
+        }
+    }
     if matches!(exe.as_str(), "dd" | "shred" | "wipefs" | "fdisk" | "parted") {
         let target = args
             .iter()
             .find(|a| a.starts_with("of="))
             .map(|a| a.trim_start_matches("of=").to_string())
-            .or_else(|| args.iter().find(|a| !a.starts_with('-')).cloned())
-            .unwrap_or_else(|| String::from("storage device"));
+            .unwrap_or_else(|| first_positional_arg(args, "storage device"));
         return Some(danger_assessment(
             RiskCategory::DiskManipulation,
             full_cmd,
@@ -230,15 +249,10 @@ fn evaluate_shell_segment(seg: &str, full_cmd: &str) -> Option<DangerAssessment>
         ));
     }
     if exe.starts_with("mkfs") {
-        let target = args
-            .iter()
-            .find(|a| !a.starts_with('-'))
-            .cloned()
-            .unwrap_or_else(|| String::from("target partition"));
         return Some(danger_assessment(
             RiskCategory::DiskManipulation,
             full_cmd,
-            target,
+            first_positional_arg(args, "target partition"),
             "Filesystem formatting will erase partition data",
         ));
     }
@@ -246,17 +260,26 @@ fn evaluate_shell_segment(seg: &str, full_cmd: &str) -> Option<DangerAssessment>
 }
 
 fn evaluate_git_command(args: &[String], full_cmd: &str) -> Option<DangerAssessment> {
-    let (sub, sub_args) = (&args[0], &args[1..]);
+    let mut i = 0;
+    while i < args.len() && args[i].starts_with('-') {
+        i += if matches!(
+            args[i].as_str(),
+            "-C" | "-c" | "--work-tree" | "--git-dir" | "--namespace"
+        ) {
+            2
+        } else {
+            1
+        };
+    }
+    if i >= args.len() {
+        return None;
+    }
+    let (sub, sub_args) = (&args[i], &args[i + 1..]);
     if sub == "reset" && sub_args.iter().any(|a| a == "--hard") {
-        let target = sub_args
-            .iter()
-            .find(|a| !a.starts_with('-'))
-            .cloned()
-            .unwrap_or_else(|| String::from("HEAD"));
         return Some(danger_assessment(
             RiskCategory::DestructiveVcs,
             full_cmd,
-            target,
+            first_positional_arg(sub_args, "HEAD"),
             "Hard reset will discard all uncommitted changes",
         ));
     }
@@ -277,32 +300,29 @@ fn evaluate_git_command(args: &[String], full_cmd: &str) -> Option<DangerAssessm
             .iter()
             .any(|a| (a == "--force" || a == "-f") && a != "--force-with-lease")
     {
-        let target = sub_args
-            .iter()
-            .find(|a| !a.starts_with('-'))
-            .cloned()
-            .unwrap_or_else(|| String::from("remote repository"));
         return Some(danger_assessment(
             RiskCategory::DestructiveVcs,
             full_cmd,
-            target,
+            first_positional_arg(sub_args, "remote repository"),
             "Forced push will overwrite remote commit history",
         ));
     }
     if sub == "branch" && sub_args.iter().any(|a| a == "-D") {
-        let target = sub_args
-            .iter()
-            .find(|a| !a.starts_with('-'))
-            .cloned()
-            .unwrap_or_else(|| String::from("branch"));
         return Some(danger_assessment(
             RiskCategory::DestructiveVcs,
             full_cmd,
-            target,
+            first_positional_arg(sub_args, "branch"),
             "Forced branch deletion",
         ));
     }
     None
+}
+
+fn first_positional_arg(args: &[String], default: &'static str) -> String {
+    args.iter()
+        .find(|a| !a.starts_with('-'))
+        .cloned()
+        .unwrap_or_else(|| default.to_string())
 }
 
 fn check_sql_statement(raw: &str) -> Option<DangerAssessment> {
@@ -316,10 +336,21 @@ fn check_sql_statement(raw: &str) -> Option<DangerAssessment> {
         if t1 == "DROP" && i + 1 < n {
             let t2 = tokens[i + 1].to_ascii_uppercase();
             if matches!(t2.as_str(), "DATABASE" | "SCHEMA" | "TABLE" | "VIEW") {
-                let target = tokens
+                let is_if_exists = tokens
                     .get(i + 2)
-                    .cloned()
-                    .unwrap_or_else(|| String::from("database entity"));
+                    .map(|s| s.eq_ignore_ascii_case("IF"))
+                    .unwrap_or(false)
+                    && tokens
+                        .get(i + 3)
+                        .map(|s| s.eq_ignore_ascii_case("EXISTS"))
+                        .unwrap_or(false);
+                let target = if is_if_exists {
+                    tokens.get(i + 4)
+                } else {
+                    tokens.get(i + 2)
+                }
+                .cloned()
+                .unwrap_or_else(|| String::from("database entity"));
                 return Some(danger_assessment(
                     RiskCategory::DestructiveSql,
                     raw,
@@ -349,21 +380,38 @@ fn check_sql_statement(raw: &str) -> Option<DangerAssessment> {
 fn tokenize_sql(raw: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
-    let (mut in_single, mut in_double) = (false, false);
+    let (mut in_single, mut in_comment) = (false, false);
+    let chars: Vec<char> = raw.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
 
-    for ch in raw.chars() {
-        if ch == '\'' && !in_double {
+    while i < len {
+        let ch = chars[i];
+        if in_comment {
+            if ch == '\n' {
+                in_comment = false;
+            }
+            i += 1;
+            continue;
+        }
+        if !in_single && ((ch == '-' && i + 1 < len && chars[i + 1] == '-') || ch == '#') {
+            in_comment = true;
+            i += 1;
+            continue;
+        }
+        if ch == '\'' {
             in_single = !in_single;
-        } else if ch == '"' && !in_single {
-            in_double = !in_double;
-        } else if !in_single && !in_double {
-            if ch.is_alphanumeric() || ch == '_' || ch == '.' || ch == '-' {
+            i += 1;
+            continue;
+        }
+        if !in_single {
+            if ch.is_alphanumeric() || ch == '_' || ch == '.' {
                 current.push(ch);
             } else if !current.is_empty() {
-                tokens.push(current);
-                current = String::new();
+                tokens.push(std::mem::take(&mut current));
             }
         }
+        i += 1;
     }
     if !current.is_empty() {
         tokens.push(current);
@@ -424,7 +472,7 @@ fn extract_candidate_commands(params: Option<&Value>, fallback: Option<&str>) ->
                 }
                 for (_, v) in map {
                     if let Some(s) = v.as_str() {
-                        if !out.contains(&s.to_string()) {
+                        if !out.iter().any(|existing| existing == s) {
                             out.push(s.to_string());
                         }
                     }
@@ -434,9 +482,8 @@ fn extract_candidate_commands(params: Option<&Value>, fallback: Option<&str>) ->
         }
     }
     if let Some(fb) = fallback {
-        let s = fb.to_string();
-        if !out.contains(&s) {
-            out.push(s);
+        if !out.iter().any(|existing| existing == fb) {
+            out.push(fb.to_string());
         }
     }
     out

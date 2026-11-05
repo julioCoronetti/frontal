@@ -366,6 +366,13 @@ fn test_security_risk_matrix_classification_and_zero_false_positives() {
         ("git push origin main -f", RiskCategory::DestructiveVcs),
         ("git branch -D feat-broken", RiskCategory::DestructiveVcs),
         (
+            "git -C /dir reset --hard HEAD",
+            RiskCategory::DestructiveVcs,
+        ),
+        ("git -c k=v clean -fd", RiskCategory::DestructiveVcs),
+        ("psql -c 'DROP TABLE u;'", RiskCategory::DestructiveSql),
+        ("sqlite3 db 'DROP TABLE u;'", RiskCategory::DestructiveSql),
+        (
             "dd if=/dev/zero of=/dev/sda",
             RiskCategory::DiskManipulation,
         ),
@@ -386,6 +393,8 @@ fn test_security_risk_matrix_classification_and_zero_false_positives() {
         "git diff",
         "git log -n 5",
         "echo \"DROP TABLE users\"",
+        "echo DROP TABLE users",
+        "psql -c \"SELECT * FROM users;\"",
         "SELECT * FROM users WHERE drop_count > 0",
         "padding hidden add",
     ];
