@@ -110,6 +110,11 @@ impl ModalStack {
         self.stack.pop()
     }
 
+    pub fn remove_danger_modal(&mut self) {
+        self.stack
+            .retain(|m| !matches!(m, Modal::DangerConfirmation(_)));
+    }
+
     pub fn is_empty(&self) -> bool {
         self.stack.is_empty()
     }

@@ -80,12 +80,15 @@ impl DangerConfirmationModal {
             Style::default().fg(TEXT_MUTED),
         )]));
 
+        let clean_cmd = self.assessment.command.replace('\n', " ");
+        let char_count = clean_cmd.chars().count();
         let max_w = (area.width as usize).saturating_sub(6);
-        let cmd_preview = if self.assessment.command.len() > max_w {
+        let cmd_preview = if char_count > max_w {
             let limit = max_w.saturating_sub(3);
-            format!("   {}...", &self.assessment.command[..limit])
+            let truncated: String = clean_cmd.chars().take(limit).collect();
+            format!("   {}...", truncated)
         } else {
-            format!("   {}", self.assessment.command)
+            format!("   {}", clean_cmd)
         };
         lines.push(Line::from(Span::styled(
             cmd_preview,

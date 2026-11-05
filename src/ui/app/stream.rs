@@ -132,6 +132,9 @@ impl App {
                 }
                 EngineEvent::ProtocolError { message, .. } => {
                     self.waiting_for_response = false;
+                    self.pending_danger = None;
+                    self.suspended_events.clear();
+                    self.modals.remove_danger_modal();
                     self.cache
                         .push_error(&format!("Protocol Error: {}", message));
                     self.status_text = String::from("Protocol Error");
@@ -139,6 +142,9 @@ impl App {
                 }
                 EngineEvent::ProcessExited { code, .. } => {
                     self.waiting_for_response = false;
+                    self.pending_danger = None;
+                    self.suspended_events.clear();
+                    self.modals.remove_danger_modal();
                     self.status_text = format!("Process exited: {:?}", code);
                     self.dirty = true;
                 }
@@ -175,6 +181,8 @@ impl App {
                 }
                 EngineEvent::ProtocolError { message, .. } => {
                     tab.waiting_for_response = false;
+                    tab.pending_danger = None;
+                    tab.suspended_events.clear();
                     tab.cache
                         .push_error(&format!("Protocol Error: {}", message));
                     tab.status_text = String::from("Protocol Error");
@@ -187,6 +195,8 @@ impl App {
                 }
                 EngineEvent::ProcessExited { .. } => {
                     tab.waiting_for_response = false;
+                    tab.pending_danger = None;
+                    tab.suspended_events.clear();
                     tab.status_text = String::from("Process exited");
                     self.dirty = true;
                 }

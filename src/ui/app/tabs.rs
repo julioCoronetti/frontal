@@ -22,6 +22,7 @@ impl App {
     }
 
     pub fn save_active_tab_state(&mut self) {
+        self.modals.remove_danger_modal();
         if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
             std::mem::swap(&mut self.cache, &mut tab.cache);
             std::mem::swap(&mut self.viewport, &mut tab.viewport);
@@ -38,6 +39,7 @@ impl App {
     }
 
     pub fn load_active_tab_state(&mut self) {
+        self.modals.remove_danger_modal();
         if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
             std::mem::swap(&mut self.cache, &mut tab.cache);
             std::mem::swap(&mut self.viewport, &mut tab.viewport);
@@ -96,6 +98,7 @@ impl App {
             self.last_turn_usage = None;
             self.pending_danger = None;
             self.suspended_events.clear();
+            self.modals.remove_danger_modal();
             self.status_text = String::from("Ready");
             self.popover.close();
             self.active_tab_index = self.active_tab_index.min(self.tabs.len() - 1);
@@ -187,6 +190,9 @@ impl App {
             tab.waiting_for_response = false;
         }
         self.waiting_for_response = false;
+        self.pending_danger = None;
+        self.suspended_events.clear();
+        self.modals.remove_danger_modal();
         self.status_text = format!("Respawned session: {}", new_id);
         self.dirty = true;
         Ok(new_id)
