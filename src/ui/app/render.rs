@@ -446,14 +446,20 @@ impl App {
                     )
                 };
                 let mut spans = vec![Span::styled(prefix, desc_style)];
+                let mut row_len = 3 + item.label.chars().count();
                 if let Some(desc) = &item.description {
                     let cmd_col_w: usize = 14;
-                    let pad = " ".repeat(cmd_col_w.saturating_sub(item.label.len()).max(1));
+                    let pad_count = cmd_col_w.saturating_sub(item.label.chars().count()).max(1);
                     spans.push(Span::styled(&item.label, cmd_style));
-                    spans.push(Span::styled(pad, desc_style));
+                    spans.push(Span::styled(" ".repeat(pad_count), desc_style));
                     spans.push(Span::styled(desc, desc_style));
+                    row_len += pad_count + desc.chars().count();
                 } else {
                     spans.push(Span::styled(&item.label, cmd_style));
+                }
+                let inner_w = (popover_rect.width as usize).saturating_sub(2);
+                if is_sel && inner_w > row_len {
+                    spans.push(Span::styled(" ".repeat(inner_w - row_len), desc_style));
                 }
                 popover_lines.push(Line::from(spans));
             }

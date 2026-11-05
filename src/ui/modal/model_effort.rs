@@ -452,18 +452,19 @@ impl ModelEffortModal {
                     ));
                 }
 
-                if i == self.selected_effort_idx {
-                    track_spans.push(Span::styled(
+                let dot_span = if i == self.selected_effort_idx {
+                    Span::styled(
                         "◎",
                         Style::default()
                             .fg(ACCENT_HIGHLIGHT)
                             .add_modifier(Modifier::BOLD),
-                    ));
+                    )
                 } else if i < self.selected_effort_idx {
-                    track_spans.push(Span::styled("●", Style::default().fg(ACCENT_PRIMARY)));
+                    Span::styled("●", Style::default().fg(ACCENT_PRIMARY))
                 } else {
-                    track_spans.push(Span::styled("●", Style::default().fg(TEXT_MUTED)));
-                }
+                    Span::styled("●", Style::default().fg(TEXT_MUTED))
+                };
+                track_spans.push(dot_span);
             }
             track_spans.push(Span::styled("  ▶", Style::default().fg(ACCENT_PRIMARY)));
             lines.push(Line::from(track_spans));
