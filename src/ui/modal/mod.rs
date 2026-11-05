@@ -5,12 +5,14 @@ use ratatui::Frame;
 
 use crate::ui::theme::{BACKDROP_BG, BACKDROP_FG};
 
+pub mod danger;
 pub mod diff;
 pub mod model_effort;
 pub mod palette;
 pub mod respawn;
 pub mod select;
 
+pub use danger::DangerConfirmationModal;
 pub use diff::DiffModal;
 pub use model_effort::{ModelEffortModal, ModelEffortStep, ModelItem};
 pub use palette::{CommandPaletteModal, PaletteItem};
@@ -21,6 +23,8 @@ pub use select::{DialogSelect, SelectItem, SelectResult};
 pub enum ModalAction {
     None,
     Close,
+    ApproveDanger,
+    RejectDanger,
     SelectModelEffort {
         model: String,
         effort: String,
@@ -40,6 +44,7 @@ pub enum Modal {
     CommandPalette(CommandPaletteModal),
     Diff(DiffModal),
     Select(DialogSelect<ModalAction>),
+    DangerConfirmation(DangerConfirmationModal),
 }
 
 impl Modal {
@@ -54,6 +59,7 @@ impl Modal {
                 SelectResult::Cancel => ModalAction::Close,
                 SelectResult::None => ModalAction::None,
             },
+            Self::DangerConfirmation(m) => m.handle_key(key),
         }
     }
 
@@ -64,6 +70,7 @@ impl Modal {
             Self::CommandPalette(m) => m.render(frame, area),
             Self::Diff(m) => m.render(frame, area),
             Self::Select(m) => m.render(frame, area),
+            Self::DangerConfirmation(m) => m.render(frame, area),
         }
     }
 
@@ -78,6 +85,9 @@ impl Modal {
             }
             Self::HotRespawn(_) => {
                 ModalStack::centered_rect_bounded(52, 58, 44, 68, 14, 24, screen)
+            }
+            Self::DangerConfirmation(_) => {
+                ModalStack::centered_rect_bounded(56, 50, 48, 76, 12, 18, screen)
             }
         }
     }

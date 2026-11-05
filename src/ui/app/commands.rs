@@ -25,6 +25,7 @@ impl App {
     ) -> Option<Option<AppAction>> {
         match action {
             ModalAction::Close => Some(None),
+            ModalAction::ApproveDanger | ModalAction::RejectDanger => Some(None),
             ModalAction::SelectModelEffort { model, effort } => {
                 self.modals.pop();
                 self.status_text = format!("Model: {} ({})", model, effort);
