@@ -61,8 +61,8 @@ A arquitetura do Frontal encontra-se implementada e operacional (versão `0.7.1`
   - Pipeline incremental `pulldown-cmark` resiliente a cercas incompletas, realce `syntect` com checkpoints de estado por linha e cards dinâmicos colapsáveis para chamadas de ferramentas e raciocínio.
 - **Editor `ropey` com Extmarks Atômicos, Autocomplete e Persistência SQLite WAL:**
   - Buffer de edição multilinha sobre `ropey`, primitiva de overlay/popover com foco prioritário, extmarks atômicos para menções (`@`, `/`), colapso de pastes volumosos (`HashMap` externo), busca assíncrona de arquivos e histórico persistente em SQLite WAL (`rusqlite`).
-- **Multissessão (`TabState`), Pilha de Modais (`DialogSelect`) e Hot-Respawn:**
-  - Multissessão (`Alt+1..9`) sobre `SessionManager`, pilha de diálogos modais flutuantes com *backdrop dimming*, componente unificado `DialogSelect`, alternância de modelos via *hot-respawn*, paleta de comandos (`Ctrl+P`) e visualizador de diffs integrado.
+- **Multissessão (`TabState`), Pilha de Modais (`DialogSelect`), Guardião de Segurança e Hot-Respawn:**
+  - Multissessão (`Alt+1..9`) sobre `SessionManager`, pilha de diálogos modais flutuantes com *backdrop dimming*, Guardião de Segurança determinístico (`DangerAssessment`) com modal de contenção e confirmação (`DangerConfirmationModal`) para interceptação de comandos destrutivos, componente unificado `DialogSelect`, alternância de modelos via *hot-respawn*, paleta de comandos (`Ctrl+P`) e visualizador de diffs integrado.
 - **Ergonomia Visual OpenCode, Tema Atlas Crimson e Fidelidade de Clipboard:**
   - Estado de boas-vindas centralizado, transição fluida para layout de duas colunas (chat + Context Sidebar), popover de autocompletação em duas colunas alinhadas com janela deslizante, indicador flutuante de rolagem, tema visual **Atlas Crimson**, seletor `/model` normalizado com *slider* horizontal de esforço (`◀ ●──◎──● ▶`), seleção granular de texto no viewport e cópia fiel para a área de transferência.
 

@@ -12,24 +12,19 @@ use crate::common::{press_key, test_app};
 #[test]
 fn test_modal_stack_push_pop_and_exclusive_focus() {
     let (mut app, _) = test_app();
-
     assert!(app.modals.is_empty());
 
-    let ctrl_p = press_key(KeyCode::Char('p'), KeyModifiers::CONTROL);
-    let act = app.handle_terminal_event(ctrl_p);
+    let act = app.handle_terminal_event(press_key(KeyCode::Char('p'), KeyModifiers::CONTROL));
     assert_eq!(act, None);
     assert!(!app.modals.is_empty());
 
-    let key_a = press_key(KeyCode::Char('a'), KeyModifiers::NONE);
-    app.handle_terminal_event(key_a);
+    app.handle_terminal_event(press_key(KeyCode::Char('a'), KeyModifiers::NONE));
     assert!(app.editor.is_empty());
 
-    let esc = press_key(KeyCode::Esc, KeyModifiers::NONE);
-    app.handle_terminal_event(esc);
+    app.handle_terminal_event(press_key(KeyCode::Esc, KeyModifiers::NONE));
     assert!(app.modals.is_empty());
 
-    let key_b = press_key(KeyCode::Char('b'), KeyModifiers::NONE);
-    app.handle_terminal_event(key_b);
+    app.handle_terminal_event(press_key(KeyCode::Char('b'), KeyModifiers::NONE));
     assert_eq!(app.editor.text(), "b");
 }
 
@@ -68,14 +63,9 @@ fn test_hot_respawn_modal_navigation_and_submission() {
 #[test]
 fn test_command_palette_filtering_and_action_dispatch() {
     let mut palette = CommandPaletteModal::new();
-
-    let key_d = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE);
-    let key_i = KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE);
-    let key_f = KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE);
-    palette.handle_key(key_d);
-    palette.handle_key(key_i);
-    palette.handle_key(key_f);
-
+    for c in ['d', 'i', 'f'] {
+        palette.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    }
     let filtered = palette.filtered_indices();
     assert_eq!(filtered.len(), 1);
     assert_eq!(palette.items[filtered[0]].id, "view_diff");
@@ -401,6 +391,14 @@ fn test_security_risk_matrix_classification_and_zero_false_positives() {
     for cmd in safe {
         assert!(evaluate_command(cmd).is_none());
     }
+
+    assert!(frontal::security::evaluate_tool_call(
+        "write_file",
+        Some(1),
+        Some(&serde_json::json!({"Path": "a.sh", "Content": "rm -rf /tmp/x"})),
+        None,
+    )
+    .is_none());
 }
 
 #[test]
@@ -434,6 +432,13 @@ fn test_danger_tool_call_interception_opens_modal_and_suspends_stream() {
 
     assert_eq!(app.suspended_events.len(), 1);
     assert_eq!(app.cache.blocks_count(), 1);
+
+    app.add_tab(frontal::protocol::SessionId::new(), None);
+    assert!(app.modals.is_empty());
+    assert!(app.pending_danger.is_none());
+    app.switch_tab(0);
+    assert!(!app.modals.is_empty());
+    assert!(app.pending_danger.is_some());
 }
 
 #[test]
@@ -479,7 +484,7 @@ fn test_danger_modal_reject_aborts_command_and_records_security_block() {
         event: EngineEvent::Stream(Box::new(make_tool_event("DROP TABLE users;"))),
     });
 
-    app.handle_terminal_event(press_key(KeyCode::Esc, KeyModifiers::NONE));
+    app.handle_terminal_event(press_key(KeyCode::Char('c'), KeyModifiers::CONTROL));
     assert!(app.modals.is_empty());
     assert!(app.pending_danger.is_none());
     assert_eq!(app.status_text, "Blocked destructive command");

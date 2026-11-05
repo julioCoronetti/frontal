@@ -35,26 +35,23 @@ pub fn evaluate_command(raw: &str) -> Option<DangerAssessment> {
         return None;
     }
     if is_likely_sql(trimmed) {
-        if let Some(danger) = check_sql_statement(trimmed) {
-            return Some(danger);
+        if let danger @ Some(_) = check_sql_statement(trimmed) {
+            return danger;
         }
     }
-    for seg in split_shell_segments(trimmed) {
-        if let Some(danger) = evaluate_shell_segment(seg, trimmed) {
-            return Some(danger);
-        }
-    }
-    None
+    split_shell_segments(trimmed)
+        .into_iter()
+        .find_map(|seg| evaluate_shell_segment(seg, trimmed))
 }
 
 fn is_likely_sql(raw: &str) -> bool {
     let mut s = raw.trim();
     while s.starts_with("--") || s.starts_with("/*") {
-        if s.starts_with("--") {
-            s = s.find('\n').map(|p| &s[p + 1..]).unwrap_or("").trim();
-        } else if s.starts_with("/*") {
-            s = s.find("*/").map(|p| &s[p + 2..]).unwrap_or("").trim();
-        }
+        s = if s.starts_with("--") {
+            s.find('\n').map(|p| &s[p + 1..]).unwrap_or("").trim()
+        } else {
+            s.find("*/").map(|p| &s[p + 2..]).unwrap_or("").trim()
+        };
     }
     let first = s.split_whitespace().next().unwrap_or("");
     matches!(
@@ -69,14 +66,33 @@ pub fn evaluate_tool_call(
     params: Option<&Value>,
     fallback_args: Option<&str>,
 ) -> Option<DangerAssessment> {
-    for cmd in extract_candidate_commands(params, fallback_args) {
-        if let Some(mut assessment) = evaluate_command(&cmd) {
-            assessment.tool_name = tool_name.to_string();
-            assessment.step_index = step_index;
-            return Some(assessment);
-        }
+    if is_non_execution_tool(tool_name) {
+        return None;
     }
-    None
+    extract_candidate_commands(params, fallback_args)
+        .into_iter()
+        .find_map(|cmd| {
+            evaluate_command(&cmd).map(|mut d| {
+                d.tool_name = tool_name.to_string();
+                d.step_index = step_index;
+                d
+            })
+        })
+}
+
+fn is_non_execution_tool(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        "read_file"
+            | "write_file"
+            | "edit_file"
+            | "view_file"
+            | "list_dir"
+            | "grep_search"
+            | "find_by_name"
+            | "search_web"
+            | "ask_question"
+    )
 }
 
 fn split_shell_segments(cmd: &str) -> Vec<&str> {
@@ -167,16 +183,15 @@ fn evaluate_shell_segment(seg: &str, full_cmd: &str) -> Option<DangerAssessment>
     }
     while idx < raw_words.len() {
         let base = extract_basename(&raw_words[idx]);
-        if matches!(
+        if !matches!(
             base.as_str(),
             "sudo" | "env" | "nohup" | "time" | "command" | "exec"
         ) {
-            idx += 1;
-            while idx < raw_words.len() && raw_words[idx].starts_with('-') {
-                idx += 1;
-            }
-        } else {
             break;
+        }
+        idx += 1;
+        while idx < raw_words.len() && raw_words[idx].starts_with('-') {
+            idx += 1;
         }
     }
     if idx >= raw_words.len() {
@@ -193,21 +208,20 @@ fn evaluate_shell_segment(seg: &str, full_cmd: &str) -> Option<DangerAssessment>
     {
         return evaluate_command(&args[1]);
     }
-    if exe == "rm" {
-        let is_rec = args.iter().any(|a| {
+    if exe == "rm"
+        && args.iter().any(|a| {
             a == "--recursive"
                 || (a.starts_with('-')
                     && !a.starts_with("--")
                     && (a.contains('r') || a.contains('R')))
-        });
-        if is_rec {
-            return Some(danger_assessment(
-                RiskCategory::RecursiveDeletion,
-                full_cmd,
-                first_positional_arg(args, "filesystem paths"),
-                "Recursive file or directory deletion",
-            ));
-        }
+        })
+    {
+        return Some(danger_assessment(
+            RiskCategory::RecursiveDeletion,
+            full_cmd,
+            first_positional_arg(args, "filesystem paths"),
+            "Recursive file or directory deletion",
+        ));
     }
     if exe == "rmdir" {
         return Some(danger_assessment(
@@ -338,12 +352,10 @@ fn check_sql_statement(raw: &str) -> Option<DangerAssessment> {
             if matches!(t2.as_str(), "DATABASE" | "SCHEMA" | "TABLE" | "VIEW") {
                 let is_if_exists = tokens
                     .get(i + 2)
-                    .map(|s| s.eq_ignore_ascii_case("IF"))
-                    .unwrap_or(false)
+                    .is_some_and(|s| s.eq_ignore_ascii_case("IF"))
                     && tokens
                         .get(i + 3)
-                        .map(|s| s.eq_ignore_ascii_case("EXISTS"))
-                        .unwrap_or(false);
+                        .is_some_and(|s| s.eq_ignore_ascii_case("EXISTS"));
                 let target = if is_if_exists {
                     tokens.get(i + 4)
                 } else {
@@ -470,21 +482,11 @@ fn extract_candidate_commands(params: Option<&Value>, fallback: Option<&str>) ->
                         out.push(s.to_string());
                     }
                 }
-                for (_, v) in map {
-                    if let Some(s) = v.as_str() {
-                        if !out.iter().any(|existing| existing == s) {
-                            out.push(s.to_string());
-                        }
-                    }
-                }
             }
             _ => {}
         }
-    }
-    if let Some(fb) = fallback {
-        if !out.iter().any(|existing| existing == fb) {
-            out.push(fb.to_string());
-        }
+    } else if let Some(fb) = fallback {
+        out.push(fb.to_string());
     }
     out
 }

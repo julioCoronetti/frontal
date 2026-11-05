@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -20,8 +20,11 @@ impl DangerConfirmationModal {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> ModalAction {
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return ModalAction::RejectDanger;
+        }
         match key.code {
-            KeyCode::Enter => ModalAction::ApproveDanger,
+            KeyCode::Enter if key.modifiers.is_empty() => ModalAction::ApproveDanger,
             KeyCode::Esc => ModalAction::RejectDanger,
             _ => ModalAction::None,
         }
