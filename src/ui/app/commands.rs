@@ -25,7 +25,46 @@ impl App {
     ) -> Option<Option<AppAction>> {
         match action {
             ModalAction::Close => Some(None),
-            ModalAction::ApproveDanger | ModalAction::RejectDanger => Some(None),
+            ModalAction::ApproveDanger => {
+                self.modals.pop();
+                self.pending_danger = None;
+                self.status_text = String::from("Command approved");
+                self.dirty = true;
+                let queued = std::mem::take(&mut self.suspended_events);
+                for ev in queued {
+                    let envelope = crate::protocol::SessionEnvelope {
+                        session_id: self.active_session.clone(),
+                        event: crate::protocol::EngineEvent::Stream(Box::new(ev)),
+                    };
+                    self.handle_engine_envelope(envelope);
+                }
+                Some(None)
+            }
+            ModalAction::RejectDanger => {
+                self.modals.pop();
+                let danger = self.pending_danger.take();
+                self.suspended_events.clear();
+                let _ = self.session_manager.interrupt(&self.active_session);
+                if let Some(d) = danger {
+                    if let Some(idx) = d.step_index {
+                        self.cache.upsert_tool_call(
+                            Some(idx),
+                            &d.tool_name,
+                            crate::protocol::StepState::Error,
+                            None,
+                            Some("Execution rejected by operator"),
+                        );
+                    }
+                    self.cache.push_error(&format!(
+                        "Security Guardian blocked destructive command: {}",
+                        d.command
+                    ));
+                }
+                self.waiting_for_response = false;
+                self.status_text = String::from("Blocked destructive command");
+                self.dirty = true;
+                Some(Some(AppAction::Interrupt))
+            }
             ModalAction::SelectModelEffort { model, effort } => {
                 self.modals.pop();
                 self.status_text = format!("Model: {} ({})", model, effort);

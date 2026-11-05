@@ -57,6 +57,8 @@ pub struct App {
     pub turn_started_at: Option<std::time::Instant>,
     pub last_ctrl_c_at: Option<std::time::Instant>,
     pub last_turn_usage: Option<crate::protocol::TokenUsage>,
+    pub pending_danger: Option<crate::security::DangerAssessment>,
+    pub suspended_events: Vec<crate::protocol::StreamEvent>,
 }
 
 impl App {
@@ -115,6 +117,8 @@ impl App {
             turn_started_at: None,
             last_ctrl_c_at: None,
             last_turn_usage: None,
+            pending_danger: None,
+            suspended_events: Vec::new(),
         }
     }
 
@@ -151,6 +155,8 @@ impl App {
             turn_started_at: None,
             last_ctrl_c_at: None,
             last_turn_usage: None,
+            pending_danger: None,
+            suspended_events: Vec::new(),
         }
     }
 

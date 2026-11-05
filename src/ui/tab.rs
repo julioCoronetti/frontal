@@ -15,6 +15,8 @@ pub struct TabState {
     pub has_unread: bool,
     pub turn_started_at: Option<std::time::Instant>,
     pub last_turn_usage: Option<TokenUsage>,
+    pub pending_danger: Option<crate::security::DangerAssessment>,
+    pub suspended_events: Vec<StreamEvent>,
 }
 
 impl TabState {
@@ -31,6 +33,8 @@ impl TabState {
             has_unread: false,
             turn_started_at: None,
             last_turn_usage: None,
+            pending_danger: None,
+            suspended_events: Vec::new(),
         }
     }
 
@@ -40,6 +44,10 @@ impl TabState {
         mode: &str,
         model: &str,
     ) -> bool {
+        if self.pending_danger.is_some() {
+            self.suspended_events.push(event.clone());
+            return false;
+        }
         let mut turn_completed = false;
         match event {
             StreamEvent::Init(ev) => {
@@ -82,6 +90,21 @@ impl TabState {
                             args.as_deref(),
                             output.as_deref(),
                         );
+                        if state == StepState::Active && output.is_none() {
+                            let params_val =
+                                data.tool_info.as_ref().and_then(|i| i.parameters.as_ref());
+                            if let Some(danger) = crate::security::evaluate_tool_call(
+                                tool_name,
+                                data.step_index,
+                                params_val,
+                                args.as_deref(),
+                            ) {
+                                self.pending_danger = Some(danger);
+                                self.status_text = String::from("Security confirmation required");
+                                self.has_unread = true;
+                                return false;
+                            }
+                        }
                         self.status_text = format!("Tool: {}", tool_name);
                         self.has_unread = true;
                     }

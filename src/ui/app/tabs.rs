@@ -31,6 +31,8 @@ impl App {
             std::mem::swap(&mut self.status_text, &mut tab.status_text);
             std::mem::swap(&mut self.draft_snapshot, &mut tab.draft_snapshot);
             std::mem::swap(&mut self.last_turn_usage, &mut tab.last_turn_usage);
+            std::mem::swap(&mut self.pending_danger, &mut tab.pending_danger);
+            std::mem::swap(&mut self.suspended_events, &mut tab.suspended_events);
             tab.session_id = self.active_session.clone();
         }
     }
@@ -45,6 +47,14 @@ impl App {
             std::mem::swap(&mut self.status_text, &mut tab.status_text);
             std::mem::swap(&mut self.draft_snapshot, &mut tab.draft_snapshot);
             std::mem::swap(&mut self.last_turn_usage, &mut tab.last_turn_usage);
+            std::mem::swap(&mut self.pending_danger, &mut tab.pending_danger);
+            std::mem::swap(&mut self.suspended_events, &mut tab.suspended_events);
+            if let Some(danger) = &self.pending_danger {
+                self.modals
+                    .push(crate::ui::modal::Modal::DangerConfirmation(
+                        crate::ui::modal::DangerConfirmationModal::new(danger.clone()),
+                    ));
+            }
             self.active_session = tab.session_id.clone();
             tab.has_unread = false;
             self.session_manager
@@ -84,6 +94,8 @@ impl App {
             self.waiting_for_response = false;
             self.turn_started_at = None;
             self.last_turn_usage = None;
+            self.pending_danger = None;
+            self.suspended_events.clear();
             self.status_text = String::from("Ready");
             self.popover.close();
             self.active_tab_index = self.active_tab_index.min(self.tabs.len() - 1);

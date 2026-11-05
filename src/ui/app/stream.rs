@@ -6,6 +6,12 @@ use crate::ui::notify::emit_sensory_notification;
 impl App {
     pub fn handle_engine_envelope(&mut self, envelope: SessionEnvelope) {
         if envelope.session_id == self.active_session {
+            if self.pending_danger.is_some() {
+                if let EngineEvent::Stream(boxed_ev) = envelope.event {
+                    self.suspended_events.push(*boxed_ev);
+                    return;
+                }
+            }
             match envelope.event {
                 EngineEvent::Stream(boxed_ev) => match *boxed_ev {
                     StreamEvent::Init(ev) => {
@@ -49,6 +55,29 @@ impl App {
                                     args.as_deref(),
                                     output.as_deref(),
                                 );
+                                if state == StepState::Active && output.is_none() {
+                                    let params_val =
+                                        data.tool_info.as_ref().and_then(|i| i.parameters.as_ref());
+                                    if let Some(danger) = crate::security::evaluate_tool_call(
+                                        tool_name,
+                                        data.step_index,
+                                        params_val,
+                                        args.as_deref(),
+                                    ) {
+                                        self.pending_danger = Some(danger.clone());
+                                        self.status_text =
+                                            String::from("Security confirmation required");
+                                        self.modals.push(
+                                            crate::ui::modal::Modal::DangerConfirmation(
+                                                crate::ui::modal::DangerConfirmationModal::new(
+                                                    danger,
+                                                ),
+                                            ),
+                                        );
+                                        self.dirty = true;
+                                        return;
+                                    }
+                                }
                                 self.status_text = format!("Tool: {}", tool_name);
                                 self.dirty = true;
                             }
