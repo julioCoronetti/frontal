@@ -76,51 +76,37 @@ impl RenderCache {
             BlockKind::User => {
                 let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(6) as usize);
                 let pad_empty = (width as usize).saturating_sub(3);
+                let bar_style = Style::default()
+                    .fg(ACCENT_PRIMARY)
+                    .bg(BG_USER_CONTAINER)
+                    .add_modifier(Modifier::BOLD);
                 let top_line = Line::from(vec![
-                    Span::styled(
-                        " ┃ ",
-                        Style::default()
-                            .fg(ACCENT_PRIMARY)
-                            .add_modifier(Modifier::BOLD),
-                    ),
+                    Span::styled(" ┃ ", bar_style),
                     Span::styled(
                         " ".repeat(pad_empty),
                         Style::default().bg(BG_USER_CONTAINER),
                     ),
-                ])
-                .style(Style::default().bg(BG_USER_CONTAINER));
+                ]);
                 result.push(top_line);
 
                 for row in wrapped.into_iter() {
                     let row_len = row.chars().count();
                     let pad_len = (width as usize).saturating_sub(3 + row_len);
-                    let mut line = Line::from(vec![
-                        Span::styled(
-                            " ┃ ",
-                            Style::default()
-                                .fg(ACCENT_PRIMARY)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                        Span::styled(row, Style::default().fg(TEXT_PRIMARY)),
+                    let line = Line::from(vec![
+                        Span::styled(" ┃ ", bar_style),
+                        Span::styled(row, Style::default().fg(TEXT_PRIMARY).bg(BG_USER_CONTAINER)),
                         Span::styled(" ".repeat(pad_len), Style::default().bg(BG_USER_CONTAINER)),
                     ]);
-                    line = line.style(Style::default().bg(BG_USER_CONTAINER));
                     result.push(line);
                 }
 
                 let bottom_line = Line::from(vec![
-                    Span::styled(
-                        " ┃ ",
-                        Style::default()
-                            .fg(ACCENT_PRIMARY)
-                            .add_modifier(Modifier::BOLD),
-                    ),
+                    Span::styled(" ┃ ", bar_style),
                     Span::styled(
                         " ".repeat(pad_empty),
                         Style::default().bg(BG_USER_CONTAINER),
                     ),
-                ])
-                .style(Style::default().bg(BG_USER_CONTAINER));
+                ]);
                 result.push(bottom_line);
                 result.push(Line::from(""));
             }

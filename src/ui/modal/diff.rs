@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
@@ -54,11 +54,12 @@ impl DiffModal {
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(BORDER_SUBTLE));
+            .border_style(Style::default().fg(BORDER_SUBTLE))
+            .style(Style::default().bg(Color::Reset));
 
         let mut lines = Vec::new();
         let title = " Integrated Diff Viewer:";
-        let esc_pad = (area.width as usize).saturating_sub(title.len() + 5);
+        let esc_pad = (area.width as usize).saturating_sub(title.chars().count() + 5);
         lines.push(Line::from(vec![
             Span::styled(
                 title,
@@ -79,7 +80,8 @@ impl DiffModal {
             total
         );
         let nav_hint = "↑/↓/PgUp/PgDn: Scroll ";
-        let nav_pad = (area.width as usize).saturating_sub(line_info.len() + nav_hint.len() + 2);
+        let nav_pad = (area.width as usize)
+            .saturating_sub(line_info.chars().count() + nav_hint.chars().count() + 2);
         lines.push(Line::from(vec![
             Span::styled(line_info, Style::default().fg(TEXT_PRIMARY)),
             Span::styled(

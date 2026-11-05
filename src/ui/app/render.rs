@@ -467,7 +467,8 @@ impl App {
                 Block::default()
                     .borders(Borders::ALL)
                     .title(title)
-                    .border_style(Style::default().fg(ACCENT_RUBY)),
+                    .border_style(Style::default().fg(ACCENT_RUBY))
+                    .style(Style::default().bg(Color::Reset)),
             );
             frame.render_widget(popover_widget, popover_rect);
         }

@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
@@ -107,11 +107,12 @@ impl HotRespawnModal {
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(BORDER_SUBTLE));
+            .border_style(Style::default().fg(BORDER_SUBTLE))
+            .style(Style::default().bg(Color::Reset));
 
         let mut lines = Vec::new();
         let title = " Hot-Respawn Session:";
-        let esc_pad = (area.width as usize).saturating_sub(title.len() + 5);
+        let esc_pad = (area.width as usize).saturating_sub(title.chars().count() + 5);
         lines.push(Line::from(vec![
             Span::styled(
                 title,
@@ -128,7 +129,8 @@ impl HotRespawnModal {
 
         let param_title = "   Session Configuration:";
         let nav_hint = "Tab/Shift+Tab: Navigate  Enter: Run ";
-        let nav_pad = (area.width as usize).saturating_sub(param_title.len() + nav_hint.len() + 2);
+        let nav_pad = (area.width as usize)
+            .saturating_sub(param_title.chars().count() + nav_hint.chars().count() + 2);
         lines.push(Line::from(vec![
             Span::styled(param_title, Style::default().fg(TEXT_PRIMARY)),
             Span::styled(
