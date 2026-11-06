@@ -43,20 +43,13 @@ impl DangerConfirmationModal {
 
         let mut lines = Vec::new();
         let header_title = format!(" SECURITY GUARDIAN — {} ", self.assessment.category.title());
-        let esc_pad = (area.width as usize).saturating_sub(header_title.chars().count() + 6);
 
-        lines.push(Line::from(vec![
-            Span::styled(
-                header_title,
-                Style::default()
-                    .fg(ACCENT_HIGHLIGHT)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("{:>esc_pad$}", "esc: abort "),
-                Style::default().fg(TEXT_MUTED),
-            ),
-        ]));
+        lines.push(Line::from(Span::styled(
+            header_title,
+            Style::default()
+                .fg(ACCENT_HIGHLIGHT)
+                .add_modifier(Modifier::BOLD),
+        )));
         lines.push(Line::raw(""));
 
         lines.push(Line::from(vec![

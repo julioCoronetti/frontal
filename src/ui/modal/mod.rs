@@ -87,7 +87,7 @@ impl Modal {
                 ModalStack::centered_rect_bounded(52, 58, 44, 68, 14, 24, screen)
             }
             Self::DangerConfirmation(_) => {
-                ModalStack::centered_rect_bounded(56, 50, 48, 76, 12, 18, screen)
+                ModalStack::centered_rect_bounded(56, 32, 48, 76, 11, 12, screen)
             }
         }
     }
