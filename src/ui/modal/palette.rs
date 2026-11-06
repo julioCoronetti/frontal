@@ -55,6 +55,11 @@ impl CommandPaletteModal {
                 shortcut: "/resume".to_string(),
             },
             PaletteItem {
+                id: "rename_session".to_string(),
+                title: "Rename Current Session".to_string(),
+                shortcut: "/rename".to_string(),
+            },
+            PaletteItem {
                 id: "view_diff".to_string(),
                 title: "View Git/Patch Diff".to_string(),
                 shortcut: "/diff".to_string(),

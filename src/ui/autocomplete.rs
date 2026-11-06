@@ -93,6 +93,7 @@ impl AutocompletePopover {
             ("/model", "Selecionar modelo e esforco"),
             ("/respawn", "Reiniciar sessao mantendo conversa"),
             ("/resume", "Retomar sessao anterior do historico"),
+            ("/rename", "Renomear sessao ativa"),
             ("/diff", "Visualizar alteracoes locais (git diff)"),
             ("/interrupt", "Interromper execucao corrente"),
             ("/quit", "Sair do frontal"),
