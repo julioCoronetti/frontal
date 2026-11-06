@@ -35,6 +35,7 @@ pub enum ModalAction {
         effort: Option<String>,
         mode: Option<String>,
     },
+    SwitchTab(usize),
     ExecuteCommand(String),
 }
 

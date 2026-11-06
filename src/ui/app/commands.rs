@@ -91,6 +91,13 @@ impl App {
                     mode,
                 }))
             }
+            ModalAction::SwitchTab(idx) => {
+                self.modals.pop();
+                if self.active_tab_index != idx {
+                    self.switch_tab(idx);
+                }
+                Some(Some(AppAction::SwitchTab(idx)))
+            }
             ModalAction::ExecuteCommand(cmd) => {
                 self.modals.pop();
                 match cmd.as_str() {
@@ -120,6 +127,11 @@ impl App {
                     }
                     "resume_session" => {
                         self.open_resume_modal(None);
+                        Some(None)
+                    }
+                    "rename_session" => {
+                        self.editor.insert_str("/rename ");
+                        self.dirty = true;
                         Some(None)
                     }
                     "view_diff" => {
@@ -229,10 +241,34 @@ impl App {
             let query = trimmed.strip_prefix("/resume ").unwrap().trim();
             self.open_resume_modal(Some(query));
             Some(None)
+        } else if trimmed == "/rename" || trimmed.starts_with("/rename ") {
+            let new_title = trimmed.strip_prefix("/rename").unwrap_or("").trim();
+            if new_title.is_empty() {
+                self.status_text = String::from("Usage: /rename <title>");
+                self.dirty = true;
+                return Some(None);
+            }
+            if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
+                tab.title = new_title.to_string();
+            }
+            self.sync_session_to_history(&self.active_session.clone());
+            self.history
+                .rename_session(self.active_session.as_str(), new_title);
+            if let Some(conv_id) = self
+                .session_manager
+                .get_metadata(&self.active_session)
+                .and_then(|m| m.conversation_id.clone())
+            {
+                self.history.rename_session(&conv_id, new_title);
+                let _ = crate::ui::history::update_agent_conversation_title(&conv_id, new_title);
+            }
+            self.status_text = format!("Session renamed to: {}", new_title);
+            self.dirty = true;
+            Some(None)
         } else if trimmed == "/help" {
             self.cache.push_user_message("/help");
             self.cache.push_error(&format!(
-                "Frontal v{} - Available local commands: /clear, /interrupt, /quit, /exit, /help, /model, /diff, /respawn, /resume",
+                "Frontal v{} - Available local commands: /clear, /interrupt, /quit, /exit, /help, /model, /diff, /respawn, /resume, /rename",
                 env!("CARGO_PKG_VERSION")
             ));
             self.status_text = String::from("Ready");
@@ -245,13 +281,33 @@ impl App {
 
     pub(crate) fn sync_session_to_history(&mut self, session_id: &crate::protocol::SessionId) {
         if let Some(meta) = self.session_manager.get_metadata(session_id) {
+            let agent_title = meta
+                .conversation_id
+                .as_deref()
+                .and_then(crate::ui::history::query_agent_conversation_title);
+            let final_title = agent_title.or_else(|| {
+                meta.last_prompt
+                    .as_deref()
+                    .map(crate::ui::history::clean_session_title)
+            });
+            if let Some(ref t) = final_title {
+                if let Some(tab) = self
+                    .tabs
+                    .iter_mut()
+                    .find(|t_tab| &t_tab.session_id == session_id)
+                {
+                    if tab.title.starts_with("Session ") || tab.title.trim().is_empty() {
+                        tab.title = t.clone();
+                    }
+                }
+            }
             let record = crate::ui::history::SessionRecord {
                 id: session_id.as_str().to_string(),
                 conversation_id: meta.conversation_id.clone(),
                 model: meta.model.clone(),
                 mode: meta.mode.clone(),
                 effort: meta.effort.clone(),
-                title: meta.last_prompt.clone(),
+                title: final_title,
                 created_at: 0,
             };
             self.history.record_session(record);
@@ -259,28 +315,77 @@ impl App {
     }
 
     pub fn open_resume_modal(&mut self, initial_query: Option<&str>) {
-        let sessions = self.history.resumable_sessions();
-        let items: Vec<crate::ui::modal::SelectItem<ModalAction>> = sessions
-            .into_iter()
-            .map(|s| {
-                let rel_time = s.relative_time();
-                let conv_id = s.conversation_id.clone().unwrap_or_default();
-                let title = s
-                    .title
-                    .as_ref()
-                    .filter(|t| !t.trim().is_empty())
-                    .map(|t| {
-                        let single_line = t.lines().next().unwrap_or(t).trim();
-                        if single_line.chars().count() > 42 {
-                            let mut truncated: String = single_line.chars().take(39).collect();
-                            truncated.push_str("...");
-                            truncated
-                        } else {
-                            single_line.to_string()
-                        }
-                    })
-                    .unwrap_or_else(|| conv_id.clone());
+        self.sync_session_to_history(&self.active_session.clone());
 
+        let mut items = Vec::new();
+
+        for (idx, tab) in self.tabs.iter().enumerate() {
+            let display_title = if tab.title.trim().is_empty() {
+                format!("Session {}", idx + 1)
+            } else {
+                tab.title.clone()
+            };
+            items.push(
+                crate::ui::modal::SelectItem::new(
+                    format!("tab-{}", idx),
+                    display_title,
+                    ModalAction::SwitchTab(idx),
+                )
+                .with_shortcut("ctrl + t")
+                .with_category("Current Sessions"),
+            );
+        }
+
+        let open_conv_ids: std::collections::HashSet<String> = self
+            .tabs
+            .iter()
+            .filter_map(|t| {
+                self.session_manager
+                    .get_metadata(&t.session_id)
+                    .and_then(|m| m.conversation_id.clone())
+            })
+            .filter(|c| !c.trim().is_empty())
+            .collect();
+
+        let mut past_sessions = self.history.resumable_sessions();
+        if !self.history.is_in_memory() {
+            let ext_sessions = crate::ui::history::load_agent_conversations();
+            for ext in ext_sessions {
+                if let Some(ref cid) = ext.conversation_id {
+                    if !past_sessions
+                        .iter()
+                        .any(|p| p.conversation_id.as_ref() == Some(cid))
+                    {
+                        past_sessions.push(ext);
+                    }
+                }
+            }
+        }
+        past_sessions.sort_by_key(|a| std::cmp::Reverse(a.created_at));
+
+        for s in past_sessions {
+            let conv_id = s.conversation_id.clone().unwrap_or_default();
+            if conv_id.is_empty() || open_conv_ids.contains(&conv_id) {
+                continue;
+            }
+            let rel_time = s.relative_time();
+            let title = s
+                .title
+                .as_ref()
+                .filter(|t| !t.trim().is_empty())
+                .map(|t| {
+                    let single_line = t.lines().next().unwrap_or(t).trim();
+                    if single_line.chars().count() > 42 {
+                        let mut truncated: String = single_line.chars().take(39).collect();
+                        truncated.push_str("...");
+                        truncated
+                    } else {
+                        single_line.to_string()
+                    }
+                })
+                .unwrap_or_else(|| conv_id.clone());
+
+            items.push(
                 crate::ui::modal::SelectItem::new(
                     conv_id.clone(),
                     title,
@@ -292,9 +397,9 @@ impl App {
                     },
                 )
                 .with_shortcut(rel_time)
-                .with_category("Past Sessions")
-            })
-            .collect();
+                .with_category("Past Sessions"),
+            );
+        }
 
         let mut select = crate::ui::modal::DialogSelect::new("Resume Session", items);
         if let Some(q) = initial_query {

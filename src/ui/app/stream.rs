@@ -116,11 +116,19 @@ impl App {
                         if let Some(cid) = conv_id {
                             self.session_manager.set_session_metadata(
                                 &envelope.session_id,
-                                Some(cid),
+                                Some(cid.clone()),
                                 None,
                                 None,
                                 None,
                             );
+                            if let Some(agent_title) =
+                                crate::ui::history::query_agent_conversation_title(&cid)
+                            {
+                                if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
+                                    tab.title = agent_title.clone();
+                                }
+                                self.history.rename_session(&cid, &agent_title);
+                            }
                             self.sync_session_to_history(&envelope.session_id);
                         }
                         let meta = crate::ui::cache::TurnMeta {
@@ -199,11 +207,23 @@ impl App {
                     if let Some(cid) = conv_id {
                         self.session_manager.set_session_metadata(
                             &envelope.session_id,
-                            Some(cid),
+                            Some(cid.clone()),
                             None,
                             None,
                             None,
                         );
+                        if let Some(agent_title) =
+                            crate::ui::history::query_agent_conversation_title(&cid)
+                        {
+                            if let Some(tab) = self
+                                .tabs
+                                .iter_mut()
+                                .find(|t| t.session_id == envelope.session_id)
+                            {
+                                tab.title = agent_title.clone();
+                            }
+                            self.history.rename_session(&cid, &agent_title);
+                        }
                         self.sync_session_to_history(&envelope.session_id);
                     }
                 }

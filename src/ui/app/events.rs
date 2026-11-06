@@ -23,6 +23,12 @@ impl App {
                 }
 
                 if !self.modals.is_empty() {
+                    if key.modifiers.contains(KeyModifiers::CONTROL)
+                        && key.code == KeyCode::Char('t')
+                    {
+                        self.modals.pop();
+                        return Some(AppAction::NewTab);
+                    }
                     let action = self.modals.handle_key_event(key);
                     self.dirty = true;
                     if let Some(res) = self.dispatch_modal_action(action) {
