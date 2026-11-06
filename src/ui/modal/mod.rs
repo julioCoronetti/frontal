@@ -86,8 +86,12 @@ impl Modal {
             Self::HotRespawn(_) => {
                 ModalStack::centered_rect_bounded(52, 58, 44, 68, 14, 24, screen)
             }
-            Self::DangerConfirmation(_) => {
-                ModalStack::centered_rect_bounded(56, 32, 48, 76, 11, 12, screen)
+            Self::DangerConfirmation(m) => {
+                let cmd_len = m.assessment.command.chars().count() + 6;
+                let warn_len = m.assessment.warning.chars().count() + 12;
+                let target_len = m.assessment.target.chars().count() + 12;
+                let w = (cmd_len.max(warn_len).max(target_len).max(58) as u16).min(76);
+                ModalStack::centered_rect_bounded(40, 32, w, w, 11, 12, screen)
             }
         }
     }
