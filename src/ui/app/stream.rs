@@ -17,6 +17,14 @@ impl App {
                     StreamEvent::Init(ev) => {
                         if let Some(conv_id) = ev.conversation_id {
                             self.status_text = format!("Conversation: {}", conv_id);
+                            self.session_manager.set_session_metadata(
+                                &envelope.session_id,
+                                Some(conv_id),
+                                None,
+                                None,
+                                None,
+                            );
+                            self.sync_session_to_history(&envelope.session_id);
                         }
                         self.dirty = true;
                     }
@@ -102,6 +110,16 @@ impl App {
                             .or(self.last_turn_usage);
                         let tokens = usage.as_ref().map(|u| u.output_tokens);
                         self.last_turn_usage = usage;
+                        if let Some(conv_id) = res.conversation_id {
+                            self.session_manager.set_session_metadata(
+                                &envelope.session_id,
+                                Some(conv_id),
+                                None,
+                                None,
+                                None,
+                            );
+                            self.sync_session_to_history(&envelope.session_id);
+                        }
                         let meta = crate::ui::cache::TurnMeta {
                             mode: self.active_mode_name(),
                             model: self.active_model_name(),
@@ -153,11 +171,36 @@ impl App {
                 tab.waiting_for_response = self.waiting_for_response;
                 tab.status_text = self.status_text.clone();
             }
-        } else if let Some(tab) = self
+        } else if self
             .tabs
-            .iter_mut()
-            .find(|t| t.session_id == envelope.session_id)
+            .iter()
+            .any(|t| t.session_id == envelope.session_id)
         {
+            if let EngineEvent::Stream(ref boxed_ev) = envelope.event {
+                if let StreamEvent::Init(ref ev) = **boxed_ev {
+                    if let Some(ref conv_id) = ev.conversation_id {
+                        self.session_manager.set_session_metadata(
+                            &envelope.session_id,
+                            Some(conv_id.clone()),
+                            None,
+                            None,
+                            None,
+                        );
+                        self.sync_session_to_history(&envelope.session_id);
+                    }
+                } else if let StreamEvent::Result(ref res) = **boxed_ev {
+                    if let Some(ref conv_id) = res.conversation_id {
+                        self.session_manager.set_session_metadata(
+                            &envelope.session_id,
+                            Some(conv_id.clone()),
+                            None,
+                            None,
+                            None,
+                        );
+                        self.sync_session_to_history(&envelope.session_id);
+                    }
+                }
+            }
             let (bg_mode, bg_model) = {
                 let meta = self.session_manager.get_metadata(&envelope.session_id);
                 (
@@ -167,38 +210,44 @@ impl App {
                         .unwrap_or_else(|| crate::config::DEFAULT_MODEL.to_string()),
                 )
             };
-            match envelope.event {
-                EngineEvent::Stream(boxed_ev) => {
-                    let turn_completed =
-                        tab.handle_background_stream_event(&boxed_ev, &bg_mode, &bg_model);
-                    if turn_completed && !self.clipboard.is_isolated() {
-                        emit_sensory_notification(
-                            "Frontal Session Completed",
-                            &format!("Turn completed in {}", tab.title),
-                        );
+            if let Some(tab) = self
+                .tabs
+                .iter_mut()
+                .find(|t| t.session_id == envelope.session_id)
+            {
+                match envelope.event {
+                    EngineEvent::Stream(boxed_ev) => {
+                        let turn_completed =
+                            tab.handle_background_stream_event(&boxed_ev, &bg_mode, &bg_model);
+                        if turn_completed && !self.clipboard.is_isolated() {
+                            emit_sensory_notification(
+                                "Frontal Session Completed",
+                                &format!("Turn completed in {}", tab.title),
+                            );
+                        }
+                        self.dirty = true;
                     }
-                    self.dirty = true;
-                }
-                EngineEvent::ProtocolError { message, .. } => {
-                    tab.waiting_for_response = false;
-                    tab.pending_danger = None;
-                    tab.suspended_events.clear();
-                    tab.cache
-                        .push_error(&format!("Protocol Error: {}", message));
-                    tab.status_text = String::from("Protocol Error");
-                    tab.has_unread = true;
-                    self.dirty = true;
-                }
-                EngineEvent::Stderr(line) => {
-                    tab.status_text = format!("stderr: {}", line);
-                    self.dirty = true;
-                }
-                EngineEvent::ProcessExited { .. } => {
-                    tab.waiting_for_response = false;
-                    tab.pending_danger = None;
-                    tab.suspended_events.clear();
-                    tab.status_text = String::from("Process exited");
-                    self.dirty = true;
+                    EngineEvent::ProtocolError { message, .. } => {
+                        tab.waiting_for_response = false;
+                        tab.pending_danger = None;
+                        tab.suspended_events.clear();
+                        tab.cache
+                            .push_error(&format!("Protocol Error: {}", message));
+                        tab.status_text = String::from("Protocol Error");
+                        tab.has_unread = true;
+                        self.dirty = true;
+                    }
+                    EngineEvent::Stderr(line) => {
+                        tab.status_text = format!("stderr: {}", line);
+                        self.dirty = true;
+                    }
+                    EngineEvent::ProcessExited { .. } => {
+                        tab.waiting_for_response = false;
+                        tab.pending_danger = None;
+                        tab.suspended_events.clear();
+                        tab.status_text = String::from("Process exited");
+                        self.dirty = true;
+                    }
                 }
             }
         }

@@ -19,10 +19,7 @@ impl App {
         String::from("diff --git (working tree clean)\nNo unstaged or uncommitted changes found.\n")
     }
 
-    pub(crate) fn dispatch_modal_action(
-        &mut self,
-        action: ModalAction,
-    ) -> Option<Option<AppAction>> {
+    pub fn dispatch_modal_action(&mut self, action: ModalAction) -> Option<Option<AppAction>> {
         match action {
             ModalAction::Close => Some(None),
             ModalAction::ApproveDanger => {
@@ -121,6 +118,10 @@ impl App {
                         )));
                         Some(None)
                     }
+                    "resume_session" => {
+                        self.open_resume_modal(None);
+                        Some(None)
+                    }
                     "view_diff" => {
                         self.modals
                             .push(Modal::Diff(DiffModal::new(&Self::load_git_diff())));
@@ -208,7 +209,7 @@ impl App {
                 .push(Modal::Diff(DiffModal::new(&Self::load_git_diff())));
             self.dirty = true;
             Some(None)
-        } else if trimmed == "/respawn" || trimmed == "/resume" {
+        } else if trimmed == "/respawn" {
             let conv_id = self
                 .session_manager
                 .get_metadata(&self.active_session)
@@ -221,10 +222,17 @@ impl App {
             )));
             self.dirty = true;
             Some(None)
+        } else if trimmed == "/resume" {
+            self.open_resume_modal(None);
+            Some(None)
+        } else if trimmed.starts_with("/resume ") {
+            let query = trimmed.strip_prefix("/resume ").unwrap().trim();
+            self.open_resume_modal(Some(query));
+            Some(None)
         } else if trimmed == "/help" {
             self.cache.push_user_message("/help");
             self.cache.push_error(&format!(
-                "Frontal v{} - Available local commands: /clear, /interrupt, /quit, /exit, /help, /model, /diff, /respawn",
+                "Frontal v{} - Available local commands: /clear, /interrupt, /quit, /exit, /help, /model, /diff, /respawn, /resume",
                 env!("CARGO_PKG_VERSION")
             ));
             self.status_text = String::from("Ready");
@@ -233,5 +241,76 @@ impl App {
         } else {
             None
         }
+    }
+
+    pub(crate) fn sync_session_to_history(&mut self, session_id: &crate::protocol::SessionId) {
+        if let Some(meta) = self.session_manager.get_metadata(session_id) {
+            let record = crate::ui::history::SessionRecord {
+                id: session_id.as_str().to_string(),
+                conversation_id: meta.conversation_id.clone(),
+                model: meta.model.clone(),
+                mode: meta.mode.clone(),
+                effort: meta.effort.clone(),
+                title: meta.last_prompt.clone(),
+                created_at: 0,
+            };
+            self.history.record_session(record);
+        }
+    }
+
+    pub fn open_resume_modal(&mut self, initial_query: Option<&str>) {
+        let sessions = self.history.resumable_sessions();
+        let items: Vec<crate::ui::modal::SelectItem<ModalAction>> = sessions
+            .into_iter()
+            .map(|s| {
+                let conv_id = s.conversation_id.unwrap_or_default();
+                let title = s
+                    .title
+                    .filter(|t| !t.trim().is_empty())
+                    .map(|t| {
+                        let single_line = t.lines().next().unwrap_or(&t).trim();
+                        if single_line.chars().count() > 42 {
+                            let mut truncated: String = single_line.chars().take(39).collect();
+                            truncated.push_str("...");
+                            truncated
+                        } else {
+                            single_line.to_string()
+                        }
+                    })
+                    .unwrap_or_else(|| conv_id.clone());
+
+                let description = format!("UUID: {}", conv_id);
+                let badge = s
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| crate::config::DEFAULT_MODEL.to_string());
+                let shortcut = s
+                    .mode
+                    .clone()
+                    .unwrap_or_else(|| crate::config::DEFAULT_MODE.to_string());
+
+                crate::ui::modal::SelectItem::new(
+                    conv_id.clone(),
+                    title,
+                    ModalAction::Respawn {
+                        conversation_id: Some(conv_id),
+                        model: s.model,
+                        effort: s.effort,
+                        mode: s.mode,
+                    },
+                )
+                .with_description(description)
+                .with_badge(badge)
+                .with_shortcut(shortcut)
+                .with_category("Past Sessions")
+            })
+            .collect();
+
+        let mut select = crate::ui::modal::DialogSelect::new("Resume Session", items);
+        if let Some(q) = initial_query {
+            select.query = q.to_string();
+        }
+        self.modals.push(Modal::Select(select));
+        self.dirty = true;
     }
 }

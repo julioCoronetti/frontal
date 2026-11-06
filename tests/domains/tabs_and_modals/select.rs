@@ -261,3 +261,98 @@ fn test_dialog_select_adversarial_dimensions_and_multibyte_utf8() {
         .draw(|f| dialog.render(f, Rect::new(0, 0, 80, 24)))
         .unwrap();
 }
+
+#[test]
+fn test_prompt_history_session_persistence_and_deduplication() {
+    use frontal::ui::history::{PromptHistory, SessionRecord};
+    let dir = crate::common::TempDirGuard::new("resume_history_test");
+    let db_path = dir.path().join("history.db");
+
+    let mut history = PromptHistory::open(&db_path).unwrap();
+    let record1 = SessionRecord {
+        id: "sess-1".to_string(),
+        conversation_id: None,
+        model: Some("gemini-3.8-flash-high".to_string()),
+        mode: Some("auto".to_string()),
+        effort: Some("high".to_string()),
+        title: Some("Initial Prompt".to_string()),
+        created_at: 0,
+    };
+    history.record_session(record1);
+    assert!(history.resumable_sessions().is_empty());
+
+    let record2 = SessionRecord {
+        id: "sess-1".to_string(),
+        conversation_id: Some("conv-uuid-123".to_string()),
+        model: None,
+        mode: None,
+        effort: None,
+        title: None,
+        created_at: 0,
+    };
+    history.record_session(record2);
+    let resumable = history.resumable_sessions();
+    assert_eq!(resumable.len(), 1);
+    assert_eq!(resumable[0].id, "sess-1");
+    assert_eq!(
+        resumable[0].conversation_id.as_deref(),
+        Some("conv-uuid-123")
+    );
+    assert_eq!(resumable[0].model.as_deref(), Some("gemini-3.8-flash-high"));
+    assert_eq!(resumable[0].title.as_deref(), Some("Initial Prompt"));
+
+    history.flush();
+
+    let reopened = PromptHistory::open(&db_path).unwrap();
+    let saved = reopened.resumable_sessions();
+    assert_eq!(saved.len(), 1);
+    assert_eq!(saved[0].id, "sess-1");
+    assert_eq!(saved[0].conversation_id.as_deref(), Some("conv-uuid-123"));
+    assert_eq!(saved[0].model.as_deref(), Some("gemini-3.8-flash-high"));
+    assert_eq!(saved[0].title.as_deref(), Some("Initial Prompt"));
+}
+
+#[test]
+fn test_resume_modal_dialog_select_selection_and_respawn_action() {
+    use crate::common::test_app;
+    use frontal::ui::app::AppAction;
+    use frontal::ui::history::SessionRecord;
+
+    let (mut app, _) = test_app();
+    app.history.record_session(SessionRecord {
+        id: "session-xyz".to_string(),
+        conversation_id: Some("conv-uuid-target".to_string()),
+        model: Some("claude-sonnet".to_string()),
+        mode: Some("plan".to_string()),
+        effort: Some("medium".to_string()),
+        title: Some("Build AST parser".to_string()),
+        created_at: 0,
+    });
+
+    app.open_resume_modal(None);
+    assert_eq!(app.modals.stack.len(), 1);
+
+    let key_event = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    let modal_action = app.modals.handle_key_event(key_event);
+    assert_eq!(
+        modal_action,
+        ModalAction::Respawn {
+            conversation_id: Some("conv-uuid-target".to_string()),
+            model: Some("claude-sonnet".to_string()),
+            effort: Some("medium".to_string()),
+            mode: Some("plan".to_string()),
+        }
+    );
+
+    let app_action = app.dispatch_modal_action(modal_action);
+    assert_eq!(
+        app_action,
+        Some(Some(AppAction::RespawnSession {
+            conversation_id: Some("conv-uuid-target".to_string()),
+            model: Some("claude-sonnet".to_string()),
+            effort: Some("medium".to_string()),
+            mode: Some("plan".to_string()),
+        }))
+    );
+    assert!(app.modals.is_empty());
+}

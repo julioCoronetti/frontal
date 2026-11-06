@@ -278,6 +278,9 @@ impl App {
 
                             self.last_turn_usage = None;
                             self.history.record_prompt(&p);
+                            let active_id = self.active_session.clone();
+                            self.session_manager.set_session_prompt(&active_id, &p);
+                            self.sync_session_to_history(&active_id);
                             self.cache.push_user_message(&p);
                             self.viewport.scroll_to_bottom();
                             self.waiting_for_response = true;

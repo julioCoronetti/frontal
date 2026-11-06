@@ -338,3 +338,41 @@ fn test_autocomplete_popover_scrolling_window_for_large_item_lists() {
         .join("");
     assert!(rendered.contains("file_10.rs"));
 }
+
+#[test]
+fn test_resume_command_opens_dialog_select_and_filters_query() {
+    let (mut app, _) = test_app();
+    app.history
+        .record_session(frontal::ui::history::SessionRecord {
+            id: "s1".to_string(),
+            conversation_id: Some("conv-111".to_string()),
+            model: Some("gemini-3.8-flash-high".to_string()),
+            mode: Some("auto".to_string()),
+            effort: Some("high".to_string()),
+            title: Some("Fix backend parsing".to_string()),
+            created_at: 0,
+        });
+    app.history
+        .record_session(frontal::ui::history::SessionRecord {
+            id: "s2".to_string(),
+            conversation_id: Some("conv-222".to_string()),
+            model: Some("claude-sonnet".to_string()),
+            mode: Some("plan".to_string()),
+            effort: Some("low".to_string()),
+            title: Some("Refactor UI cache".to_string()),
+            created_at: 0,
+        });
+
+    app.editor.insert_str("/resume backend");
+    app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(app.modals.stack.len(), 1);
+
+    if let frontal::ui::modal::Modal::Select(ref select) = app.modals.top().unwrap() {
+        assert_eq!(select.query, "backend");
+        assert_eq!(select.filtered_indices().len(), 1);
+        let selected = select.selected_item().unwrap();
+        assert_eq!(selected.id, "conv-111");
+    } else {
+        panic!("Expected Modal::Select");
+    }
+}
