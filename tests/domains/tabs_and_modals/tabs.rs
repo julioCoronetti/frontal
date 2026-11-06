@@ -406,3 +406,70 @@ fn test_close_tab_before_active_index_adjusts_active_tab() {
     assert_eq!(app.active_tab_index, 1);
     assert_eq!(app.active_session, id3);
 }
+
+#[test]
+fn test_resume_modal_current_sessions_and_tab_switching() {
+    let (mut app, _id1) = test_app();
+    let id2 = SessionId::new();
+    app.add_tab(id2.clone(), Some("Second Session".to_string()));
+    assert_eq!(app.active_tab_index, 1);
+
+    app.open_resume_modal(None);
+    assert_eq!(app.modals.stack.len(), 1);
+
+    let modal = match app.modals.stack.last().unwrap() {
+        frontal::ui::modal::Modal::Select(s) => s,
+        _ => panic!("Expected Select modal"),
+    };
+
+    assert_eq!(modal.items.len(), 2);
+    assert_eq!(modal.items[0].title, "Session 1");
+    assert_eq!(modal.items[0].shortcut.as_deref(), Some("ctrl + t"));
+    assert_eq!(modal.items[0].category.as_deref(), Some("Current Sessions"));
+    assert_eq!(modal.items[1].title, "Second Session");
+    assert_eq!(modal.items[1].shortcut.as_deref(), Some("ctrl + t"));
+
+    let enter_key = crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    let modal_action = app.modals.handle_key_event(enter_key);
+    assert_eq!(modal_action, frontal::ui::modal::ModalAction::SwitchTab(0));
+
+    let dispatched = app.dispatch_modal_action(modal_action);
+    assert_eq!(dispatched, Some(Some(AppAction::SwitchTab(0))));
+    assert_eq!(app.active_tab_index, 0);
+    assert!(app.modals.is_empty());
+}
+
+#[test]
+fn test_rename_command_and_title_synchronization() {
+    let (mut app, _id1) = test_app();
+    app.editor.insert_str("/rename Architectural Refactoring");
+    let enter = press_key(KeyCode::Enter, KeyModifiers::NONE);
+    let action = app.handle_terminal_event(enter);
+    assert_eq!(action, None);
+    assert_eq!(app.tabs[0].title, "Architectural Refactoring");
+    assert_eq!(
+        app.status_text,
+        "Session renamed to: Architectural Refactoring"
+    );
+
+    let sessions = app.history.sessions();
+    assert!(!sessions.is_empty());
+    assert_eq!(
+        sessions[0].title.as_deref(),
+        Some("Architectural Refactoring")
+    );
+
+    app.editor.insert_str("/rename   ");
+    let enter2 = press_key(KeyCode::Enter, KeyModifiers::NONE);
+    let _ = app.handle_terminal_event(enter2);
+    assert_eq!(app.status_text, "Usage: /rename <title>");
+    assert_eq!(app.tabs[0].title, "Architectural Refactoring");
+
+    let clean = frontal::ui::history::clean_session_title(
+        "cara seguinte estamos com problema na trc fiserv",
+    );
+    assert_eq!(clean, "Estamos com problema na trc fiserv");
+
+    let clean_empty = frontal::ui::history::clean_session_title("seguinte:");
+    assert_eq!(clean_empty, "New Session");
+}

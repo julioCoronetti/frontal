@@ -360,6 +360,9 @@ fn test_resume_modal_dialog_select_selection_and_respawn_action() {
     app.open_resume_modal(None);
     assert_eq!(app.modals.stack.len(), 1);
 
+    let down_event = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+    let _ = app.modals.handle_key_event(down_event);
+
     let key_event = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
     let modal_action = app.modals.handle_key_event(key_event);
     assert_eq!(
