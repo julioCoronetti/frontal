@@ -3,7 +3,7 @@
 ## 1. Visão Geral do Projeto
 - **Projeto**: Frontal.
 - **Objetivo**: Interface de usuário em terminal (TUI) desacoplada, de alta performance e assíncrona para o Antigravity CLI (`agy`) e motores compatíveis com o protocolo `stream-json`.
-- **Status do Projeto**: Arquitetura em Rust implementada e operacional (versão `0.8.0`), consolidada na branch `main` por suíte unificada de integração com 8 domínios (123 testes). O desenvolvimento evolui em fluxo contínuo orientado por cards e issues do GitHub Project Board #8.
+- **Status do Projeto**: Arquitetura em Rust implementada e operacional (versão `0.8.0`), consolidada na branch `main` por suíte unificada de integração com 8 domínios (126 testes). O desenvolvimento evolui em fluxo contínuo orientado por cards e issues do GitHub Project Board #8.
 - **Stack Oficial Ativa (Crates do `Cargo.toml`)**:
   - `tokio` (features: `rt-multi-thread`, `macros`, `process`, `io-util`, `sync`, `time`, `signal`, `fs`)
   - `tokio-util` (feature: `codec`)
@@ -93,12 +93,12 @@
 - `tests/domains/cache_and_markdown.rs`: Testes de RenderCache L1/L2 $O(1)$, streaming Markdown, syntax highlighting `syntect`, tool cards e 60 FPS (16 testes).
 - `tests/domains/viewport_and_clipboard.rs`: Testes de sticky scroll, seleção limpa, word-wrap UTF-8, OSC 52, notificações sensoriais e PromptEditor (15 testes).
 - `tests/domains/editor_and_history.rs`: Testes de editor `ropey`, extmarks atômicos, paste pills, autocomplete popover e persistência SQLite WAL (16 testes).
-- `tests/domains/tabs_and_modals/`: Testes particionados de multissessão e diálogos (< 500 linhas por arquivo, 33 testes):
+- `tests/domains/tabs_and_modals/`: Testes particionados de multissessão e diálogos (< 500 linhas por arquivo, 35 testes):
   - `tabs.rs`: Ciclo de vida de abas, streaming em segundo plano, contagem de tokens e isolamento de estado.
   - `modals.rs`: Pilha de modais, paleta de comandos, diff viewer integrado, hot-respawn e backdrop dimming overlay.
   - `model_effort.rs`: Seletor de modelo/esforço, normalização de catálogo e restauração de seleções.
   - `select.rs`: Componente genérico DialogSelect, filtragem multitermo, navegação por teclado, scroll offset e viewport clipping.
-- `tests/domains/tui_integration/`: Testes particionados fim-a-fim (< 500 linhas por arquivo, 16 testes):
+- `tests/domains/tui_integration/`: Testes particionados fim-a-fim (< 500 linhas por arquivo, 17 testes):
   - `rendering.rs`: Layout visual OpenCode, spinner, cabeçalho/rodapé e dimensões adversariais de terminal.
   - `input_and_events.rs`: Comandos locais (`/quit`, `/clear`, `/help`, etc.), mouse routing e bracketed paste.
 
@@ -141,7 +141,7 @@ Para contexto aprofundado, regras de negócio e histórico técnico, consultar:
 Para cada issue, correção ou funcionalidade, a validação é executada nativamente pelo Cargo e assegurada pelo hook `.githooks/pre-commit` antes de qualquer commit:
 1. `cargo fmt --check`: Formatação canônica do código.
 2. `cargo clippy --all-targets -- -D warnings`: Compilação e linting estrito sem avisos (*zero warnings*).
-3. `cargo test --quiet`: Execução da suíte unificada de integração em `tests/suite.rs` (validando as regras de arquitetura em `architecture.rs` e os 8 domínios funcionais, 123 testes).
+3. `cargo test --quiet`: Execução da suíte unificada de integração em `tests/suite.rs` (validando as regras de arquitetura em `architecture.rs` e os 8 domínios funcionais, 126 testes).
 
 ### Ativação Obrigatória dos Git Hooks
 O repositório possui hooks mecânicos versionados em `.githooks/`. Todo ambiente de desenvolvimento deve ativá-los obrigatoriamente:
