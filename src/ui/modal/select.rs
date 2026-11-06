@@ -339,11 +339,38 @@ impl<T: Clone> DialogSelect<T> {
                     )
                 };
                 let prefix = if is_sel { " ● " } else { "   " };
+                let inner_w = (area.width as usize).saturating_sub(2);
+
+                let (display_title, title_chars) = if item.shortcut.is_some()
+                    && item.badge.is_none()
+                    && item.description.is_none()
+                {
+                    let shortcut_cols = item
+                        .shortcut
+                        .as_ref()
+                        .map(|s| s.chars().count() + 2)
+                        .unwrap_or(0);
+                    let max_title_cols = inner_w.saturating_sub(3 + shortcut_cols);
+                    let count = item.title.chars().count();
+                    if count > max_title_cols && max_title_cols > 3 {
+                        let take = max_title_cols - 3;
+                        let mut truncated: String = item.title.chars().take(take).collect();
+                        truncated.push_str("...");
+                        let t_count = truncated.chars().count();
+                        (truncated, t_count)
+                    } else {
+                        (item.title.clone(), count)
+                    }
+                } else {
+                    let count = item.title.chars().count();
+                    (item.title.clone(), count)
+                };
+
                 let mut spans = vec![
                     Span::styled(prefix, style),
-                    Span::styled(&item.title, style),
+                    Span::styled(display_title, style),
                 ];
-                let mut left_len = 3 + item.title.chars().count();
+                let mut left_len = 3 + title_chars;
                 if let Some(ref badge) = item.badge {
                     spans.push(Span::styled(format!(" [{}]", badge), badge_style));
                     left_len += badge.chars().count() + 3;
@@ -352,16 +379,13 @@ impl<T: Clone> DialogSelect<T> {
                     spans.push(Span::styled(format!(" - {}", desc), desc_style));
                     left_len += desc.chars().count() + 3;
                 }
-                let inner_w = (area.width as usize).saturating_sub(2);
                 if let Some(ref shortcut) = item.shortcut {
-                    let shortcut_len = shortcut.chars().count() + 1;
+                    let shortcut_len = shortcut.chars().count() + 2;
                     let spaces = inner_w.saturating_sub(left_len + shortcut_len);
                     if spaces > 0 {
                         spans.push(Span::styled(" ".repeat(spaces), style));
-                    } else {
-                        spans.push(Span::styled(" ", style));
                     }
-                    spans.push(Span::styled(format!(" {}", shortcut), shortcut_style));
+                    spans.push(Span::styled(format!(" {} ", shortcut), shortcut_style));
                 } else if is_sel && inner_w > left_len {
                     spans.push(Span::styled(" ".repeat(inner_w - left_len), style));
                 }

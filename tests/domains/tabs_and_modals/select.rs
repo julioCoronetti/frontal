@@ -430,4 +430,33 @@ fn test_relative_time_and_resume_dialog_rendering() {
     assert!(rendered.contains("2m ago"));
     assert!(!rendered.contains("[gemini-3.8-flash-high]"));
     assert!(!rendered.contains(" aut"));
+
+    let (mut app_long, _) = crate::common::test_app();
+    app_long
+        .history
+        .record_session(frontal::ui::history::SessionRecord {
+            id: "sess-long".to_string(),
+            conversation_id: Some("conv-vis-2".to_string()),
+            model: Some("gemini-3.8-flash-high".to_string()),
+            mode: Some("auto".to_string()),
+            effort: Some("high".to_string()),
+            title: Some("Very Long Session Title Exceeding Column Limits For Testing".to_string()),
+            created_at: now - 3600,
+        });
+
+    app_long.open_resume_modal(None);
+    let mut terminal_long = Terminal::new(TestBackend::new(70, 20)).unwrap();
+    terminal_long.draw(|f| app_long.render(f)).unwrap();
+
+    let buf_long = terminal_long.backend().buffer();
+    let rendered_long = buf_long
+        .content()
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<Vec<_>>()
+        .join("");
+
+    assert!(rendered_long.contains("1h ago"));
+    assert!(rendered_long.contains("Very Long Session"));
+    assert!(rendered_long.contains("..."));
 }
