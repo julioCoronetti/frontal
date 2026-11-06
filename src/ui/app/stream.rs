@@ -110,10 +110,13 @@ impl App {
                             .or(self.last_turn_usage);
                         let tokens = usage.as_ref().map(|u| u.output_tokens);
                         self.last_turn_usage = usage;
-                        if let Some(conv_id) = res.conversation_id {
+                        let conv_id = res.conversation_id.clone().or_else(|| {
+                            res.result.as_ref().and_then(|r| r.conversation_id.clone())
+                        });
+                        if let Some(cid) = conv_id {
                             self.session_manager.set_session_metadata(
                                 &envelope.session_id,
-                                Some(conv_id),
+                                Some(cid),
                                 None,
                                 None,
                                 None,
@@ -189,10 +192,14 @@ impl App {
                         self.sync_session_to_history(&envelope.session_id);
                     }
                 } else if let StreamEvent::Result(ref res) = **boxed_ev {
-                    if let Some(ref conv_id) = res.conversation_id {
+                    let conv_id = res
+                        .conversation_id
+                        .clone()
+                        .or_else(|| res.result.as_ref().and_then(|r| r.conversation_id.clone()));
+                    if let Some(cid) = conv_id {
                         self.session_manager.set_session_metadata(
                             &envelope.session_id,
-                            Some(conv_id.clone()),
+                            Some(cid),
                             None,
                             None,
                             None,

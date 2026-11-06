@@ -193,6 +193,7 @@ impl App {
         self.pending_danger = None;
         self.suspended_events.clear();
         self.modals.remove_danger_modal();
+        self.sync_session_to_history(&new_id);
         self.status_text = format!("Respawned session: {}", new_id);
         self.dirty = true;
         Ok(new_id)

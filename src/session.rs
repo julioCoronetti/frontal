@@ -260,7 +260,9 @@ impl SessionManager {
             .sessions
             .get_mut(session_id)
             .ok_or(EngineError::ProcessNotRunning)?;
-        handle.metadata.last_prompt = Some(prompt.to_string());
+        if handle.metadata.last_prompt.is_none() {
+            handle.metadata.last_prompt = Some(prompt.to_string());
+        }
         let prev_status = handle.metadata.status;
         handle.metadata.status = SessionStatus::RunningTurn;
         let res = match &mut handle.engine {

@@ -310,6 +310,34 @@ fn test_prompt_history_session_persistence_and_deduplication() {
     assert_eq!(saved[0].conversation_id.as_deref(), Some("conv-uuid-123"));
     assert_eq!(saved[0].model.as_deref(), Some("gemini-3.8-flash-high"));
     assert_eq!(saved[0].title.as_deref(), Some("Initial Prompt"));
+
+    let record3 = SessionRecord {
+        id: "sess-2".to_string(),
+        conversation_id: Some("conv-uuid-123".to_string()),
+        model: Some("claude-sonnet".to_string()),
+        mode: Some("plan".to_string()),
+        effort: Some("low".to_string()),
+        title: Some("Follow-up Prompt".to_string()),
+        created_at: 0,
+    };
+    history.record_session(record3);
+    let after_respawn = history.resumable_sessions();
+    assert_eq!(after_respawn.len(), 1);
+    assert_eq!(
+        after_respawn[0].conversation_id.as_deref(),
+        Some("conv-uuid-123")
+    );
+    assert_eq!(after_respawn[0].title.as_deref(), Some("Initial Prompt"));
+    assert_eq!(after_respawn[0].model.as_deref(), Some("claude-sonnet"));
+
+    history.flush();
+
+    let reopened2 = PromptHistory::open(&db_path).unwrap();
+    let saved2 = reopened2.resumable_sessions();
+    assert_eq!(saved2.len(), 1);
+    assert_eq!(saved2[0].conversation_id.as_deref(), Some("conv-uuid-123"));
+    assert_eq!(saved2[0].title.as_deref(), Some("Initial Prompt"));
+    assert_eq!(saved2[0].model.as_deref(), Some("claude-sonnet"));
 }
 
 #[test]

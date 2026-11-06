@@ -58,6 +58,14 @@ impl PromptHistory {
                             );
                         }
                         HistoryCommand::RecordSession(record) => {
+                            if let Some(ref cid) = record.conversation_id {
+                                if !cid.trim().is_empty() {
+                                    let _ = bg_conn.execute(
+                                        "DELETE FROM sessions WHERE conversation_id = ?1 AND id != ?2",
+                                        params![cid, record.id],
+                                    );
+                                }
+                            }
                             let _ = bg_conn.execute(
                                 "INSERT INTO sessions (id, conversation_id, model, mode, effort, title, created_at)
                                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
@@ -66,7 +74,7 @@ impl PromptHistory {
                                      model = COALESCE(excluded.model, sessions.model),
                                      mode = COALESCE(excluded.mode, sessions.mode),
                                      effort = COALESCE(excluded.effort, sessions.effort),
-                                     title = COALESCE(excluded.title, sessions.title),
+                                     title = COALESCE(sessions.title, excluded.title),
                                      created_at = excluded.created_at",
                                 params![
                                     record.id,
@@ -270,6 +278,7 @@ impl PromptHistory {
                     && s.conversation_id == record.conversation_id)
         }) {
             let existing = &self.sessions[pos];
+            record.id = existing.id.clone();
             if record.conversation_id.is_none() {
                 record.conversation_id = existing.conversation_id.clone();
             }
@@ -282,7 +291,7 @@ impl PromptHistory {
             if record.effort.is_none() {
                 record.effort = existing.effort.clone();
             }
-            if record.title.is_none() {
+            if existing.title.is_some() {
                 record.title = existing.title.clone();
             }
             self.sessions.remove(pos);
