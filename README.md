@@ -1,6 +1,6 @@
 # Frontal
 
-Terminal User Interface (TUI) harness desacoplado, assíncrono e de alta performance desenvolvido em **Rust** (versão `0.7.1`) para o Antigravity CLI (`agy`) e motores agênticos compatíveis com o protocolo `stream-json`.
+Terminal User Interface (TUI) harness desacoplado, assíncrono e de alta performance desenvolvido em **Rust** (versão `0.8.0`) para o Antigravity CLI (`agy`) e motores agênticos compatíveis com o protocolo `stream-json`.
 
 ---
 
@@ -51,7 +51,7 @@ A arquitetura do Frontal foi definida para garantir execução determinística a
 
 ## 4. Capacidades Arquiteturais Consolidadas e Evolução Contínua
 
-A arquitetura do Frontal encontra-se implementada e operacional (versão `0.7.1`), validada por **123 testes automatizados em 8 domínios**. O desenvolvimento opera em fluxo contínuo orientado por demandas e cards no GitHub Project Board #8, estruturado nos seguintes domínios consolidados:
+A arquitetura do Frontal encontra-se implementada e operacional (versão `0.8.0`), validada por **123 testes automatizados em 8 domínios**. O desenvolvimento opera em fluxo contínuo orientado por demandas e cards no GitHub Project Board #8, estruturado nos seguintes domínios consolidados:
 
 - **Fundação, Protocolo `stream-json` e IPC Headless:**
   - Workspace Cargo, multiplexação interna via `SessionId`, tipagem `stream-json`, abstração `EngineTransport` (`SubprocessEngine` e `FixtureReplayEngine`), orquestração assíncrona com `LinesCodec` (16 MB) e isolamento POSIX robusto (`setpgid`/`killpg`/`PR_SET_PDEATHSIG`).
@@ -105,7 +105,7 @@ cargo run --release -- --headless -p "Descreva a arquitetura do projeto"
 A documentação técnica oficial reside na [Wiki do GitHub](https://github.com/julioCoronetti/frontal/wiki):
 
 - **[Home](https://github.com/julioCoronetti/frontal/wiki/Home)**: Hub central de documentação.
-- **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: Dossiê oficial da arquitetura implementada em Rust (v0.7.1), módulos, tema Atlas Crimson e suíte de 123 testes.
+- **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: Dossiê oficial da arquitetura implementada em Rust (v0.8.0), módulos, tema Atlas Crimson e suíte de 123 testes.
 - **[Board-Roadmap](https://github.com/julioCoronetti/frontal/wiki/Board-Roadmap)**: Especificação completa da stack em Rust, diretrizes arquiteturais, capacidades consolidadas e evolução contínua.
 - **Dossiê Antigravity CLI (`agy`)**:
   - [Agy](https://github.com/julioCoronetti/frontal/wiki/Agy): Visão geral do CLI oficial.
