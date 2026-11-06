@@ -341,24 +341,29 @@ impl<T: Clone> DialogSelect<T> {
                 let prefix = if is_sel { " ● " } else { "   " };
                 let mut spans = vec![
                     Span::styled(prefix, style),
-                    Span::styled(format!("{:<30}", item.title), style),
+                    Span::styled(&item.title, style),
                 ];
-                let mut total_len = 3 + item.title.chars().count().max(30);
+                let mut left_len = 3 + item.title.chars().count();
                 if let Some(ref badge) = item.badge {
                     spans.push(Span::styled(format!(" [{}]", badge), badge_style));
-                    total_len += badge.chars().count() + 3;
-                }
-                if let Some(ref shortcut) = item.shortcut {
-                    spans.push(Span::styled(format!(" {}", shortcut), shortcut_style));
-                    total_len += shortcut.chars().count() + 1;
+                    left_len += badge.chars().count() + 3;
                 }
                 if let Some(ref desc) = item.description {
                     spans.push(Span::styled(format!(" - {}", desc), desc_style));
-                    total_len += desc.chars().count() + 3;
+                    left_len += desc.chars().count() + 3;
                 }
                 let inner_w = (area.width as usize).saturating_sub(2);
-                if is_sel && inner_w > total_len {
-                    spans.push(Span::styled(" ".repeat(inner_w - total_len), style));
+                if let Some(ref shortcut) = item.shortcut {
+                    let shortcut_len = shortcut.chars().count() + 1;
+                    let spaces = inner_w.saturating_sub(left_len + shortcut_len);
+                    if spaces > 0 {
+                        spans.push(Span::styled(" ".repeat(spaces), style));
+                    } else {
+                        spans.push(Span::styled(" ", style));
+                    }
+                    spans.push(Span::styled(format!(" {}", shortcut), shortcut_style));
+                } else if is_sel && inner_w > left_len {
+                    spans.push(Span::styled(" ".repeat(inner_w - left_len), style));
                 }
                 lines.push(Line::from(spans));
             }

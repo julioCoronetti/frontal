@@ -15,6 +15,32 @@ pub struct SessionRecord {
     pub created_at: i64,
 }
 
+pub fn format_relative_time(created_at: i64) -> String {
+    if created_at <= 0 {
+        return "just now".to_string();
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or(Duration::ZERO)
+        .as_secs() as i64;
+    let diff = now.saturating_sub(created_at);
+    if diff < 60 {
+        "just now".to_string()
+    } else if diff < 3600 {
+        format!("{}m ago", diff / 60)
+    } else if diff < 86400 {
+        format!("{}h ago", diff / 3600)
+    } else {
+        format!("{}d ago", diff / 86400)
+    }
+}
+
+impl SessionRecord {
+    pub fn relative_time(&self) -> String {
+        format_relative_time(self.created_at)
+    }
+}
+
 pub enum HistoryCommand {
     Record(String),
     RecordSession(SessionRecord),

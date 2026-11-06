@@ -384,3 +384,50 @@ fn test_resume_modal_dialog_select_selection_and_respawn_action() {
     );
     assert!(app.modals.is_empty());
 }
+
+#[test]
+fn test_relative_time_and_resume_dialog_rendering() {
+    use frontal::ui::history::format_relative_time;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    assert_eq!(format_relative_time(0), "just now");
+    assert_eq!(format_relative_time(now - 10), "just now");
+    assert_eq!(format_relative_time(now - 120), "2m ago");
+    assert_eq!(format_relative_time(now - 7200), "2h ago");
+    assert_eq!(format_relative_time(now - 180000), "2d ago");
+
+    let (mut app, _) = crate::common::test_app();
+    app.history
+        .record_session(frontal::ui::history::SessionRecord {
+            id: "sess-vis".to_string(),
+            conversation_id: Some("conv-vis-1".to_string()),
+            model: Some("gemini-3.8-flash-high".to_string()),
+            mode: Some("auto".to_string()),
+            effort: Some("high".to_string()),
+            title: Some("eae".to_string()),
+            created_at: now - 120,
+        });
+
+    app.open_resume_modal(None);
+    assert_eq!(app.modals.stack.len(), 1);
+
+    let backend = TestBackend::new(70, 20);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal.draw(|f| app.render(f)).unwrap();
+
+    let buf = terminal.backend().buffer();
+    let rendered = buf
+        .content()
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<Vec<_>>()
+        .join("");
+
+    assert!(rendered.contains("eae"));
+    assert!(rendered.contains("2m ago"));
+    assert!(!rendered.contains("[gemini-3.8-flash-high]"));
+    assert!(!rendered.contains(" aut"));
+}

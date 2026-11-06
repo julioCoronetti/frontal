@@ -263,12 +263,14 @@ impl App {
         let items: Vec<crate::ui::modal::SelectItem<ModalAction>> = sessions
             .into_iter()
             .map(|s| {
-                let conv_id = s.conversation_id.unwrap_or_default();
+                let rel_time = s.relative_time();
+                let conv_id = s.conversation_id.clone().unwrap_or_default();
                 let title = s
                     .title
+                    .as_ref()
                     .filter(|t| !t.trim().is_empty())
                     .map(|t| {
-                        let single_line = t.lines().next().unwrap_or(&t).trim();
+                        let single_line = t.lines().next().unwrap_or(t).trim();
                         if single_line.chars().count() > 42 {
                             let mut truncated: String = single_line.chars().take(39).collect();
                             truncated.push_str("...");
@@ -278,16 +280,6 @@ impl App {
                         }
                     })
                     .unwrap_or_else(|| conv_id.clone());
-
-                let description = format!("UUID: {}", conv_id);
-                let badge = s
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| crate::config::DEFAULT_MODEL.to_string());
-                let shortcut = s
-                    .mode
-                    .clone()
-                    .unwrap_or_else(|| crate::config::DEFAULT_MODE.to_string());
 
                 crate::ui::modal::SelectItem::new(
                     conv_id.clone(),
@@ -299,9 +291,7 @@ impl App {
                         mode: s.mode,
                     },
                 )
-                .with_description(description)
-                .with_badge(badge)
-                .with_shortcut(shortcut)
+                .with_shortcut(rel_time)
                 .with_category("Past Sessions")
             })
             .collect();
