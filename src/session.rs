@@ -243,6 +243,14 @@ impl SessionManager {
         }
     }
 
+    pub fn set_session_prompt(&mut self, session_id: &SessionId, prompt: &str) {
+        if let Some(h) = self.sessions.get_mut(session_id) {
+            if h.metadata.last_prompt.is_none() {
+                h.metadata.last_prompt = Some(prompt.to_string());
+            }
+        }
+    }
+
     pub async fn send_prompt(
         &mut self,
         session_id: &SessionId,
