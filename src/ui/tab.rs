@@ -17,6 +17,7 @@ pub struct TabState {
     pub last_turn_usage: Option<TokenUsage>,
     pub pending_danger: Option<crate::security::DangerAssessment>,
     pub suspended_events: Vec<StreamEvent>,
+    pub queued_prompts: std::collections::VecDeque<String>,
 }
 
 impl TabState {
@@ -35,6 +36,7 @@ impl TabState {
             last_turn_usage: None,
             pending_danger: None,
             suspended_events: Vec::new(),
+            queued_prompts: std::collections::VecDeque::new(),
         }
     }
 

@@ -59,6 +59,8 @@ pub struct App {
     pub last_turn_usage: Option<crate::protocol::TokenUsage>,
     pub pending_danger: Option<crate::security::DangerAssessment>,
     pub suspended_events: Vec<crate::protocol::StreamEvent>,
+    pub queued_prompts: std::collections::VecDeque<String>,
+    pub pending_engine_prompts: std::collections::VecDeque<(crate::protocol::SessionId, String)>,
 }
 
 impl App {
@@ -119,6 +121,8 @@ impl App {
             last_turn_usage: None,
             pending_danger: None,
             suspended_events: Vec::new(),
+            queued_prompts: std::collections::VecDeque::new(),
+            pending_engine_prompts: std::collections::VecDeque::new(),
         }
     }
 
@@ -157,6 +161,8 @@ impl App {
             last_turn_usage: None,
             pending_danger: None,
             suspended_events: Vec::new(),
+            queued_prompts: std::collections::VecDeque::new(),
+            pending_engine_prompts: std::collections::VecDeque::new(),
         }
     }
 

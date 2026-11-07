@@ -140,6 +140,28 @@ impl App {
                         self.cache
                             .consolidate_active_turn_with_meta(fallback, Some(meta));
                         self.status_text = String::from("Ready");
+                        if !self.clipboard.is_isolated() {
+                            let title = self
+                                .tabs
+                                .get(self.active_tab_index)
+                                .map(|t| t.title.as_str())
+                                .unwrap_or("Active Session");
+                            emit_sensory_notification(
+                                "Frontal Session Completed",
+                                &format!("Turn completed in {}", title),
+                            );
+                        }
+                        if let Some(next_prompt) = self.queued_prompts.pop_front() {
+                            self.cache.push_user_message(&next_prompt);
+                            self.waiting_for_response = true;
+                            self.turn_started_at = Some(std::time::Instant::now());
+                            self.status_text = format!(
+                                "Processing queued prompt ({} left)",
+                                self.queued_prompts.len()
+                            );
+                            self.pending_engine_prompts
+                                .push_back((self.active_session.clone(), next_prompt));
+                        }
                         self.dirty = true;
                     }
                     StreamEvent::Error(err) => {
@@ -151,6 +173,17 @@ impl App {
                             .unwrap_or_else(|| String::from("Unknown error"));
                         self.cache.push_error(&msg);
                         self.status_text = String::from("Error received");
+                        if let Some(next_prompt) = self.queued_prompts.pop_front() {
+                            self.cache.push_user_message(&next_prompt);
+                            self.waiting_for_response = true;
+                            self.turn_started_at = Some(std::time::Instant::now());
+                            self.status_text = format!(
+                                "Processing queued prompt ({} left)",
+                                self.queued_prompts.len()
+                            );
+                            self.pending_engine_prompts
+                                .push_back((self.active_session.clone(), next_prompt));
+                        }
                         self.dirty = true;
                     }
                     _ => {}
@@ -163,6 +196,7 @@ impl App {
                     self.waiting_for_response = false;
                     self.pending_danger = None;
                     self.suspended_events.clear();
+                    self.queued_prompts.clear();
                     self.modals.remove_danger_modal();
                     self.cache
                         .push_error(&format!("Protocol Error: {}", message));
@@ -173,6 +207,7 @@ impl App {
                     self.waiting_for_response = false;
                     self.pending_danger = None;
                     self.suspended_events.clear();
+                    self.queued_prompts.clear();
                     self.modals.remove_danger_modal();
                     self.status_text = format!("Process exited: {:?}", code);
                     self.dirty = true;
@@ -246,11 +281,24 @@ impl App {
                     EngineEvent::Stream(boxed_ev) => {
                         let turn_completed =
                             tab.handle_background_stream_event(&boxed_ev, &bg_mode, &bg_model);
-                        if turn_completed && !self.clipboard.is_isolated() {
-                            emit_sensory_notification(
-                                "Frontal Session Completed",
-                                &format!("Turn completed in {}", tab.title),
-                            );
+                        if turn_completed {
+                            if let Some(next_prompt) = tab.queued_prompts.pop_front() {
+                                tab.cache.push_user_message(&next_prompt);
+                                tab.waiting_for_response = true;
+                                tab.turn_started_at = Some(std::time::Instant::now());
+                                tab.status_text = format!(
+                                    "Processing queued prompt ({} left)",
+                                    tab.queued_prompts.len()
+                                );
+                                self.pending_engine_prompts
+                                    .push_back((tab.session_id.clone(), next_prompt));
+                            }
+                            if !self.clipboard.is_isolated() {
+                                emit_sensory_notification(
+                                    "Frontal Session Completed",
+                                    &format!("Turn completed in {}", tab.title),
+                                );
+                            }
                         }
                         self.dirty = true;
                     }
@@ -258,6 +306,7 @@ impl App {
                         tab.waiting_for_response = false;
                         tab.pending_danger = None;
                         tab.suspended_events.clear();
+                        tab.queued_prompts.clear();
                         tab.cache
                             .push_error(&format!("Protocol Error: {}", message));
                         tab.status_text = String::from("Protocol Error");
@@ -272,6 +321,7 @@ impl App {
                         tab.waiting_for_response = false;
                         tab.pending_danger = None;
                         tab.suspended_events.clear();
+                        tab.queued_prompts.clear();
                         tab.status_text = String::from("Process exited");
                         self.dirty = true;
                     }

@@ -98,6 +98,9 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
             maybe_envelope = app.session_manager.recv() => {
                 if let Some(envelope) = maybe_envelope {
                     app.handle_engine_envelope(envelope);
+                    while let Some((sid, prompt)) = app.pending_engine_prompts.pop_front() {
+                        let _ = app.session_manager.send_prompt(&sid, &prompt).await;
+                    }
                 }
             }
             _ = ticker.tick() => {

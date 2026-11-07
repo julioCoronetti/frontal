@@ -34,6 +34,7 @@ impl App {
             std::mem::swap(&mut self.last_turn_usage, &mut tab.last_turn_usage);
             std::mem::swap(&mut self.pending_danger, &mut tab.pending_danger);
             std::mem::swap(&mut self.suspended_events, &mut tab.suspended_events);
+            std::mem::swap(&mut self.queued_prompts, &mut tab.queued_prompts);
             tab.session_id = self.active_session.clone();
         }
     }
@@ -51,6 +52,7 @@ impl App {
             std::mem::swap(&mut self.last_turn_usage, &mut tab.last_turn_usage);
             std::mem::swap(&mut self.pending_danger, &mut tab.pending_danger);
             std::mem::swap(&mut self.suspended_events, &mut tab.suspended_events);
+            std::mem::swap(&mut self.queued_prompts, &mut tab.queued_prompts);
             if let Some(danger) = &self.pending_danger {
                 self.modals
                     .push(crate::ui::modal::Modal::DangerConfirmation(
@@ -98,6 +100,7 @@ impl App {
             self.last_turn_usage = None;
             self.pending_danger = None;
             self.suspended_events.clear();
+            self.queued_prompts.clear();
             self.modals.remove_danger_modal();
             self.status_text = String::from("Ready");
             self.popover.close();
@@ -192,6 +195,10 @@ impl App {
         self.waiting_for_response = false;
         self.pending_danger = None;
         self.suspended_events.clear();
+        self.queued_prompts.clear();
+        if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
+            tab.queued_prompts.clear();
+        }
         self.modals.remove_danger_modal();
         self.sync_session_to_history(&new_id);
         self.status_text = format!("Respawned session: {}", new_id);
