@@ -148,6 +148,9 @@ impl RenderCache {
                     if let Some(out) = output {
                         block.content = out.to_string();
                     }
+                    if state == StepState::Done {
+                        block.collapsed = true;
+                    }
                     block.revision += 1;
                     return block.id;
                 }
@@ -156,6 +159,7 @@ impl RenderCache {
 
         let id = self.next_block_id;
         self.next_block_id += 1;
+        let is_collapsed = state == StepState::Done;
         self.blocks.push(MessageBlock {
             id,
             kind: BlockKind::Tool {
@@ -165,7 +169,7 @@ impl RenderCache {
             content: output.unwrap_or("").to_string(),
             revision: 1,
             consolidated: false,
-            collapsed: false,
+            collapsed: is_collapsed,
             tool_args: args.map(|s| s.to_string()),
             step_index,
             code_highlighters: Vec::new(),
@@ -177,6 +181,29 @@ impl RenderCache {
 
     pub fn update_tool_state(&mut self, name: &str, state: StepState, output: Option<&str>) -> u64 {
         self.upsert_tool_call(None, name, state, None, output)
+    }
+
+    pub fn toggle_collapsible_at_line(&mut self, target_line: usize) -> Option<u64> {
+        let mut current = 0;
+        for block in &mut self.blocks {
+            let count = self
+                .l2_cache
+                .get(&block.id)
+                .map(|e| e.lines.len())
+                .unwrap_or(0);
+            if target_line >= current && target_line < current + count {
+                if target_line == current
+                    && matches!(block.kind, BlockKind::Tool { .. } | BlockKind::Thought)
+                {
+                    block.collapsed = !block.collapsed;
+                    block.revision += 1;
+                    return Some(block.id);
+                }
+                return None;
+            }
+            current += count;
+        }
+        None
     }
 
     pub fn toggle_block_collapsed(&mut self, block_id: u64) -> bool {
@@ -279,6 +306,10 @@ impl RenderCache {
 
     pub fn consolidate_active_turn(&mut self, fallback_response: Option<&str>) {
         self.consolidate_active_turn_with_meta(fallback_response, None);
+    }
+
+    pub fn has_unconsolidated_blocks(&self) -> bool {
+        self.blocks.iter().any(|b| !b.consolidated)
     }
 
     pub fn clear(&mut self) {

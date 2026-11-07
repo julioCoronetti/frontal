@@ -175,8 +175,8 @@ fn is_structural_metadata(trimmed: &str, stripped: &str) -> bool {
     trimmed.starts_with("▣ ")
         || stripped.starts_with("▸ Thought")
         || stripped == "▾ Thought"
-        || stripped.starts_with("[RUNNING]")
-        || stripped.starts_with("[DONE]")
-        || stripped.starts_with("[ERROR]")
-        || stripped.starts_with("[PENDING]")
+        || stripped.contains("[RUNNING]")
+        || stripped.contains("[DONE]")
+        || stripped.contains("[ERROR]")
+        || stripped.contains("[PENDING]")
 }

@@ -108,6 +108,9 @@ impl App {
         self.viewport_bounds = (chat_area.x, chat_area.y, chat_area.width, chat_area.height);
 
         if is_welcome {
+            let bold_hl = Style::default()
+                .fg(ACCENT_HIGHLIGHT)
+                .add_modifier(Modifier::BOLD);
             let welcome_lines = vec![
                 Line::from(""),
                 Line::from(vec![
@@ -132,33 +135,13 @@ impl App {
                     Style::default().fg(TEXT_PRIMARY),
                 )]),
                 Line::from(vec![
-                    Span::styled(
-                        "/help",
-                        Style::default()
-                            .fg(ACCENT_HIGHLIGHT)
-                            .add_modifier(Modifier::BOLD),
-                    ),
+                    Span::styled("/help", bold_hl),
                     Span::styled(" · ", Style::default().fg(TEXT_MUTED)),
-                    Span::styled(
-                        "/model",
-                        Style::default()
-                            .fg(ACCENT_HIGHLIGHT)
-                            .add_modifier(Modifier::BOLD),
-                    ),
+                    Span::styled("/model", bold_hl),
                     Span::styled(" · ", Style::default().fg(TEXT_MUTED)),
-                    Span::styled(
-                        "/diff",
-                        Style::default()
-                            .fg(ACCENT_HIGHLIGHT)
-                            .add_modifier(Modifier::BOLD),
-                    ),
+                    Span::styled("/diff", bold_hl),
                     Span::styled(" · ", Style::default().fg(TEXT_MUTED)),
-                    Span::styled(
-                        "Ctrl+P",
-                        Style::default()
-                            .fg(ACCENT_HIGHLIGHT)
-                            .add_modifier(Modifier::BOLD),
-                    ),
+                    Span::styled("Ctrl+P", bold_hl),
                 ]),
             ];
             let welcome_widget =
@@ -166,7 +149,10 @@ impl App {
             frame.render_widget(welcome_widget, chat_area);
         } else {
             let total_lines = self.cache.ensure_visual_lines(chat_area.width);
-            let total_with_spinner = total_lines + if self.waiting_for_response { 1 } else { 0 };
+            let queued_count = self.queued_prompts.len();
+            let total_with_spinner = total_lines
+                + if self.waiting_for_response { 1 } else { 0 }
+                + if queued_count > 0 { 1 } else { 0 };
             self.viewport
                 .sync_dimensions(total_with_spinner, chat_area.height as usize);
             let mut visible_lines = self.viewport.visible_slice(&self.cache);
@@ -192,6 +178,20 @@ impl App {
                 ]));
             }
 
+            if queued_count > 0 {
+                visible_lines.push(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled("⏳ ", Style::default().fg(ACCENT_PRIMARY)),
+                    Span::styled(
+                        format!("Queued ({} pending)...", queued_count),
+                        Style::default()
+                            .fg(TEXT_MUTED)
+                            .add_modifier(Modifier::ITALIC),
+                    ),
+                ]));
+            }
+
+            frame.render_widget(Clear, chat_area);
             let viewport_widget = Paragraph::new(visible_lines);
             frame.render_widget(viewport_widget, chat_area);
 

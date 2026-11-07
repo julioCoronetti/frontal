@@ -8,17 +8,51 @@ use crate::ui::markdown::{
 };
 use crate::ui::theme::{ACCENT_PRIMARY, ACCENT_RUBY, BG_USER_CONTAINER, TEXT_MUTED, TEXT_PRIMARY};
 
+pub fn sanitize_terminal_line(line: &str) -> String {
+    let mut raw = line.trim_end_matches('\r');
+    if let Some(pos) = raw.rfind('\r') {
+        raw = &raw[pos + 1..];
+    }
+    let mut expanded = String::with_capacity(raw.len());
+    let mut col = 0;
+    let mut chars = raw.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            if let Some(&'[') = chars.peek() {
+                chars.next();
+                while let Some(&c) = chars.peek() {
+                    chars.next();
+                    if c.is_ascii_alphabetic() || c == '@' || c == 'm' {
+                        break;
+                    }
+                }
+            }
+        } else if ch == '\t' {
+            let spaces = 4 - (col % 4);
+            for _ in 0..spaces {
+                expanded.push(' ');
+                col += 1;
+            }
+        } else if !ch.is_control() || ch == ' ' {
+            expanded.push(ch);
+            col += 1;
+        }
+    }
+    expanded
+}
+
 pub fn wrap_text_utf8(text: &str, max_width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     let max_w = max_width.max(1);
     for raw_line in text.split('\n') {
-        if raw_line.is_empty() {
+        let clean = sanitize_terminal_line(raw_line);
+        if clean.is_empty() {
             lines.push(String::new());
             continue;
         }
         let mut current_line = String::new();
         let mut current_width = 0;
-        for ch in raw_line.chars() {
+        for ch in clean.chars() {
             let ch_w = 1;
             if current_width + ch_w > max_w && !current_line.is_empty() {
                 lines.push(current_line);
@@ -210,17 +244,39 @@ impl RenderCache {
                     ),
                 };
 
-                let args_str = block
+                let max_args_len = (width as usize).saturating_sub(name.chars().count() + 25);
+                let clean_args = block
                     .tool_args
                     .as_deref()
-                    .map(|a| format!("({})", a))
+                    .map(sanitize_terminal_line)
                     .unwrap_or_default();
+                let clamped_args = if clean_args.is_empty() {
+                    String::new()
+                } else if clean_args.chars().count() > max_args_len && max_args_len > 4 {
+                    format!(
+                        " ({}...)",
+                        clean_args
+                            .chars()
+                            .take(max_args_len.saturating_sub(4))
+                            .collect::<String>()
+                    )
+                } else {
+                    format!(" ({})", clean_args)
+                };
 
                 if block.collapsed {
-                    let header = format!("   {} {}{} ▸ [collapsed]", state_badge, name, args_str);
+                    let line_count = if block.content.trim().is_empty() {
+                        0
+                    } else {
+                        block.content.lines().count()
+                    };
+                    let header = format!(
+                        "   ▶ {} {}{} [collapsed · {} lines]",
+                        state_badge, name, clamped_args, line_count
+                    );
                     result.push(Line::from(vec![Span::styled(header, state_style)]));
                 } else {
-                    let header = format!("   {} {}{}", state_badge, name, args_str);
+                    let header = format!("   ▼ {} {}{}", state_badge, name, clamped_args);
                     result.push(Line::from(vec![Span::styled(header, state_style)]));
 
                     if !block.content.is_empty() {

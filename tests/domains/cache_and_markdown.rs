@@ -346,32 +346,25 @@ fn test_tool_card_collapsing_and_expansion() {
         Some("line 1\nline 2\nline 3\nline 4\nline 5"),
     );
 
-    let expanded_lines = cache.ensure_visual_lines(80);
-    assert!(expanded_lines >= 6);
+    let initial_lines = cache.ensure_visual_lines(80);
+    assert_eq!(initial_lines, 2);
 
     let toggled_id = cache.toggle_latest_tool();
     assert_eq!(toggled_id, Some(id));
+    let expanded_lines = cache.ensure_visual_lines(80);
+    assert!(expanded_lines >= 6);
 
+    let toggled_back = cache.toggle_latest_tool();
+    assert_eq!(toggled_back, Some(id));
     let collapsed_lines = cache.ensure_visual_lines(80);
-    assert!(collapsed_lines < expanded_lines);
+    assert_eq!(collapsed_lines, 2);
 
-    let slice = cache.visible_slice(0, 10);
-    let text = slice
+    let slice = cache.visible_slice(0, 1);
+    let text: String = slice
         .iter()
-        .map(|l| {
-            l.spans
-                .iter()
-                .map(|s| s.content.as_ref())
-                .collect::<Vec<_>>()
-                .join("")
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(text.contains("[collapsed]"));
-
-    cache.toggle_latest_tool();
-    let re_expanded = cache.ensure_visual_lines(80);
-    assert_eq!(re_expanded, expanded_lines);
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
+    assert!(text.contains("[collapsed"));
 }
 
 #[test]
