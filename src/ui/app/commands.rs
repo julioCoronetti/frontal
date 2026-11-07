@@ -171,6 +171,16 @@ impl App {
         }
     }
 
+    pub fn is_turn_active(&self) -> bool {
+        self.waiting_for_response
+            || self.cache.has_unconsolidated_blocks()
+            || self
+                .session_manager
+                .get_metadata(&self.active_session)
+                .map(|m| m.status == crate::session::SessionStatus::RunningTurn)
+                .unwrap_or(false)
+    }
+
     pub(crate) fn execute_local_command(&mut self, trimmed: &str) -> Option<Option<AppAction>> {
         if trimmed == "/quit" || trimmed == "/exit" {
             self.should_quit = true;
@@ -180,8 +190,10 @@ impl App {
             self.viewport.clear_selection();
             self.viewport.scroll_to_bottom();
             self.last_turn_usage = None;
+            self.queued_prompts.clear();
             if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
                 tab.last_turn_usage = None;
+                tab.queued_prompts.clear();
             }
             self.status_text = String::from("Cleared");
             self.dirty = true;
@@ -190,8 +202,10 @@ impl App {
             let _ = self.session_manager.interrupt_active();
             self.status_text = String::from("Interrupted");
             self.waiting_for_response = false;
+            self.queued_prompts.clear();
             if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
                 tab.waiting_for_response = false;
+                tab.queued_prompts.clear();
                 tab.status_text = self.status_text.clone();
             }
             self.dirty = true;
@@ -272,6 +286,14 @@ impl App {
                 env!("CARGO_PKG_VERSION")
             ));
             self.status_text = String::from("Ready");
+            self.dirty = true;
+            Some(None)
+        } else if trimmed.starts_with('/') {
+            let cmd_name = trimmed.split_whitespace().next().unwrap_or(trimmed);
+            self.cache.push_user_message(trimmed);
+            self.cache
+                .push_error(&format!("Unknown command: {}", cmd_name));
+            self.status_text = format!("Unknown command: {}", cmd_name);
             self.dirty = true;
             Some(None)
         } else {

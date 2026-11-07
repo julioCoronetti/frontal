@@ -429,3 +429,22 @@ fn test_adversarial_prompt_shortcuts_and_undo_boundaries() {
     assert!(undo_count >= 99);
     assert!(!editor.undo());
 }
+
+#[test]
+fn test_terminal_escape_codes_and_carriage_return_sanitization() {
+    let raw = "Compiling crate...\rProgress 50%\rFinished release [optimized]";
+    let wrapped = frontal::ui::cache::wrap_text_utf8(raw, 80);
+    assert_eq!(wrapped.len(), 1);
+    assert_eq!(wrapped[0], "Finished release [optimized]");
+    assert!(!wrapped[0].contains('\r'));
+
+    let ansi_raw = "\x1b[32mSuccess:\x1b[0m \x1b[1m3 tests passed\x1b[0m";
+    let wrapped_ansi = frontal::ui::cache::wrap_text_utf8(ansi_raw, 80);
+    assert_eq!(wrapped_ansi.len(), 1);
+    assert_eq!(wrapped_ansi[0], "Success: 3 tests passed");
+
+    let tab_raw = "Col1\tCol2\tCol3";
+    let wrapped_tab = frontal::ui::cache::wrap_text_utf8(tab_raw, 80);
+    assert_eq!(wrapped_tab.len(), 1);
+    assert_eq!(wrapped_tab[0], "Col1    Col2    Col3");
+}

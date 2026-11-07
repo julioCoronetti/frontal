@@ -2,7 +2,6 @@ use crossterm::event::{
     Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 
-use crate::session::SessionStatus;
 use crate::ui::app::{App, AppAction};
 use crate::ui::autocomplete::AutocompletePopover;
 use crate::ui::editor::{ExtmarkKind, TriggerKind};
@@ -63,20 +62,14 @@ impl App {
                 }
 
                 if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-                    if let Some(selected) = self.viewport.selected_text(&self.cache) {
+                    let sel = self
+                        .viewport
+                        .selected_text(&self.cache)
+                        .or_else(|| self.editor.selected_text());
+                    if let Some(selected) = sel {
                         if !selected.is_empty() {
                             let _ = self.clipboard.set_text(&selected);
                             self.viewport.clear_selection();
-                            self.last_ctrl_c_at = None;
-                            self.status_text = String::from("Selection copied to clipboard");
-                            self.dirty = true;
-                            return None;
-                        }
-                    }
-
-                    if let Some(selected) = self.editor.selected_text() {
-                        if !selected.is_empty() {
-                            let _ = self.clipboard.set_text(&selected);
                             self.editor.clear_selection();
                             self.last_ctrl_c_at = None;
                             self.status_text = String::from("Selection copied to clipboard");
@@ -96,19 +89,15 @@ impl App {
                         return None;
                     }
 
-                    let is_running = self.waiting_for_response
-                        || self
-                            .session_manager
-                            .get_metadata(&self.active_session)
-                            .map(|m| m.status == SessionStatus::RunningTurn)
-                            .unwrap_or(false);
-
-                    if is_running {
+                    if self.is_turn_active() {
                         let _ = self.session_manager.interrupt_active();
+                        self.queued_prompts.clear();
+                        self.cache.consolidate_active_turn_with_meta(None, None);
                         self.status_text = String::from("Interrupted by user");
                         self.waiting_for_response = false;
                         if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
                             tab.waiting_for_response = false;
+                            tab.queued_prompts.clear();
                             tab.status_text = self.status_text.clone();
                         }
                         self.last_ctrl_c_at = None;
@@ -282,8 +271,16 @@ impl App {
                                 return cmd_action;
                             }
 
-                            self.last_turn_usage = None;
                             self.history.record_prompt(&p);
+                            if self.is_turn_active() {
+                                self.queued_prompts.push_back(p);
+                                self.status_text =
+                                    format!("Queued ({} pending)", self.queued_prompts.len());
+                                self.dirty = true;
+                                return None;
+                            }
+
+                            self.last_turn_usage = None;
                             let active_id = self.active_session.clone();
                             self.session_manager.set_session_prompt(&active_id, &p);
                             self.sync_session_to_history(&active_id);
@@ -435,6 +432,14 @@ impl App {
                 MouseEventKind::Up(MouseButton::Left) => {
                     if matches!(self.viewport.selection, Some((s, e)) if s == e) {
                         self.viewport.clear_selection();
+                        let (vx, vy, vw, vh) = self.viewport_bounds;
+                        if column >= vx && column < vx + vw && row >= vy && row < vy + vh {
+                            let offset = self.viewport.effective_offset();
+                            let line = offset + (row.saturating_sub(vy) as usize);
+                            if self.cache.toggle_collapsible_at_line(line).is_some() {
+                                self.dirty = true;
+                            }
+                        }
                     }
                     self.dirty = true;
                 }

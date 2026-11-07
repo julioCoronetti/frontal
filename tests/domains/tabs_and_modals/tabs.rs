@@ -1,8 +1,8 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 
 use frontal::protocol::{
-    EngineEvent, ResultData, ResultStatus, SessionEnvelope, SessionId, StepState, StepType,
-    StepUpdateData, StepUpdateEvent, StreamEvent, TokenUsage,
+    EngineEvent, ResultData, ResultEvent, ResultStatus, SessionEnvelope, SessionId, StepState,
+    StepType, StepUpdateData, StepUpdateEvent, StreamEvent, TokenUsage,
 };
 use frontal::ui::app::AppAction;
 
@@ -114,6 +114,20 @@ fn test_background_tab_token_usage_swap_and_isolation() {
         event: EngineEvent::Stream(Box::new(bg_update)),
     };
     app.handle_engine_envelope(env);
+
+    let bg_result = StreamEvent::Result(ResultEvent {
+        conversation_id: None,
+        result: Some(ResultData {
+            response: Some("Done".to_string()),
+            usage: Some(usage),
+            ..Default::default()
+        }),
+    });
+    let env_res = SessionEnvelope {
+        session_id: id2.clone(),
+        event: EngineEvent::Stream(Box::new(bg_result)),
+    };
+    app.handle_engine_envelope(env_res);
 
     assert_eq!(app.last_turn_usage, None);
     assert_eq!(app.tabs[1].last_turn_usage, Some(usage));
