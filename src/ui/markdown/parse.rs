@@ -51,6 +51,7 @@ pub fn parse_markdown_segments(markdown_text: &str, consolidated: bool) -> Vec<M
     let mut table_headers: Vec<Vec<Span<'static>>> = Vec::new();
     let mut table_rows: Vec<Vec<Vec<Span<'static>>>> = Vec::new();
     let mut current_table_row: Vec<Vec<Span<'static>>> = Vec::new();
+    let mut pending_item_bullets: Vec<Option<String>> = Vec::new();
 
     for event in parser {
         match event {
@@ -81,7 +82,9 @@ pub fn parse_markdown_segments(markdown_text: &str, consolidated: bool) -> Vec<M
                     active_styles.push(h_style);
                 }
                 Tag::Paragraph => {
-                    current_spans.clear();
+                    if list_depth == 0 {
+                        current_spans.clear();
+                    }
                 }
                 Tag::BlockQuote(_) => {
                     in_blockquote = true;
@@ -95,6 +98,16 @@ pub fn parse_markdown_segments(markdown_text: &str, consolidated: bool) -> Vec<M
                     in_code_block = Some((lang, String::new()));
                 }
                 Tag::List(start_num) => {
+                    if list_depth > 0 && !current_spans.is_empty() {
+                        let bullet = pending_item_bullets
+                            .last_mut()
+                            .and_then(|b| b.take())
+                            .unwrap_or_else(|| String::from("  "));
+                        segments.push(MarkdownSegment::ListItem {
+                            bullet,
+                            spans: std::mem::take(&mut current_spans),
+                        });
+                    }
                     list_depth += 1;
                     if let Some(start) = start_num {
                         is_ordered_list.push(start);
@@ -103,6 +116,28 @@ pub fn parse_markdown_segments(markdown_text: &str, consolidated: bool) -> Vec<M
                     }
                 }
                 Tag::Item => {
+                    if list_depth > 0 && !current_spans.is_empty() {
+                        let bullet = pending_item_bullets
+                            .last_mut()
+                            .and_then(|b| b.take())
+                            .unwrap_or_else(|| String::from("  "));
+                        segments.push(MarkdownSegment::ListItem {
+                            bullet,
+                            spans: std::mem::take(&mut current_spans),
+                        });
+                    }
+                    let bullet = if let Some(order) = is_ordered_list.last_mut() {
+                        if *order > 0 {
+                            let b = format!("{}. ", order);
+                            *order += 1;
+                            b
+                        } else {
+                            String::from("• ")
+                        }
+                    } else {
+                        String::from("• ")
+                    };
+                    pending_item_bullets.push(Some(bullet));
                     current_spans.clear();
                 }
                 Tag::Emphasis => {
@@ -146,9 +181,20 @@ pub fn parse_markdown_segments(markdown_text: &str, consolidated: bool) -> Vec<M
                 }
                 TagEnd::Paragraph => {
                     if !current_spans.is_empty() {
-                        segments.push(MarkdownSegment::Paragraph(std::mem::take(
-                            &mut current_spans,
-                        )));
+                        if list_depth > 0 {
+                            let bullet = pending_item_bullets
+                                .last_mut()
+                                .and_then(|b| b.take())
+                                .unwrap_or_else(|| String::from("  "));
+                            segments.push(MarkdownSegment::ListItem {
+                                bullet,
+                                spans: std::mem::take(&mut current_spans),
+                            });
+                        } else {
+                            segments.push(MarkdownSegment::Paragraph(std::mem::take(
+                                &mut current_spans,
+                            )));
+                        }
                     }
                 }
                 TagEnd::BlockQuote(_) => {
@@ -173,21 +219,19 @@ pub fn parse_markdown_segments(markdown_text: &str, consolidated: bool) -> Vec<M
                     is_ordered_list.pop();
                 }
                 TagEnd::Item => {
-                    let bullet = if let Some(order) = is_ordered_list.last_mut() {
-                        if *order > 0 {
-                            let b = format!("{}. ", order);
-                            *order += 1;
-                            b
-                        } else {
-                            String::from("• ")
-                        }
-                    } else {
-                        String::from("• ")
-                    };
-                    segments.push(MarkdownSegment::ListItem {
-                        bullet,
-                        spans: std::mem::take(&mut current_spans),
-                    });
+                    let rem_bullet = pending_item_bullets.pop().flatten();
+                    if !current_spans.is_empty() {
+                        let bullet = rem_bullet.unwrap_or_else(|| String::from("• "));
+                        segments.push(MarkdownSegment::ListItem {
+                            bullet,
+                            spans: std::mem::take(&mut current_spans),
+                        });
+                    } else if let Some(bullet) = rem_bullet {
+                        segments.push(MarkdownSegment::ListItem {
+                            bullet,
+                            spans: Vec::new(),
+                        });
+                    }
                 }
                 TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => {
                     active_styles.pop();

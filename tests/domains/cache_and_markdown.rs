@@ -42,7 +42,7 @@ fn test_render_cache_resize_invalidation_and_subsequent_hits() {
     cache.push_user_message("First long line that wraps differently across widths");
     cache.append_streaming_delta(
         BlockKind::Assistant,
-        "Second long line that will also wrap differently",
+        "Second long line that wraps differently",
     );
     cache.consolidate_active_turn(None);
 
@@ -128,6 +128,25 @@ fn compute(val: i32) -> i32 {
         let final_lines = cache.ensure_visual_lines(80);
         assert!(final_lines > 10);
     }
+
+    let loose_list = "1. Item 1\n\n2. Item 2\n\n- Bullet 1\n\n- Bullet 2\n";
+    let mut list_cache = RenderCache::new();
+    list_cache.append_streaming_delta(BlockKind::Assistant, loose_list);
+    list_cache.consolidate_active_turn(None);
+    let list_lines_count = list_cache.ensure_visual_lines(80);
+    let list_slice = list_cache.visible_slice(0, list_lines_count);
+    let text: String = list_slice
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
+    assert!(text.contains("1. Item 1") && text.contains("2. Item 2"));
+    assert!(text.contains("• Bullet 1") && text.contains("• Bullet 2"));
+    for line in list_slice {
+        let l_txt: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_ne!(l_txt.trim(), "•");
+        assert_ne!(l_txt.trim(), "1.");
+        assert_ne!(l_txt.trim(), "2.");
+    }
 }
 
 #[test]
@@ -165,17 +184,10 @@ fn test_tilde_code_fence_normalization_and_rendering() {
     assert!(lines > 0);
 
     let slice = cache.visible_slice(0, 10);
-    let text = slice
+    let text: String = slice
         .iter()
-        .map(|l| {
-            l.spans
-                .iter()
-                .map(|s| s.content.as_ref())
-                .collect::<Vec<_>>()
-                .join("")
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
     assert!(text.contains("┌─ rust"));
 }
 
@@ -315,17 +327,10 @@ fn test_tool_cards_lifecycle_and_multiple_tools_same_turn() {
 
     cache.ensure_visual_lines(80);
     let slice = cache.visible_slice(0, 100);
-    let text = slice
+    let text: String = slice
         .iter()
-        .map(|l| {
-            l.spans
-                .iter()
-                .map(|s| s.content.as_ref())
-                .collect::<Vec<_>>()
-                .join("")
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
 
     assert!(text.contains("[DONE] read_file"));
     assert!(text.contains("[ERROR] read_file"));
@@ -483,9 +488,5 @@ fn test_utf8_word_wrap_safety() {
     }
 
     let wrapped_1 = wrap_text_utf8("ação", 1);
-    assert_eq!(wrapped_1.len(), 4);
-    assert_eq!(wrapped_1[0], "a");
-    assert_eq!(wrapped_1[1], "ç");
-    assert_eq!(wrapped_1[2], "ã");
-    assert_eq!(wrapped_1[3], "o");
+    assert_eq!(wrapped_1, vec!["a", "ç", "ã", "o"]);
 }
