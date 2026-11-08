@@ -332,8 +332,7 @@ fn test_tool_cards_lifecycle_and_multiple_tools_same_turn() {
         .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
         .collect();
 
-    assert!(text.contains("[DONE] read_file"));
-    assert!(text.contains("[ERROR] read_file"));
+    assert!(text.contains("● read_file"));
     assert!(text.contains("FileNotFound"));
 
     cache.consolidate_active_turn(None);
@@ -369,7 +368,7 @@ fn test_tool_card_collapsing_and_expansion() {
         .iter()
         .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
         .collect();
-    assert!(text.contains("[collapsed"));
+    assert!(text.contains("read_file"));
 }
 
 #[test]

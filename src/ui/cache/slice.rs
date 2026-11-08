@@ -97,7 +97,11 @@ impl RenderCache {
                         }
                     }
                     _ => {
-                        if trimmed.starts_with("   ▎ ") {
+                        if trimmed.starts_with("│ ") {
+                            (trimmed.replacen("│ ", "", 1), 2)
+                        } else if trimmed.starts_with("● Error: ") {
+                            (trimmed.replacen("● Error: ", "", 1), 9)
+                        } else if trimmed.starts_with("   ▎ ") {
                             (trimmed.replacen("   ▎ ", "", 1), 5)
                         } else if trimmed.starts_with("   ! ") {
                             (trimmed.replacen("   ! ", "", 1), 5)
@@ -173,8 +177,12 @@ impl RenderCache {
 
 fn is_structural_metadata(trimmed: &str, stripped: &str) -> bool {
     trimmed.starts_with("▣ ")
+        || stripped.starts_with("+ Thought")
+        || stripped.starts_with("- Thought")
         || stripped.starts_with("▸ Thought")
         || stripped == "▾ Thought"
+        || stripped.starts_with("● ")
+        || stripped.starts_with("◌ ")
         || stripped.contains("[RUNNING]")
         || stripped.contains("[DONE]")
         || stripped.contains("[ERROR]")

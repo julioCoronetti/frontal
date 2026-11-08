@@ -162,7 +162,6 @@ impl App {
                 let spinner =
                     SPINNER_FRAMES[(self.spinner_tick as usize / 4) % SPINNER_FRAMES.len()];
                 visible_lines.push(Line::from(vec![
-                    Span::raw("   "),
                     Span::styled(
                         format!("{} ", spinner),
                         Style::default()
@@ -180,7 +179,6 @@ impl App {
 
             if queued_count > 0 {
                 visible_lines.push(Line::from(vec![
-                    Span::raw("   "),
                     Span::styled("⏳ ", Style::default().fg(ACCENT_PRIMARY)),
                     Span::styled(
                         format!("Queued ({} pending)...", queued_count),
@@ -281,12 +279,11 @@ impl App {
         }
 
         let model_name = self.active_model_name();
-        let mode_name = self.active_mode_name();
         let effort_name = self.active_effort_name();
         let input_title = if model_name.ends_with(&format!("-{}", effort_name)) {
-            format!(" Input [{}] · {} ", mode_name, model_name)
+            format!(" Input · {} ", model_name)
         } else {
-            format!(" Input [{}] · {} ({}) ", mode_name, model_name, effort_name)
+            format!(" Input · {} ({}) ", model_name, effort_name)
         };
         let display_content = self.editor.text();
         let (cur_line, cur_col) = self.editor.cursor_coordinates();

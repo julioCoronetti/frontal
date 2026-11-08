@@ -218,7 +218,7 @@ fn test_opencode_visual_layout_and_symmetry() {
     assert!(rendered_text.contains("Ctrl+P: Palette"));
     assert!(!rendered_text.contains("#hex"));
     assert!(!rendered_text.contains("/model"));
-    assert!(rendered_text.contains("▣ auto · gemini-4-argon-high · 1.5s · 200.0 tok/s"));
+    assert!(rendered_text.contains("▣ gemini-4-argon-high · 1.5s · 200.0 tok/s"));
 
     let mut found_user_bg = false;
     for y in 0..buf.area.height {

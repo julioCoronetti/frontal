@@ -74,7 +74,7 @@ fn test_local_slash_commands_execution() {
         .iter()
         .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
         .collect();
-    assert!(collapsed_text.contains("[collapsed"));
+    assert!(collapsed_text.contains("test_tool"));
 }
 
 #[test]

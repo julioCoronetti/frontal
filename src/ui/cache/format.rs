@@ -6,7 +6,7 @@ use crate::ui::cache::{BlockKind, CachedBlockLines, MessageBlock, RenderCache};
 use crate::ui::markdown::{
     parse_markdown_segments, render_markdown_to_lines, render_segments_to_lines,
 };
-use crate::ui::theme::{ACCENT_PRIMARY, ACCENT_RUBY, BG_USER_CONTAINER, TEXT_MUTED, TEXT_PRIMARY};
+use crate::ui::theme::{ACCENT_PRIMARY, BG_USER_CONTAINER, TEXT_MUTED, TEXT_PRIMARY};
 
 pub fn sanitize_terminal_line(line: &str) -> String {
     let mut raw = line.trim_end_matches('\r');
@@ -166,7 +166,7 @@ impl RenderCache {
                 result.extend(lines);
                 if block.consolidated {
                     if let Some(meta) = &block.turn_meta {
-                        let mut meta_parts = vec![format!("▣ {} · {}", meta.mode, meta.model)];
+                        let mut meta_parts = vec![format!("▣ {}", meta.model)];
                         if let Some(d) = meta.duration_seconds {
                             if d > 0.0 {
                                 meta_parts.push(format!("{:.1}s", d));
@@ -188,28 +188,19 @@ impl RenderCache {
             }
             BlockKind::Thought => {
                 if block.collapsed {
-                    let line_count = block.content.lines().count().max(1);
-                    result.push(Line::from(vec![
-                        Span::raw("   "),
-                        Span::styled(
-                            format!("▸ Thought [collapsed - {} lines]", line_count),
-                            Style::default()
-                                .fg(TEXT_MUTED)
-                                .add_modifier(Modifier::ITALIC),
-                        ),
-                    ]));
+                    result.push(Line::from(vec![Span::styled(
+                        "+ Thought",
+                        Style::default().fg(Color::Yellow),
+                    )]));
                 } else {
-                    result.push(Line::from(vec![
-                        Span::raw("   "),
-                        Span::styled(
-                            "▾ Thought",
-                            Style::default().fg(TEXT_MUTED).add_modifier(Modifier::BOLD),
-                        ),
-                    ]));
-                    let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(8) as usize);
+                    result.push(Line::from(vec![Span::styled(
+                        "- Thought",
+                        Style::default().fg(Color::Yellow),
+                    )]));
+                    let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
                     for row in wrapped {
                         result.push(Line::from(vec![
-                            Span::styled("   ▎ ", Style::default().fg(ACCENT_RUBY)),
+                            Span::styled("│ ", Style::default().fg(TEXT_MUTED)),
                             Span::styled(
                                 row,
                                 Style::default()
@@ -221,29 +212,6 @@ impl RenderCache {
                 }
             }
             BlockKind::Tool { name, state } => {
-                let (state_badge, state_style) = match state {
-                    StepState::Active => (
-                        "[RUNNING]",
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    StepState::Done => (
-                        "[DONE]",
-                        Style::default()
-                            .fg(Color::Green)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    StepState::Error => (
-                        "[ERROR]",
-                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                    ),
-                    StepState::Other => (
-                        "[PENDING]",
-                        Style::default().fg(TEXT_MUTED).add_modifier(Modifier::BOLD),
-                    ),
-                };
-
                 let max_args_len = (width as usize).saturating_sub(name.chars().count() + 25);
                 let clean_args = block
                     .tool_args
@@ -264,43 +232,77 @@ impl RenderCache {
                     format!(" ({})", clean_args)
                 };
 
-                if block.collapsed {
-                    let line_count = if block.content.trim().is_empty() {
-                        0
-                    } else {
-                        block.content.lines().count()
-                    };
-                    let header = format!(
-                        "   ▶ {} {}{} [collapsed · {} lines]",
-                        state_badge, name, clamped_args, line_count
-                    );
-                    result.push(Line::from(vec![Span::styled(header, state_style)]));
-                } else {
-                    let header = format!("   ▼ {} {}{}", state_badge, name, clamped_args);
-                    result.push(Line::from(vec![Span::styled(header, state_style)]));
-
-                    if !block.content.is_empty() {
-                        let wrapped =
-                            wrap_text_utf8(&block.content, width.saturating_sub(8) as usize);
-                        for row in wrapped {
-                            let text_style = if matches!(state, StepState::Error) {
-                                Style::default().fg(Color::LightRed)
-                            } else {
-                                Style::default().fg(TEXT_MUTED)
-                            };
-                            result.push(Line::from(vec![
-                                Span::styled("     ", Style::default()),
-                                Span::styled(row, text_style),
-                            ]));
+                let mut header_spans = Vec::new();
+                match state {
+                    StepState::Active => {
+                        header_spans.push(Span::styled("● ", Style::default().fg(Color::Yellow)));
+                        header_spans
+                            .push(Span::styled("Running ", Style::default().fg(TEXT_MUTED)));
+                        header_spans.push(Span::styled(
+                            name.clone(),
+                            Style::default().fg(TEXT_PRIMARY),
+                        ));
+                        header_spans.push(Span::styled(
+                            format!("{}...", clamped_args),
+                            Style::default().fg(TEXT_MUTED),
+                        ));
+                    }
+                    StepState::Done => {
+                        header_spans.push(Span::styled("● ", Style::default().fg(Color::Green)));
+                        header_spans.push(Span::styled(
+                            name.clone(),
+                            Style::default().fg(TEXT_PRIMARY),
+                        ));
+                        if !clamped_args.is_empty() {
+                            header_spans
+                                .push(Span::styled(clamped_args, Style::default().fg(TEXT_MUTED)));
                         }
+                    }
+                    StepState::Error => {
+                        header_spans.push(Span::styled("● ", Style::default().fg(Color::Red)));
+                        header_spans.push(Span::styled(
+                            name.clone(),
+                            Style::default().fg(TEXT_PRIMARY),
+                        ));
+                        if !clamped_args.is_empty() {
+                            header_spans
+                                .push(Span::styled(clamped_args, Style::default().fg(TEXT_MUTED)));
+                        }
+                    }
+                    StepState::Other => {
+                        header_spans.push(Span::styled("● ", Style::default().fg(TEXT_MUTED)));
+                        header_spans.push(Span::styled(
+                            name.clone(),
+                            Style::default().fg(TEXT_PRIMARY),
+                        ));
+                        if !clamped_args.is_empty() {
+                            header_spans
+                                .push(Span::styled(clamped_args, Style::default().fg(TEXT_MUTED)));
+                        }
+                    }
+                }
+                result.push(Line::from(header_spans));
+
+                if !block.collapsed && !block.content.is_empty() {
+                    let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
+                    for row in wrapped {
+                        let text_style = if matches!(state, StepState::Error) {
+                            Style::default().fg(Color::LightRed)
+                        } else {
+                            Style::default().fg(TEXT_MUTED)
+                        };
+                        result.push(Line::from(vec![
+                            Span::styled("│ ", Style::default().fg(TEXT_MUTED)),
+                            Span::styled(row, text_style),
+                        ]));
                     }
                 }
                 result.push(Line::from(""));
             }
             BlockKind::Error => {
-                let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(8) as usize);
+                let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
                 for (i, row) in wrapped.into_iter().enumerate() {
-                    let prefix = if i == 0 { "   ! " } else { "     " };
+                    let prefix = if i == 0 { "● Error: " } else { "│ " };
                     result.push(Line::from(vec![
                         Span::styled(
                             prefix.to_string(),

@@ -92,8 +92,8 @@ fn test_clipboard_selection_no_padding_or_indent_pollution() {
 
     let total = cache.total_lines();
     assert!(total >= 7);
-    viewport.start_selection(total - 1, 5);
-    viewport.update_selection(total - 1, 31);
+    viewport.start_selection(total - 1, 2);
+    viewport.update_selection(total - 1, 28);
     let thought_selected = viewport.selected_text(&cache).unwrap();
     assert_eq!(thought_selected, "internal thought reasoning");
 }
@@ -373,9 +373,9 @@ fn test_selection_sanitization_filters_metadata_and_headers() {
     let extracted = viewport.selected_text(&cache).expect("should extract text");
     assert!(extracted.contains("primeira linha"));
     assert!(extracted.contains("file contents payload"));
-    assert!(!extracted.contains("▣ auto"));
+    assert!(!extracted.contains("▣ "));
     assert!(!extracted.contains("gemini-2.5-pro"));
-    assert!(!extracted.contains("[DONE]"));
+    assert!(!extracted.contains("read_file"));
     assert!(!extracted.starts_with('\n'));
     assert!(!extracted.ends_with('\n'));
 }
