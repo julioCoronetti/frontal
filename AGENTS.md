@@ -97,7 +97,7 @@
   - `tabs.rs`: Ciclo de vida de abas, streaming em segundo plano, contagem de tokens e isolamento de estado.
   - `modals.rs`: Pilha de modais, paleta de comandos, diff viewer integrado, hot-respawn e backdrop dimming overlay.
   - `model_effort.rs`: Seletor de modelo/esforço, normalização de catálogo e restauração de seleções.
-  - `select.rs`: Componente genérico DialogSelect, filtragem multitermo, navegação por teclado, scroll offset e viewport clipping.
+  - `select.rs`: Componente genérico DialogSelect, filtragem multitermo, navegação por teclado e mouse, scroll offset e viewport clipping.
 - `tests/domains/tui_integration/`: Testes particionados fim-a-fim (< 500 linhas por arquivo, 20 testes):
   - `rendering.rs`: Layout visual OpenCode, spinner, cabeçalho/rodapé e dimensões adversariais de terminal.
   - `input_and_events.rs`: Comandos locais (`/quit`, `/clear`, `/help`, etc.), mouse routing e bracketed paste.
