@@ -1,4 +1,4 @@
-use crossterm::event::KeyEvent;
+use crossterm::event::{KeyEvent, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::Frame;
@@ -61,6 +61,29 @@ impl Modal {
                 SelectResult::None => ModalAction::None,
             },
             Self::DangerConfirmation(m) => m.handle_key(key),
+        }
+    }
+
+    pub fn handle_mouse(&mut self, mouse: MouseEvent) -> ModalAction {
+        match self {
+            Self::Select(m) => match m.handle_mouse(mouse) {
+                SelectResult::Selected(item) => item.value.clone(),
+                SelectResult::Cancel => ModalAction::Close,
+                SelectResult::None => ModalAction::None,
+            },
+            Self::CommandPalette(m) => m.handle_mouse(mouse),
+            Self::Diff(m) => match mouse.kind {
+                MouseEventKind::ScrollUp => {
+                    m.viewer.scroll_up(3);
+                    ModalAction::None
+                }
+                MouseEventKind::ScrollDown => {
+                    m.viewer.scroll_down(3);
+                    ModalAction::None
+                }
+                _ => ModalAction::None,
+            },
+            _ => ModalAction::None,
         }
     }
 
@@ -135,6 +158,18 @@ impl ModalStack {
     pub fn handle_key_event(&mut self, key: KeyEvent) -> ModalAction {
         if let Some(top) = self.stack.last_mut() {
             let act = top.handle_key(key);
+            if act == ModalAction::Close {
+                self.stack.pop();
+            }
+            act
+        } else {
+            ModalAction::None
+        }
+    }
+
+    pub fn handle_mouse_event(&mut self, mouse: MouseEvent) -> ModalAction {
+        if let Some(top) = self.stack.last_mut() {
+            let act = top.handle_mouse(mouse);
             if act == ModalAction::Close {
                 self.stack.pop();
             }

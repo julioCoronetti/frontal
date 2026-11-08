@@ -1,4 +1,4 @@
-use crossterm::event::KeyEvent;
+use crossterm::event::{KeyEvent, MouseEvent};
 use ratatui::layout::Rect;
 use ratatui::Frame;
 
@@ -113,6 +113,19 @@ impl CommandPaletteModal {
         self.select.query = self.query.clone();
         self.select.selected_idx = self.selected_idx;
         let res = self.select.handle_key(key);
+        self.query = self.select.query.clone();
+        self.selected_idx = self.select.selected_idx;
+        match res {
+            SelectResult::Selected(item) => ModalAction::ExecuteCommand(item.value),
+            SelectResult::Cancel => ModalAction::Close,
+            SelectResult::None => ModalAction::None,
+        }
+    }
+
+    pub fn handle_mouse(&mut self, mouse: MouseEvent) -> ModalAction {
+        self.select.query = self.query.clone();
+        self.select.selected_idx = self.selected_idx;
+        let res = self.select.handle_mouse(mouse);
         self.query = self.select.query.clone();
         self.selected_idx = self.select.selected_idx;
         match res {

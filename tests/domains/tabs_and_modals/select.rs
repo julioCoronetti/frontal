@@ -434,6 +434,31 @@ fn test_relative_time_and_resume_dialog_rendering() {
     assert!(!rendered.contains("[gemini-3.8-flash-high]"));
     assert!(!rendered.contains(" aut"));
 
+    let click_cat = crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
+        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        column: 20,
+        row: 12,
+        modifiers: crossterm::event::KeyModifiers::NONE,
+    });
+    assert_eq!(app.handle_terminal_event(click_cat), None);
+    assert_eq!(app.modals.stack.len(), 1);
+
+    let click_past = crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
+        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        column: 20,
+        row: 13,
+        modifiers: crossterm::event::KeyModifiers::NONE,
+    });
+    let act_past = app.handle_terminal_event(click_past);
+    assert!(matches!(
+        act_past,
+        Some(frontal::ui::app::AppAction::RespawnSession {
+            conversation_id: Some(ref c),
+            ..
+        }) if c == "conv-vis-1"
+    ));
+    assert!(app.modals.is_empty());
+
     let (mut app_long, _) = crate::common::test_app();
     app_long
         .history

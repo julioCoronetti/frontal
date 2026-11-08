@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -69,6 +69,7 @@ pub struct DialogSelect<T = String> {
     pub items: Vec<SelectItem<T>>,
     pub selected_idx: usize,
     pub scroll_offset: Cell<usize>,
+    pub last_area: Cell<Rect>,
 }
 
 impl<T: Clone> DialogSelect<T> {
@@ -80,6 +81,7 @@ impl<T: Clone> DialogSelect<T> {
             items,
             selected_idx: 0,
             scroll_offset: Cell::new(0),
+            last_area: Cell::new(Rect::default()),
         }
     }
 
@@ -206,7 +208,72 @@ impl<T: Clone> DialogSelect<T> {
         }
     }
 
+    fn build_visual_rows(&self, filtered: &[usize]) -> Vec<(bool, String, usize)> {
+        let mut rows = Vec::new();
+        let mut last_category: Option<&str> = None;
+        for (filtered_pos, &item_idx) in filtered.iter().enumerate() {
+            let item = &self.items[item_idx];
+            if let Some(ref cat) = item.category {
+                if last_category != Some(cat.as_str()) {
+                    rows.push((true, cat.clone(), filtered_pos));
+                    last_category = Some(cat.as_str());
+                }
+            }
+            rows.push((false, String::new(), filtered_pos));
+        }
+        rows
+    }
+
+    pub fn handle_mouse(&mut self, mouse: MouseEvent) -> SelectResult<T> {
+        let filtered = self.filtered_indices();
+        match mouse.kind {
+            MouseEventKind::ScrollUp => {
+                self.selected_idx = self.selected_idx.saturating_sub(1);
+                SelectResult::None
+            }
+            MouseEventKind::ScrollDown => {
+                if !filtered.is_empty() {
+                    self.selected_idx = (self.selected_idx + 1).min(filtered.len() - 1);
+                }
+                SelectResult::None
+            }
+            MouseEventKind::Down(MouseButton::Left) => {
+                let area = self.last_area.get();
+                if area.width < 4 || area.height < 4 {
+                    return SelectResult::None;
+                }
+                if mouse.column < area.x
+                    || mouse.column >= area.x + area.width
+                    || mouse.row < area.y
+                    || mouse.row >= area.y + area.height
+                {
+                    return SelectResult::Cancel;
+                }
+                if mouse.row == area.y + 1 && mouse.column >= area.x + area.width.saturating_sub(6)
+                {
+                    return SelectResult::Cancel;
+                }
+                if mouse.column > area.x
+                    && mouse.column < area.x + area.width - 1
+                    && mouse.row >= area.y + 6
+                    && mouse.row < area.y + area.height - 1
+                {
+                    let row_offset = (mouse.row - (area.y + 6)) as usize;
+                    let row_idx = self.scroll_offset.get() + row_offset;
+                    let rows = self.build_visual_rows(&filtered);
+                    if let Some(&(false, _, filtered_pos)) = rows.get(row_idx) {
+                        self.selected_idx = filtered_pos;
+                        return SelectResult::Selected(self.items[filtered[filtered_pos]].clone());
+                    }
+                }
+                SelectResult::None
+            }
+            _ => SelectResult::None,
+        }
+    }
+
     pub fn render(&self, frame: &mut Frame, area: Rect) {
+        self.last_area.set(area);
         if area.width < 4 || area.height < 4 {
             frame.render_widget(Clear, area);
             return;
@@ -270,18 +337,7 @@ impl<T: Clone> DialogSelect<T> {
         )]));
         lines.push(Line::raw(""));
 
-        let mut rows = Vec::new();
-        let mut last_category: Option<&str> = None;
-        for (filtered_pos, &item_idx) in filtered.iter().enumerate() {
-            let item = &self.items[item_idx];
-            if let Some(ref cat) = item.category {
-                if last_category != Some(cat.as_str()) {
-                    rows.push((true, cat.clone(), filtered_pos));
-                    last_category = Some(cat.as_str());
-                }
-            }
-            rows.push((false, String::new(), filtered_pos));
-        }
+        let rows = self.build_visual_rows(&filtered);
 
         let selected_row_idx = rows
             .iter()
