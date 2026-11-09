@@ -1,8 +1,14 @@
 use rusqlite::{params, Connection};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::mpsc::{channel, Sender};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+pub mod agent;
+pub mod transcript;
+
+pub use agent::*;
+pub use transcript::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionRecord {
@@ -44,6 +50,7 @@ impl SessionRecord {
 pub enum HistoryCommand {
     Record(String),
     RecordSession(SessionRecord),
+    TouchSession { id: String, timestamp: i64 },
     RenameSession { id: String, title: String },
     Flush(Sender<()>),
 }
@@ -102,7 +109,10 @@ impl PromptHistory {
                                      mode = COALESCE(excluded.mode, sessions.mode),
                                      effort = COALESCE(excluded.effort, sessions.effort),
                                      title = COALESCE(sessions.title, excluded.title),
-                                     created_at = excluded.created_at",
+                                     created_at = CASE
+                                         WHEN excluded.created_at > 0 THEN excluded.created_at
+                                         ELSE sessions.created_at
+                                     END",
                                 params![
                                     record.id,
                                     record.conversation_id,
@@ -112,6 +122,12 @@ impl PromptHistory {
                                     record.title,
                                     record.created_at,
                                 ],
+                            );
+                        }
+                        HistoryCommand::TouchSession { id, timestamp } => {
+                            let _ = bg_conn.execute(
+                                "UPDATE sessions SET created_at = ?1 WHERE id = ?2 OR conversation_id = ?2",
+                                params![timestamp, id],
                             );
                         }
                         HistoryCommand::RenameSession { id, title } => {
@@ -298,18 +314,14 @@ impl PromptHistory {
         if record.id.trim().is_empty() {
             return;
         }
-        if record.created_at == 0 {
-            record.created_at = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or(Duration::ZERO)
-                .as_secs() as i64;
-        }
-        if let Some(pos) = self.sessions.iter().position(|s| {
+        let existing_pos = self.sessions.iter().position(|s| {
             s.id == record.id
                 || (record.conversation_id.is_some()
                     && s.conversation_id.is_some()
                     && s.conversation_id == record.conversation_id)
-        }) {
+        });
+
+        if let Some(pos) = existing_pos {
             let existing = &self.sessions[pos];
             record.id = existing.id.clone();
             if record.conversation_id.is_none() {
@@ -327,14 +339,54 @@ impl PromptHistory {
             if existing.title.is_some() {
                 record.title = existing.title.clone();
             }
+            if record.created_at <= 0 {
+                record.created_at = existing.created_at;
+            }
             self.sessions.remove(pos);
         }
-        self.sessions.insert(0, record.clone());
+
+        if record.created_at <= 0 {
+            if let Some(ref cid) = record.conversation_id {
+                if let Some(ts) = agent::query_agent_conversation_timestamp(cid) {
+                    record.created_at = ts;
+                }
+            }
+        }
+        if record.created_at <= 0 {
+            record.created_at = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::ZERO)
+                .as_secs() as i64;
+        }
+
+        self.sessions.push(record.clone());
+        self.sessions
+            .sort_by_key(|s| std::cmp::Reverse(s.created_at));
         if self.sessions.len() > 500 {
             self.sessions.truncate(500);
         }
         if let Some(ref tx) = self.write_tx {
             let _ = tx.send(HistoryCommand::RecordSession(record));
+        }
+    }
+
+    pub fn touch_session_timestamp(&mut self, id_or_conv: &str) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::ZERO)
+            .as_secs() as i64;
+        for s in &mut self.sessions {
+            if s.id == id_or_conv || s.conversation_id.as_deref() == Some(id_or_conv) {
+                s.created_at = now;
+            }
+        }
+        self.sessions
+            .sort_by_key(|s| std::cmp::Reverse(s.created_at));
+        if let Some(ref tx) = self.write_tx {
+            let _ = tx.send(HistoryCommand::TouchSession {
+                id: id_or_conv.to_string(),
+                timestamp: now,
+            });
         }
     }
 
@@ -376,114 +428,4 @@ impl PromptHistory {
             .cloned()
             .collect()
     }
-}
-
-pub fn clean_session_title(raw: &str) -> String {
-    let first = raw.lines().next().unwrap_or(raw).trim();
-    let preambles = [
-        "cara seguinte",
-        "seguinte cara",
-        "seguinte,",
-        "seguinte",
-        "por favor,",
-        "por favor",
-        "leia esse card:",
-        "leia:",
-    ];
-    let mut s = first;
-    for pre in &preambles {
-        if s.to_lowercase().starts_with(pre) {
-            s = s[pre.len()..].trim_start_matches([' ', ':', ',', '-']);
-            break;
-        }
-    }
-    if s.is_empty() {
-        return String::from("New Session");
-    }
-    let clamped: String = s.chars().take(40).collect();
-    let mut chars = clamped.chars();
-    match chars.next() {
-        Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
-        None => String::from("New Session"),
-    }
-}
-
-pub fn query_agent_conversation_title(conv_id: &str) -> Option<String> {
-    let home = std::env::var("HOME").ok()?;
-    let db_path = PathBuf::from(home).join(".gemini/antigravity-cli/conversation_summaries.db");
-    let conn =
-        Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
-    let mut stmt = conn
-        .prepare("SELECT title FROM conversation_summaries WHERE conversation_id = ?1")
-        .ok()?;
-    let mut rows = stmt.query(params![conv_id]).ok()?;
-    if let Some(row) = rows.next().ok()? {
-        let title: String = row.get(0).ok()?;
-        let trimmed = title.trim();
-        if !trimmed.is_empty() {
-            return Some(trimmed.to_string());
-        }
-    }
-    None
-}
-
-pub fn update_agent_conversation_title(conv_id: &str, new_title: &str) -> Option<()> {
-    let home = std::env::var("HOME").ok()?;
-    let db_path = PathBuf::from(home).join(".gemini/antigravity-cli/conversation_summaries.db");
-    let conn =
-        Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE).ok()?;
-    let _ = conn.execute(
-        "UPDATE conversation_summaries SET title = ?1 WHERE conversation_id = ?2",
-        params![new_title, conv_id],
-    );
-    Some(())
-}
-
-pub fn load_agent_conversations() -> Vec<SessionRecord> {
-    let home = match std::env::var("HOME") {
-        Ok(h) => h,
-        Err(_) => return Vec::new(),
-    };
-    let db_path = PathBuf::from(home).join(".gemini/antigravity-cli/conversation_summaries.db");
-    let conn =
-        match Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY) {
-            Ok(c) => c,
-            Err(_) => return Vec::new(),
-        };
-    let mut stmt = match conn.prepare(
-        "SELECT conversation_id, title, preview, CAST(strftime('%s', last_modified_time) AS INTEGER)
-         FROM conversation_summaries WHERE conversation_id != '' ORDER BY last_modified_time DESC LIMIT 100",
-    ) {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
-    };
-    let mut records = Vec::new();
-    if let Ok(mut rows) = stmt.query([]) {
-        while let Ok(Some(row)) = rows.next() {
-            let conv_id: String = match row.get(0) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-            let title: String = row.get(1).unwrap_or_default();
-            let preview: String = row.get(2).unwrap_or_default();
-            let created_at: i64 = row.get(3).unwrap_or(0);
-            let final_title = if !title.trim().is_empty() {
-                Some(title.trim().to_string())
-            } else if !preview.trim().is_empty() {
-                Some(clean_session_title(&preview))
-            } else {
-                None
-            };
-            records.push(SessionRecord {
-                id: format!("ext-{}", conv_id),
-                conversation_id: Some(conv_id),
-                model: None,
-                mode: None,
-                effort: None,
-                title: final_title,
-                created_at,
-            });
-        }
-    }
-    records
 }
