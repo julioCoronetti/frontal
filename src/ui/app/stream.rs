@@ -109,6 +109,9 @@ impl App {
                             .and_then(|r| r.usage)
                             .or(self.last_turn_usage);
                         let tokens = usage.as_ref().map(|u| u.output_tokens);
+                        if let Some(ref u) = usage {
+                            self.accumulated_usage.accumulate(u);
+                        }
                         self.last_turn_usage = usage;
                         let conv_id = res.conversation_id.clone().or_else(|| {
                             res.result.as_ref().and_then(|r| r.conversation_id.clone())

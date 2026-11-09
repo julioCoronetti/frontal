@@ -15,6 +15,7 @@ pub struct TabState {
     pub has_unread: bool,
     pub turn_started_at: Option<std::time::Instant>,
     pub last_turn_usage: Option<TokenUsage>,
+    pub accumulated_usage: TokenUsage,
     pub pending_danger: Option<crate::security::DangerAssessment>,
     pub suspended_events: Vec<StreamEvent>,
     pub queued_prompts: std::collections::VecDeque<String>,
@@ -34,6 +35,7 @@ impl TabState {
             has_unread: false,
             turn_started_at: None,
             last_turn_usage: None,
+            accumulated_usage: TokenUsage::default(),
             pending_danger: None,
             suspended_events: Vec::new(),
             queued_prompts: std::collections::VecDeque::new(),
@@ -130,6 +132,9 @@ impl TabState {
                     .and_then(|r| r.usage)
                     .or(self.last_turn_usage);
                 let tokens = usage.as_ref().map(|u| u.output_tokens);
+                if let Some(ref u) = usage {
+                    self.accumulated_usage.accumulate(u);
+                }
                 self.last_turn_usage = usage;
                 let meta = crate::ui::cache::TurnMeta {
                     mode: mode.to_string(),

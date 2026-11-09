@@ -142,6 +142,49 @@ pub struct TokenUsage {
     pub total_tokens: u64,
 }
 
+impl TokenUsage {
+    pub fn effective_total(&self) -> u64 {
+        if self.total_tokens > 0 {
+            self.total_tokens
+        } else {
+            self.input_tokens
+                .saturating_add(self.output_tokens)
+                .saturating_add(self.thinking_tokens)
+                .saturating_add(self.cache_read_tokens)
+        }
+    }
+
+    pub fn accumulate(&mut self, other: &TokenUsage) {
+        self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
+        self.thinking_tokens = self.thinking_tokens.saturating_add(other.thinking_tokens);
+        self.cache_read_tokens = self
+            .cache_read_tokens
+            .saturating_add(other.cache_read_tokens);
+        self.total_tokens = self.total_tokens.saturating_add(other.effective_total());
+    }
+
+    pub fn cache_hit_percentage(&self) -> f64 {
+        let total_input = self.input_tokens.saturating_add(self.cache_read_tokens);
+        if total_input == 0 {
+            0.0
+        } else {
+            ((self.cache_read_tokens as f64 / total_input as f64) * 100.0).clamp(0.0, 100.0)
+        }
+    }
+}
+
+pub fn context_window_for_model(model: &str) -> u64 {
+    let lower = model.to_lowercase();
+    if lower.contains("gemini") {
+        1_000_000
+    } else if lower.contains("claude") {
+        200_000
+    } else {
+        128_000
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolInfo {
     #[serde(default)]
