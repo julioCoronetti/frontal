@@ -90,11 +90,13 @@ impl AutocompletePopover {
         let cmds = [
             ("/help", "Exibir ajuda de comandos"),
             ("/clear", "Limpar conversa ativa"),
+            ("/new", "Abrir nova sessao em aba"),
             ("/model", "Selecionar modelo e esforco"),
             ("/respawn", "Reiniciar sessao mantendo conversa"),
             ("/resume", "Retomar sessao anterior do historico"),
             ("/rename", "Renomear sessao ativa"),
             ("/diff", "Visualizar alteracoes locais (git diff)"),
+            ("/usage", "Exibir metricas de uso e tokens"),
             ("/interrupt", "Interromper execucao corrente"),
             ("/quit", "Sair do frontal"),
         ];

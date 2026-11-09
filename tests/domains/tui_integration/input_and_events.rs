@@ -23,6 +23,10 @@ fn test_local_slash_commands_execution() {
     assert_eq!(act, None);
     assert_eq!(app.cache.blocks_count(), 0);
 
+    app.editor.insert_str("/new");
+    let act = app.handle_terminal_event(enter.clone());
+    assert_eq!(act, Some(AppAction::NewTab));
+
     app.editor.insert_str("/help");
     let act = app.handle_terminal_event(enter.clone());
     assert_eq!(act, None);

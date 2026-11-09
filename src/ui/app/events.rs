@@ -277,11 +277,11 @@ impl App {
                                 self.dirty = true;
                                 return None;
                             }
-
                             self.last_turn_usage = None;
                             let active_id = self.active_session.clone();
                             self.session_manager.set_session_prompt(&active_id, &p);
                             self.sync_session_to_history(&active_id);
+                            self.history.touch_session_timestamp(active_id.as_str());
                             self.cache.push_user_message(&p);
                             self.viewport.scroll_to_bottom();
                             self.waiting_for_response = true;

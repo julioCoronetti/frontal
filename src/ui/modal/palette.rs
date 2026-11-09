@@ -65,6 +65,11 @@ impl CommandPaletteModal {
                 shortcut: "/diff".to_string(),
             },
             PaletteItem {
+                id: "view_usage".to_string(),
+                title: "View Token Usage & Telemetry".to_string(),
+                shortcut: "/usage".to_string(),
+            },
+            PaletteItem {
                 id: "clear".to_string(),
                 title: "Clear Conversation Viewport".to_string(),
                 shortcut: "/clear".to_string(),
