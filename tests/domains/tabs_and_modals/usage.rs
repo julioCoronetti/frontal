@@ -71,16 +71,17 @@ fn test_usage_modal_sections_and_offline_fallback() {
     let state = modal.state.lock().unwrap().clone();
     match state {
         UsageState::Ready(summary) => {
-            assert!(summary.plan.tier_name.contains("Antigravity"));
-            assert_eq!(summary.groups.len(), 3);
-            assert_eq!(summary.groups[0].name, "Gemini Models");
+            assert!(summary.plan.tier_name.contains("Google AI Pro"));
+            assert_eq!(summary.groups.len(), 4);
+            assert_eq!(summary.groups[0].name, "Gemini Flash Models");
             assert_eq!(summary.groups[0].buckets[0].name, "Gemini 3.8 Flash");
-            assert_eq!(summary.groups[0].buckets[1].name, "Gemini 4 Argon");
-            assert_eq!(summary.groups[1].name, "Claude Models");
-            assert_eq!(summary.groups[1].buckets[0].name, "Claude Sonnet 5.5");
-            assert_eq!(summary.groups[1].buckets[1].name, "Claude Opus 5.5");
-            assert_eq!(summary.groups[2].name, "Other Models");
-            assert_eq!(summary.groups[2].buckets[0].name, "GPT-OSS 120B");
+            assert_eq!(summary.groups[1].name, "Gemini Argon Models");
+            assert_eq!(summary.groups[1].buckets[0].name, "Gemini 4 Argon");
+            assert_eq!(summary.groups[2].name, "Claude Models");
+            assert_eq!(summary.groups[2].buckets[0].name, "Claude Sonnet 5.5");
+            assert_eq!(summary.groups[2].buckets[1].name, "Claude Opus 5.5");
+            assert_eq!(summary.groups[3].name, "Other Models");
+            assert_eq!(summary.groups[3].buckets[0].name, "GPT-OSS 120B");
             assert!(summary.credits.is_some());
         }
         _ => panic!("Expected UsageState::Ready in offline fallback"),
@@ -182,6 +183,7 @@ fn test_usage_modal_reset_time_formatting() {
 fn test_usage_modal_exhausted_bucket_and_rendering() {
     let summary = UsageSummary {
         plan: UsagePlanInfo {
+            account_email: None,
             tier_name: "Ultra Pro Max".to_string(),
             upgrade_url: None,
             manage_url: Some("https://example.com/manage".to_string()),
@@ -341,27 +343,30 @@ fn test_parse_available_models_maps_shared_pools_and_canonical_names() {
     });
 
     let groups = parse_available_models(&json).expect("should parse models");
-    assert_eq!(groups.len(), 3);
+    assert_eq!(groups.len(), 4);
 
-    assert_eq!(groups[0].name, "Gemini Models");
+    assert_eq!(groups[0].name, "Gemini Flash Models");
+    assert_eq!(groups[0].description, Some("5 hours limit".to_string()));
     assert_eq!(groups[0].buckets[0].name, "Gemini 3.8 Flash");
     assert_eq!(groups[0].buckets[0].remaining_pct, 72.5);
     assert!(groups[0].buckets[0].reset_label.starts_with("Resets in "));
     assert!(!groups[0].buckets[0].exhausted);
 
-    assert_eq!(groups[0].buckets[1].name, "Gemini 4 Argon");
-    assert_eq!(groups[0].buckets[1].remaining_pct, 72.5);
-    assert!(!groups[0].buckets[1].exhausted);
-
-    assert_eq!(groups[1].name, "Claude Models");
-    assert_eq!(groups[1].buckets[0].name, "Claude Sonnet 5.5");
+    assert_eq!(groups[1].name, "Gemini Argon Models");
+    assert_eq!(groups[1].description, Some("Weekly limit".to_string()));
+    assert_eq!(groups[1].buckets[0].name, "Gemini 4 Argon");
     assert_eq!(groups[1].buckets[0].remaining_pct, 100.0);
-    assert_eq!(groups[1].buckets[1].name, "Claude Opus 5.5");
-    assert_eq!(groups[1].buckets[1].remaining_pct, 100.0);
+    assert!(!groups[1].buckets[0].exhausted);
 
-    assert_eq!(groups[2].name, "Other Models");
-    assert_eq!(groups[2].buckets[0].name, "GPT-OSS 120B");
-    assert_eq!(groups[2].buckets[0].remaining_pct, 50.0);
+    assert_eq!(groups[2].name, "Claude Models");
+    assert_eq!(groups[2].buckets[0].name, "Claude Sonnet 5.5");
+    assert_eq!(groups[2].buckets[0].remaining_pct, 100.0);
+    assert_eq!(groups[2].buckets[1].name, "Claude Opus 5.5");
+    assert_eq!(groups[2].buckets[1].remaining_pct, 100.0);
+
+    assert_eq!(groups[3].name, "Other Models");
+    assert_eq!(groups[3].buckets[0].name, "GPT-OSS 120B");
+    assert_eq!(groups[3].buckets[0].remaining_pct, 50.0);
 }
 
 #[test]
@@ -388,9 +393,9 @@ fn test_parse_available_models_handles_exhausted_and_missing_fields() {
     assert_eq!(groups[0].buckets[0].remaining_pct, 0.0);
     assert!(groups[0].buckets[0].exhausted);
 
-    assert_eq!(groups[1].buckets[0].name, "Claude Sonnet 5.5");
-    assert_eq!(groups[1].buckets[0].remaining_pct, 0.0);
-    assert!(groups[1].buckets[0].exhausted);
+    assert_eq!(groups[2].buckets[0].name, "Claude Sonnet 5.5");
+    assert_eq!(groups[2].buckets[0].remaining_pct, 0.0);
+    assert!(groups[2].buckets[0].exhausted);
 }
 
 #[test]
@@ -403,15 +408,16 @@ fn test_build_usage_summary_rejects_empty_models_without_mock_fallback() {
         }
     });
 
-    assert!(build_usage_summary(Some(&plan), &empty_models).is_none());
+    assert!(build_usage_summary(Some(&plan), &empty_models, None).is_none());
 
-    let plan_info = parse_plan_info(Some(&plan));
+    let plan_info = parse_plan_info(Some(&plan), Some("test@example.com".to_string()));
     assert_eq!(plan_info.tier_name, "Antigravity Pro");
     assert_eq!(
-        plan_info.upgrade_url,
-        Some("https://example.com/upgrade".to_string())
+        plan_info.account_email,
+        Some("test@example.com".to_string())
     );
 
-    let default_plan = parse_plan_info(None);
-    assert_eq!(default_plan.tier_name, "Antigravity Subscriber");
+    let default_plan = parse_plan_info(None, None);
+    assert_eq!(default_plan.tier_name, "Google AI Pro");
+    assert_eq!(default_plan.account_email, None);
 }

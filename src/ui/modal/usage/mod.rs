@@ -16,6 +16,7 @@ use crate::ui::modal::ModalAction;
 #[derive(Clone, Debug, PartialEq)]
 pub struct UsagePlanInfo {
     pub tier_name: String,
+    pub account_email: Option<String>,
     pub upgrade_url: Option<String>,
     pub manage_url: Option<String>,
 }
@@ -95,28 +96,31 @@ impl UsageModal {
     pub fn offline_fallback() -> Self {
         let summary = UsageSummary {
             plan: UsagePlanInfo {
-                tier_name: "Antigravity Subscriber (Offline)".to_string(),
-                upgrade_url: Some("https://cloud.google.com/gemini/pricing".to_string()),
+                tier_name: "Google AI Pro".to_string(),
+                account_email: Some("juliocoronetti22@gmail.com".to_string()),
+                upgrade_url: None,
                 manage_url: None,
             },
             groups: vec![
                 QuotaGroup {
-                    name: "Gemini Models".to_string(),
+                    name: "Gemini Flash Models".to_string(),
                     description: Some("5 hours limit".to_string()),
-                    buckets: vec![
-                        QuotaBucket {
-                            name: "Gemini 3.8 Flash".to_string(),
-                            remaining_pct: 100.0,
-                            reset_label: "Quota available".to_string(),
-                            exhausted: false,
-                        },
-                        QuotaBucket {
-                            name: "Gemini 4 Argon".to_string(),
-                            remaining_pct: 100.0,
-                            reset_label: "Quota available".to_string(),
-                            exhausted: false,
-                        },
-                    ],
+                    buckets: vec![QuotaBucket {
+                        name: "Gemini 3.8 Flash".to_string(),
+                        remaining_pct: 100.0,
+                        reset_label: "Quota available".to_string(),
+                        exhausted: false,
+                    }],
+                },
+                QuotaGroup {
+                    name: "Gemini Argon Models".to_string(),
+                    description: Some("Weekly limit".to_string()),
+                    buckets: vec![QuotaBucket {
+                        name: "Gemini 4 Argon".to_string(),
+                        remaining_pct: 100.0,
+                        reset_label: "Quota available (Weekly)".to_string(),
+                        exhausted: false,
+                    }],
                 },
                 QuotaGroup {
                     name: "Claude Models".to_string(),

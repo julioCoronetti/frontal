@@ -121,7 +121,12 @@ pub fn fetch_quota_async(tx: Sender<UsageState>) {
             }
         };
 
-        let state = execute_fetch(&access_token);
+        let email = token_json
+            .get("id_token_email")
+            .and_then(|e| e.as_str())
+            .map(|s| s.to_string());
+
+        let state = execute_fetch(&access_token, email);
         let _ = tx.send(state);
     });
 }
@@ -183,7 +188,7 @@ fn post_endpoint(
     Ok(val)
 }
 
-fn execute_fetch(token: &str) -> UsageState {
+fn execute_fetch(token: &str, email: Option<String>) -> UsageState {
     let (plan_res, models_res) = std::thread::scope(|s| {
         let plan_handle = s.spawn(|| {
             post_endpoint(
@@ -215,16 +220,17 @@ fn execute_fetch(token: &str) -> UsageState {
     };
 
     let plan_val = plan_res.ok();
-    match build_usage_summary(plan_val.as_ref(), &models_val) {
+    match build_usage_summary(plan_val.as_ref(), &models_val, email) {
         Some(summary) => UsageState::Ready(summary),
         None => UsageState::Unavailable("Model quota details unavailable".to_string()),
     }
 }
 
-pub fn parse_plan_info(val: Option<&serde_json::Value>) -> UsagePlanInfo {
+pub fn parse_plan_info(val: Option<&serde_json::Value>, email: Option<String>) -> UsagePlanInfo {
     let default_plan = UsagePlanInfo {
-        tier_name: "Antigravity Subscriber".to_string(),
-        upgrade_url: Some("https://cloud.google.com/gemini/pricing".to_string()),
+        tier_name: "Google AI Pro".to_string(),
+        account_email: email.clone(),
+        upgrade_url: None,
         manage_url: None,
     };
 
@@ -233,35 +239,20 @@ pub fn parse_plan_info(val: Option<&serde_json::Value>) -> UsagePlanInfo {
         None => return default_plan,
     };
 
-    let tier_name = if let Some(tier) = val.get("currentTier").and_then(|t| t.get("name")) {
-        tier.as_str()
-            .unwrap_or("Antigravity Subscriber")
-            .to_string()
+    let tier_name = if let Some(paid) = val.get("paidTier").and_then(|p| p.get("name")) {
+        paid.as_str().unwrap_or("Google AI Pro").to_string()
+    } else if let Some(tier) = val.get("currentTier").and_then(|t| t.get("name")) {
+        tier.as_str().unwrap_or("Antigravity").to_string()
     } else if let Some(first_tier) = val
         .get("allowedTiers")
         .and_then(|a| a.as_array())
         .and_then(|arr| arr.first())
         .and_then(|t| t.get("name"))
     {
-        first_tier
-            .as_str()
-            .unwrap_or("Antigravity Subscriber")
-            .to_string()
+        first_tier.as_str().unwrap_or("Antigravity").to_string()
     } else {
-        "Antigravity Subscriber".to_string()
+        "Google AI Pro".to_string()
     };
-
-    let upgrade_url = val
-        .get("currentTier")
-        .and_then(|t| t.get("upgradeSubscriptionUri"))
-        .and_then(|u| u.as_str())
-        .map(|s| s.to_string())
-        .or_else(|| {
-            val.get("upgradeSubscriptionUri")
-                .and_then(|u| u.as_str())
-                .map(|s| s.to_string())
-        })
-        .or_else(|| Some("https://cloud.google.com/gemini/pricing".to_string()));
 
     let manage_url = val
         .get("manageSubscriptionUri")
@@ -270,7 +261,8 @@ pub fn parse_plan_info(val: Option<&serde_json::Value>) -> UsagePlanInfo {
 
     UsagePlanInfo {
         tier_name,
-        upgrade_url,
+        account_email: email,
+        upgrade_url: None,
         manage_url,
     }
 }
@@ -388,19 +380,10 @@ pub fn parse_available_models(val: &serde_json::Value) -> Option<Vec<QuotaGroup>
         s.contains("flash") && (r.provider.contains("GOOGLE") || s.contains("gemini"))
     });
 
-    let argon_raw = raws
-        .iter()
-        .find(|r| {
-            let s = format!("{} {}", r.id, r.name).to_lowercase();
-            s.contains("argon")
-        })
-        .or_else(|| {
-            raws.iter().find(|r| {
-                let s = format!("{} {}", r.id, r.name).to_lowercase();
-                s.contains("pro") && (r.provider.contains("GOOGLE") || s.contains("gemini"))
-            })
-        })
-        .or(flash_raw);
+    let argon_raw = raws.iter().find(|r| {
+        let s = format!("{} {}", r.id, r.name).to_lowercase();
+        s.contains("argon")
+    });
 
     let sonnet_raw = raws.iter().find(|r| {
         let s = format!("{} {}", r.id, r.name).to_lowercase();
@@ -422,13 +405,26 @@ pub fn parse_available_models(val: &serde_json::Value) -> Option<Vec<QuotaGroup>
         s.contains("gpt-oss") || s.contains("120b") || r.provider.contains("OPENAI")
     });
 
-    let gemini_group = QuotaGroup {
-        name: "Gemini Models".to_string(),
+    let flash_group = QuotaGroup {
+        name: "Gemini Flash Models".to_string(),
         description: Some("5 hours limit".to_string()),
-        buckets: vec![
-            make_bucket("Gemini 3.8 Flash", flash_raw),
-            make_bucket("Gemini 4 Argon", argon_raw),
-        ],
+        buckets: vec![make_bucket("Gemini 3.8 Flash", flash_raw)],
+    };
+
+    let argon_bucket = match argon_raw {
+        Some(r) => make_bucket("Gemini 4 Argon", Some(r)),
+        None => QuotaBucket {
+            name: "Gemini 4 Argon".to_string(),
+            remaining_pct: 100.0,
+            reset_label: "Quota available (Weekly)".to_string(),
+            exhausted: false,
+        },
+    };
+
+    let argon_group = QuotaGroup {
+        name: "Gemini Argon Models".to_string(),
+        description: Some("Weekly limit".to_string()),
+        buckets: vec![argon_bucket],
     };
 
     let claude_group = QuotaGroup {
@@ -446,15 +442,16 @@ pub fn parse_available_models(val: &serde_json::Value) -> Option<Vec<QuotaGroup>
         buckets: vec![make_bucket("GPT-OSS 120B", gpt_raw)],
     };
 
-    Some(vec![gemini_group, claude_group, other_group])
+    Some(vec![flash_group, argon_group, claude_group, other_group])
 }
 
 pub fn build_usage_summary(
     plan_json: Option<&serde_json::Value>,
     models_json: &serde_json::Value,
+    email: Option<String>,
 ) -> Option<UsageSummary> {
     let groups = parse_available_models(models_json)?;
-    let plan = parse_plan_info(plan_json);
+    let plan = parse_plan_info(plan_json, email);
 
     Some(UsageSummary {
         plan,

@@ -20,8 +20,9 @@ pub fn render_modal(modal: &UsageModal, frame: &mut Frame, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(BORDER_SUBTLE))
+        .padding(ratatui::widgets::Padding::new(2, 2, 1, 1))
         .title(Span::styled(
-            " Usage & Quota ",
+            " Antigravity CLI 1.5.3 · Usage & Quota ",
             Style::default()
                 .fg(ACCENT_HIGHLIGHT)
                 .add_modifier(Modifier::BOLD),
@@ -98,23 +99,30 @@ pub fn build_summary_lines(summary: &UsageSummary) -> Vec<Line<'static>> {
             .fg(ACCENT_PRIMARY)
             .add_modifier(Modifier::BOLD),
     )]));
-    lines.push(Line::from(vec![
-        Span::raw("  Your Plan: "),
-        Span::styled(
-            summary.plan.tier_name.clone(),
-            Style::default()
-                .fg(ACCENT_HIGHLIGHT)
-                .add_modifier(Modifier::BOLD),
-        ),
-    ]));
+    if let Some(ref email) = summary.plan.account_email {
+        lines.push(Line::from(vec![
+            Span::raw("  Account: "),
+            Span::styled(
+                format!("{} ({})", email, summary.plan.tier_name),
+                Style::default()
+                    .fg(ACCENT_HIGHLIGHT)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+    } else {
+        lines.push(Line::from(vec![
+            Span::raw("  Your Plan: "),
+            Span::styled(
+                summary.plan.tier_name.clone(),
+                Style::default()
+                    .fg(ACCENT_HIGHLIGHT)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+    }
     if let Some(ref m_url) = summary.plan.manage_url {
         lines.push(Line::from(vec![Span::styled(
             format!("  Manage at: {}", m_url),
-            Style::default().fg(TEXT_MUTED),
-        )]));
-    } else if let Some(ref u_url) = summary.plan.upgrade_url {
-        lines.push(Line::from(vec![Span::styled(
-            format!("  Upgrade at: {}", u_url),
             Style::default().fg(TEXT_MUTED),
         )]));
     }
