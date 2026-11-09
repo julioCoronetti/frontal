@@ -104,6 +104,13 @@ impl Modal {
         }
     }
 
+    pub fn is_loading(&self) -> bool {
+        match self {
+            Self::Usage(m) => m.is_loading(),
+            _ => false,
+        }
+    }
+
     pub fn popup_area(&self, screen: Rect) -> Rect {
         match self {
             Self::Diff(_) => ModalStack::centered_rect_bounded(85, 75, 50, 160, 14, 40, screen),
@@ -156,6 +163,10 @@ impl ModalStack {
 
     pub fn top_mut(&mut self) -> Option<&mut Modal> {
         self.stack.last_mut()
+    }
+
+    pub fn is_top_loading(&self) -> bool {
+        self.top().map(|m| m.is_loading()).unwrap_or(false)
     }
 
     pub fn top(&self) -> Option<&Modal> {

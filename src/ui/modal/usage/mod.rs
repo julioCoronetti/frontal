@@ -206,16 +206,26 @@ impl UsageModal {
         }
     }
 
-    pub fn poll_rx(&self) {
+    pub fn is_loading(&self) -> bool {
+        if let Ok(st) = self.state.lock() {
+            matches!(*st, UsageState::Loading)
+        } else {
+            false
+        }
+    }
+
+    pub fn poll_rx(&self) -> bool {
         if let Some(ref rx_lock) = self.rx {
             if let Ok(rx) = rx_lock.lock() {
                 if let Ok(new_state) = rx.try_recv() {
                     if let Ok(mut current) = self.state.lock() {
                         *current = new_state;
+                        return true;
                     }
                 }
             }
         }
+        false
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect) {

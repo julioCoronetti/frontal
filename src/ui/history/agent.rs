@@ -18,7 +18,10 @@ pub fn clean_session_title(raw: &str) -> String {
     ];
     let mut s = first;
     for pre in &preambles {
-        if s.to_lowercase().starts_with(pre) {
+        if s.get(..pre.len())
+            .map(|p| p.eq_ignore_ascii_case(pre))
+            .unwrap_or(false)
+        {
             s = s[pre.len()..].trim_start_matches([' ', ':', ',', '-']);
             break;
         }
@@ -50,7 +53,7 @@ pub fn query_agent_conversation_title(conv_id: &str) -> Option<String> {
     let db_path = PathBuf::from(home).join(".gemini/antigravity-cli/conversation_summaries.db");
     let conn =
         Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
-    let _ = conn.busy_timeout(std::time::Duration::from_millis(5000));
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(20));
     let mut stmt = conn
         .prepare("SELECT title, preview FROM conversation_summaries WHERE conversation_id = ?1")
         .ok()?;
@@ -75,7 +78,7 @@ pub fn query_agent_conversation_timestamp(conv_id: &str) -> Option<i64> {
     let db_path = PathBuf::from(home).join(".gemini/antigravity-cli/conversation_summaries.db");
     let conn =
         Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
-    let _ = conn.busy_timeout(std::time::Duration::from_millis(5000));
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(20));
     let mut stmt = conn
         .prepare("SELECT CAST(strftime('%s', last_modified_time) AS INTEGER) FROM conversation_summaries WHERE conversation_id = ?1")
         .ok()?;
@@ -94,7 +97,7 @@ pub fn update_agent_conversation_title(conv_id: &str, new_title: &str) -> Option
     let db_path = PathBuf::from(home).join(".gemini/antigravity-cli/conversation_summaries.db");
     let conn =
         Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE).ok()?;
-    let _ = conn.busy_timeout(std::time::Duration::from_millis(5000));
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(20));
     let _ = conn.execute(
         "UPDATE conversation_summaries SET title = ?1 WHERE conversation_id = ?2",
         params![new_title, conv_id],
@@ -113,7 +116,7 @@ pub fn load_agent_conversations() -> Vec<SessionRecord> {
             Ok(c) => c,
             Err(_) => return Vec::new(),
         };
-    let _ = conn.busy_timeout(std::time::Duration::from_millis(5000));
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(20));
     let mut stmt = match conn.prepare(
         "SELECT conversation_id, title, preview, CAST(strftime('%s', last_modified_time) AS INTEGER)
          FROM conversation_summaries WHERE conversation_id != '' ORDER BY last_modified_time DESC LIMIT 100",

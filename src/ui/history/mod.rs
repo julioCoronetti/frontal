@@ -345,7 +345,7 @@ impl PromptHistory {
             self.sessions.remove(pos);
         }
 
-        if record.created_at <= 0 {
+        if record.created_at <= 0 && !self.is_in_memory() {
             if let Some(ref cid) = record.conversation_id {
                 if let Some(ts) = agent::query_agent_conversation_timestamp(cid) {
                     record.created_at = ts;
