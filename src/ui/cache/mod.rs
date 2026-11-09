@@ -69,6 +69,84 @@ impl RenderCache {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.blocks.is_empty()
+    }
+
+    pub fn block_count(&self) -> usize {
+        self.blocks.len()
+    }
+
+    pub fn blocks(&self) -> &[MessageBlock] {
+        &self.blocks
+    }
+
+    pub fn push_historical_assistant_message(&mut self, text: &str) -> u64 {
+        let id = self.next_block_id;
+        self.next_block_id += 1;
+        self.blocks.push(MessageBlock {
+            id,
+            kind: BlockKind::Assistant,
+            content: text.to_string(),
+            revision: 1,
+            consolidated: true,
+            collapsed: false,
+            tool_args: None,
+            step_index: None,
+            code_highlighters: Vec::new(),
+            markdown_ast: None,
+            turn_meta: None,
+        });
+        id
+    }
+
+    pub fn push_historical_thought(&mut self, thought: &str) -> u64 {
+        let id = self.next_block_id;
+        self.next_block_id += 1;
+        self.blocks.push(MessageBlock {
+            id,
+            kind: BlockKind::Thought,
+            content: thought.to_string(),
+            revision: 1,
+            consolidated: true,
+            collapsed: true,
+            tool_args: None,
+            step_index: None,
+            code_highlighters: Vec::new(),
+            markdown_ast: None,
+            turn_meta: None,
+        });
+        id
+    }
+
+    pub fn push_historical_tool_call(
+        &mut self,
+        step_index: Option<u64>,
+        name: &str,
+        args: Option<&str>,
+        output: Option<&str>,
+    ) -> u64 {
+        let id = self.next_block_id;
+        self.next_block_id += 1;
+        self.blocks.push(MessageBlock {
+            id,
+            kind: BlockKind::Tool {
+                name: name.to_string(),
+                state: StepState::Done,
+            },
+            content: output.unwrap_or_default().to_string(),
+            revision: 1,
+            consolidated: true,
+            collapsed: true,
+            tool_args: args.map(|s| s.to_string()),
+            step_index,
+            code_highlighters: Vec::new(),
+            markdown_ast: None,
+            turn_meta: None,
+        });
+        id
+    }
+
     pub fn push_user_message(&mut self, text: &str) -> u64 {
         let id = self.next_block_id;
         self.next_block_id += 1;
