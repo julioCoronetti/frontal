@@ -111,7 +111,7 @@ impl UsageModal {
                             exhausted: false,
                         },
                         QuotaBucket {
-                            name: "Gemini 3.8 Pro".to_string(),
+                            name: "Gemini 4 Argon".to_string(),
                             remaining_pct: 100.0,
                             reset_label: "Quota available".to_string(),
                             exhausted: false,
@@ -121,8 +121,26 @@ impl UsageModal {
                 QuotaGroup {
                     name: "Claude Models".to_string(),
                     description: Some("5 hours limit".to_string()),
+                    buckets: vec![
+                        QuotaBucket {
+                            name: "Claude Sonnet 5.5".to_string(),
+                            remaining_pct: 100.0,
+                            reset_label: "Quota available".to_string(),
+                            exhausted: false,
+                        },
+                        QuotaBucket {
+                            name: "Claude Opus 5.5".to_string(),
+                            remaining_pct: 100.0,
+                            reset_label: "Quota available".to_string(),
+                            exhausted: false,
+                        },
+                    ],
+                },
+                QuotaGroup {
+                    name: "Other Models".to_string(),
+                    description: Some("5 hours limit".to_string()),
                     buckets: vec![QuotaBucket {
-                        name: "Claude Sonnet 3.5".to_string(),
+                        name: "GPT-OSS 120B".to_string(),
                         remaining_pct: 100.0,
                         reset_label: "Quota available".to_string(),
                         exhausted: false,

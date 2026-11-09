@@ -126,178 +126,117 @@ pub fn fetch_quota_async(tx: Sender<UsageState>) {
     });
 }
 
+fn post_endpoint(
+    url: &str,
+    token: &str,
+    user_agent: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    let mut cfg = format!(
+        "header = \"Authorization: Bearer {}\"\nheader = \"Content-Type: application/json\"\n",
+        token.trim()
+    );
+    if let Some(ua) = user_agent {
+        cfg.push_str(&format!("header = \"User-Agent: {}\"\n", ua));
+    }
+
+    let mut child = std::process::Command::new("curl")
+        .args([
+            "-sS",
+            "--connect-timeout",
+            "2",
+            "--max-time",
+            "4",
+            "-X",
+            "POST",
+            url,
+            "-d",
+            "{}",
+            "--config",
+            "-",
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("curl error: {}", e))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        let _ = stdin.write_all(cfg.as_bytes());
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("network error: {}", e))?;
+
+    if !output.status.success() {
+        return Err("request failed".to_string());
+    }
+
+    let val: serde_json::Value =
+        serde_json::from_slice(&output.stdout).map_err(|e| format!("parse error: {}", e))?;
+
+    if val.get("error").is_some() {
+        return Err("api error".to_string());
+    }
+
+    Ok(val)
+}
+
 fn execute_fetch(token: &str) -> UsageState {
-    let cfg = format!(
-        "header = \"Authorization: Bearer {}\"\nheader = \"Content-Type: application/json\"\n",
-        token
-    );
-
-    let mut child = match std::process::Command::new("curl")
-        .args([
-            "-sS",
-            "--connect-timeout",
-            "2",
-            "--max-time",
-            "4",
-            "-X",
-            "POST",
-            "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
-            "-d",
-            "{}",
-            "--config",
-            "-",
-        ])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => return UsageState::Unavailable(format!("curl error: {}", e)),
-    };
-
-    if let Some(mut stdin) = child.stdin.take() {
-        use std::io::Write;
-        let _ = stdin.write_all(cfg.as_bytes());
-    }
-
-    let output = match child.wait_with_output() {
-        Ok(o) => o,
-        Err(e) => return UsageState::Unavailable(format!("network error: {}", e)),
-    };
-
-    if output.status.success() {
-        if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
-            if val.get("error").is_none() {
-                if let Some(summary) = parse_quota_json(&val) {
-                    return UsageState::Ready(summary);
-                }
-            }
-        }
-    }
-
-    execute_code_assist_fallback(token)
-}
-
-fn execute_code_assist_fallback(token: &str) -> UsageState {
-    let cfg = format!(
-        "header = \"Authorization: Bearer {}\"\nheader = \"Content-Type: application/json\"\n",
-        token
-    );
-
-    let mut child = match std::process::Command::new("curl")
-        .args([
-            "-sS",
-            "--connect-timeout",
-            "2",
-            "--max-time",
-            "4",
-            "-X",
-            "POST",
-            "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
-            "-d",
-            "{}",
-            "--config",
-            "-",
-        ])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(_) => return UsageState::Unavailable("Cannot reach subscription server".to_string()),
-    };
-
-    if let Some(mut stdin) = child.stdin.take() {
-        use std::io::Write;
-        let _ = stdin.write_all(cfg.as_bytes());
-    }
-
-    let output = match child.wait_with_output() {
-        Ok(o) => o,
-        Err(_) => return UsageState::Unavailable("Failed to read server response".to_string()),
-    };
-
-    if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
-        if let Some(summary) = parse_code_assist_json(&val) {
-            return UsageState::Ready(summary);
-        }
-    }
-
-    UsageState::Unavailable("Subscription quota details unavailable".to_string())
-}
-
-pub fn parse_quota_json(val: &serde_json::Value) -> Option<UsageSummary> {
-    let raw_groups = val.get("groups")?.as_array()?;
-    let mut groups = Vec::new();
-
-    for rg in raw_groups {
-        let name = rg
-            .get("displayName")
-            .and_then(|d| d.as_str())
-            .unwrap_or("Models")
-            .to_string();
-        let description = rg
-            .get("description")
-            .and_then(|d| d.as_str())
-            .map(|s| s.to_string());
-        let mut buckets = Vec::new();
-
-        if let Some(raw_buckets) = rg.get("buckets").and_then(|b| b.as_array()) {
-            for rb in raw_buckets {
-                let b_name = rb
-                    .get("displayName")
-                    .and_then(|d| d.as_str())
-                    .unwrap_or("Model")
-                    .to_string();
-                let frac = rb
-                    .get("remainingFraction")
-                    .and_then(|f| f.as_f64())
-                    .unwrap_or(1.0);
-                let disabled = rb
-                    .get("disabled")
-                    .and_then(|b| b.as_bool())
-                    .unwrap_or(false);
-                let reset_label = if let Some(rt) = rb.get("resetTime").and_then(|t| t.as_str()) {
-                    format_reset_time(rt)
-                } else {
-                    "Resets periodically".to_string()
-                };
-
-                buckets.push(QuotaBucket {
-                    name: b_name,
-                    remaining_pct: frac * 100.0,
-                    reset_label,
-                    exhausted: disabled || frac <= 0.0,
-                });
-            }
-        }
-
-        groups.push(QuotaGroup {
-            name,
-            description,
-            buckets,
+    let (plan_res, models_res) = std::thread::scope(|s| {
+        let plan_handle = s.spawn(|| {
+            post_endpoint(
+                "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+                token,
+                Some("Antigravity/1.5.3"),
+            )
         });
-    }
+        let models_handle = s.spawn(|| {
+            post_endpoint(
+                "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+                token,
+                Some("Antigravity/1.5.3"),
+            )
+        });
+        (
+            plan_handle
+                .join()
+                .unwrap_or(Err("plan thread failed".to_string())),
+            models_handle
+                .join()
+                .unwrap_or(Err("models thread failed".to_string())),
+        )
+    });
 
-    Some(UsageSummary {
-        plan: UsagePlanInfo {
-            tier_name: "Antigravity Subscriber".to_string(),
-            upgrade_url: Some("https://cloud.google.com/gemini/pricing".to_string()),
-            manage_url: None,
-        },
-        groups,
-        credits: Some(CreditInfo {
-            available: Some("$0.00".to_string()),
-            overages: Some("$0.00".to_string()),
-        }),
-    })
+    let models_val = match models_res {
+        Ok(v) => v,
+        Err(_) => return UsageState::Unavailable("Failed to fetch model quota".to_string()),
+    };
+
+    let plan_val = plan_res.ok();
+    match build_usage_summary(plan_val.as_ref(), &models_val) {
+        Some(summary) => UsageState::Ready(summary),
+        None => UsageState::Unavailable("Model quota details unavailable".to_string()),
+    }
 }
 
-pub fn parse_code_assist_json(val: &serde_json::Value) -> Option<UsageSummary> {
+pub fn parse_plan_info(val: Option<&serde_json::Value>) -> UsagePlanInfo {
+    let default_plan = UsagePlanInfo {
+        tier_name: "Antigravity Subscriber".to_string(),
+        upgrade_url: Some("https://cloud.google.com/gemini/pricing".to_string()),
+        manage_url: None,
+    };
+
+    let val = match val {
+        Some(v) => v,
+        None => return default_plan,
+    };
+
     let tier_name = if let Some(tier) = val.get("currentTier").and_then(|t| t.get("name")) {
-        tier.as_str().unwrap_or("Antigravity Tier").to_string()
+        tier.as_str()
+            .unwrap_or("Antigravity Subscriber")
+            .to_string()
     } else if let Some(first_tier) = val
         .get("allowedTiers")
         .and_then(|a| a.as_array())
@@ -306,59 +245,219 @@ pub fn parse_code_assist_json(val: &serde_json::Value) -> Option<UsageSummary> {
     {
         first_tier
             .as_str()
-            .unwrap_or("Antigravity Tier")
+            .unwrap_or("Antigravity Subscriber")
             .to_string()
     } else {
-        "Gemini Code Assist".to_string()
+        "Antigravity Subscriber".to_string()
     };
 
     let upgrade_url = val
-        .get("upgradeSubscriptionUri")
+        .get("currentTier")
+        .and_then(|t| t.get("upgradeSubscriptionUri"))
         .and_then(|u| u.as_str())
         .map(|s| s.to_string())
+        .or_else(|| {
+            val.get("upgradeSubscriptionUri")
+                .and_then(|u| u.as_str())
+                .map(|s| s.to_string())
+        })
         .or_else(|| Some("https://cloud.google.com/gemini/pricing".to_string()));
+
     let manage_url = val
         .get("manageSubscriptionUri")
         .and_then(|m| m.as_str())
         .map(|s| s.to_string());
 
-    let groups = vec![
-        QuotaGroup {
-            name: "Gemini Models".to_string(),
-            description: Some("5 hours limit".to_string()),
-            buckets: vec![
-                QuotaBucket {
-                    name: "Gemini 3.8 Flash".to_string(),
-                    remaining_pct: 100.0,
-                    reset_label: "Quota available".to_string(),
-                    exhausted: false,
-                },
-                QuotaBucket {
-                    name: "Gemini 3.8 Pro".to_string(),
-                    remaining_pct: 100.0,
-                    reset_label: "Quota available".to_string(),
-                    exhausted: false,
-                },
-            ],
+    UsagePlanInfo {
+        tier_name,
+        upgrade_url,
+        manage_url,
+    }
+}
+
+#[derive(Clone, Debug)]
+struct RawQuota {
+    id: String,
+    name: String,
+    provider: String,
+    remaining_fraction: Option<f64>,
+    reset_time: Option<String>,
+    disabled: bool,
+}
+
+fn extract_raw_quotas(val: &serde_json::Value) -> Vec<RawQuota> {
+    let mut results = Vec::new();
+
+    let parse_entry = |key: &str, item: &serde_json::Value| -> Option<RawQuota> {
+        let name = item
+            .get("displayName")
+            .and_then(|d| d.as_str())
+            .unwrap_or(key)
+            .to_string();
+        let provider = item
+            .get("modelProvider")
+            .and_then(|p| p.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let quota_val = item.get("quotaInfo").unwrap_or(item);
+        let remaining_fraction = quota_val.get("remainingFraction").and_then(|f| f.as_f64());
+        let reset_time = quota_val
+            .get("resetTime")
+            .and_then(|r| r.as_str())
+            .map(|s| s.to_string());
+        let disabled = item
+            .get("disabled")
+            .and_then(|d| d.as_bool())
+            .unwrap_or(false)
+            || quota_val
+                .get("isExhausted")
+                .and_then(|e| e.as_bool())
+                .unwrap_or(false);
+
+        Some(RawQuota {
+            id: key.to_string(),
+            name,
+            provider,
+            remaining_fraction,
+            reset_time,
+            disabled,
+        })
+    };
+
+    if let Some(obj) = val.get("models").and_then(|m| m.as_object()) {
+        for (k, v) in obj {
+            if let Some(q) = parse_entry(k, v) {
+                results.push(q);
+            }
+        }
+    } else if let Some(arr) = val.get("models").and_then(|m| m.as_array()) {
+        for v in arr {
+            let key = v
+                .get("model")
+                .or_else(|| v.get("id"))
+                .and_then(|s| s.as_str())
+                .unwrap_or("");
+            if let Some(q) = parse_entry(key, v) {
+                results.push(q);
+            }
+        }
+    }
+
+    results
+}
+
+fn make_bucket(name: &str, raw: Option<&RawQuota>) -> QuotaBucket {
+    match raw {
+        Some(r) => {
+            let frac = r
+                .remaining_fraction
+                .unwrap_or(if r.disabled { 0.0 } else { 1.0 });
+            let exhausted = r.disabled || frac <= 0.0;
+            let reset_label = if let Some(ref rt) = r.reset_time {
+                format_reset_time(rt)
+            } else if exhausted {
+                "Quota exhausted".to_string()
+            } else {
+                "Quota available".to_string()
+            };
+            QuotaBucket {
+                name: name.to_string(),
+                remaining_pct: (frac * 100.0).clamp(0.0, 100.0),
+                reset_label,
+                exhausted,
+            }
+        }
+        None => QuotaBucket {
+            name: name.to_string(),
+            remaining_pct: 100.0,
+            reset_label: "Quota available".to_string(),
+            exhausted: false,
         },
-        QuotaGroup {
-            name: "Claude Models".to_string(),
-            description: Some("5 hours limit".to_string()),
-            buckets: vec![QuotaBucket {
-                name: "Claude Sonnet 3.5".to_string(),
-                remaining_pct: 100.0,
-                reset_label: "Quota available".to_string(),
-                exhausted: false,
-            }],
-        },
-    ];
+    }
+}
+
+pub fn parse_available_models(val: &serde_json::Value) -> Option<Vec<QuotaGroup>> {
+    let raws = extract_raw_quotas(val);
+    if raws.is_empty() {
+        return None;
+    }
+
+    let flash_raw = raws.iter().find(|r| {
+        let s = format!("{} {}", r.id, r.name).to_lowercase();
+        s.contains("flash") && (r.provider.contains("GOOGLE") || s.contains("gemini"))
+    });
+
+    let argon_raw = raws
+        .iter()
+        .find(|r| {
+            let s = format!("{} {}", r.id, r.name).to_lowercase();
+            s.contains("argon")
+        })
+        .or_else(|| {
+            raws.iter().find(|r| {
+                let s = format!("{} {}", r.id, r.name).to_lowercase();
+                s.contains("pro") && (r.provider.contains("GOOGLE") || s.contains("gemini"))
+            })
+        })
+        .or(flash_raw);
+
+    let sonnet_raw = raws.iter().find(|r| {
+        let s = format!("{} {}", r.id, r.name).to_lowercase();
+        s.contains("sonnet")
+    });
+
+    let opus_raw = raws
+        .iter()
+        .find(|r| {
+            let s = format!("{} {}", r.id, r.name).to_lowercase();
+            s.contains("opus")
+        })
+        .or(sonnet_raw);
+
+    let sonnet_raw = sonnet_raw.or(opus_raw);
+
+    let gpt_raw = raws.iter().find(|r| {
+        let s = format!("{} {}", r.id, r.name).to_lowercase();
+        s.contains("gpt-oss") || s.contains("120b") || r.provider.contains("OPENAI")
+    });
+
+    let gemini_group = QuotaGroup {
+        name: "Gemini Models".to_string(),
+        description: Some("5 hours limit".to_string()),
+        buckets: vec![
+            make_bucket("Gemini 3.8 Flash", flash_raw),
+            make_bucket("Gemini 4 Argon", argon_raw),
+        ],
+    };
+
+    let claude_group = QuotaGroup {
+        name: "Claude Models".to_string(),
+        description: Some("5 hours limit".to_string()),
+        buckets: vec![
+            make_bucket("Claude Sonnet 5.5", sonnet_raw),
+            make_bucket("Claude Opus 5.5", opus_raw),
+        ],
+    };
+
+    let other_group = QuotaGroup {
+        name: "Other Models".to_string(),
+        description: Some("5 hours limit".to_string()),
+        buckets: vec![make_bucket("GPT-OSS 120B", gpt_raw)],
+    };
+
+    Some(vec![gemini_group, claude_group, other_group])
+}
+
+pub fn build_usage_summary(
+    plan_json: Option<&serde_json::Value>,
+    models_json: &serde_json::Value,
+) -> Option<UsageSummary> {
+    let groups = parse_available_models(models_json)?;
+    let plan = parse_plan_info(plan_json);
 
     Some(UsageSummary {
-        plan: UsagePlanInfo {
-            tier_name,
-            upgrade_url,
-            manage_url,
-        },
+        plan,
         groups,
         credits: Some(CreditInfo {
             available: Some("$0.00".to_string()),

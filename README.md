@@ -6,7 +6,7 @@ Terminal User Interface (TUI) harness desacoplado, assíncrono e de alta perform
 
 ## 1. Visão Geral
 
-O Frontal provê uma camada de apresentação em terminal de altíssima performance focada na renderização estável e responsiva de fluxos contínuos de tokens de LLM. O harness consome eventos estruturados (NDJSON) emitidos via pipes de processo (`stdin`/`stdout`), desacoplando integralmente o ciclo de vida do motor de IA da interface visual. A estabilidade mecânica da arquitetura é validada por uma suíte unificada de **147 testes automatizados em 8 domínios**.
+O Frontal provê uma camada de apresentação em terminal de altíssima performance focada na renderização estável e responsiva de fluxos contínuos de tokens de LLM. O harness consome eventos estruturados (NDJSON) emitidos via pipes de processo (`stdin`/`stdout`), desacoplando integralmente o ciclo de vida do motor de IA da interface visual. A estabilidade mecânica da arquitetura é validada por uma suíte unificada de **150 testes automatizados em 8 domínios**.
 
 O design arquitetural é fundamentado na engenharia reversa e análise comparativa de dois harnesses de referência:
 - **Antigravity CLI (`agy`)**: Referência em simplicidade operacional, estabilidade de processos e protocolo enxuto `stream-json`.
@@ -51,7 +51,7 @@ A arquitetura do Frontal foi definida para garantir execução determinística a
 
 ## 4. Capacidades Arquiteturais Consolidadas e Evolução Contínua
 
-A arquitetura do Frontal encontra-se implementada e operacional (versão `0.8.0`), validada por **147 testes automatizados em 8 domínios**. O desenvolvimento opera em fluxo contínuo orientado por demandas e cards no GitHub Project Board #8, estruturado nos seguintes domínios consolidados:
+A arquitetura do Frontal encontra-se implementada e operacional (versão `0.8.0`), validada por **150 testes automatizados em 8 domínios**. O desenvolvimento opera em fluxo contínuo orientado por demandas e cards no GitHub Project Board #8, estruturado nos seguintes domínios consolidados:
 
 - **Fundação, Protocolo `stream-json` e IPC Headless:**
   - Workspace Cargo, multiplexação interna via `SessionId`, tipagem `stream-json`, abstração `EngineTransport` (`SubprocessEngine` e `FixtureReplayEngine`), orquestração assíncrona com `LinesCodec` (16 MB) e isolamento POSIX robusto (`setpgid`/`killpg`/`PR_SET_PDEATHSIG`).
@@ -79,7 +79,7 @@ A arquitetura do Frontal encontra-se implementada e operacional (versão `0.8.0`
 # Compilação otimizada para release
 cargo build --release
 
-# Validação integral da suíte unificada de 147 testes em 8 domínios
+# Validação integral da suíte unificada de 150 testes em 8 domínios
 cargo test --quiet
 ```
 
@@ -105,7 +105,7 @@ cargo run --release -- --headless -p "Descreva a arquitetura do projeto"
 A documentação técnica oficial reside na [Wiki do GitHub](https://github.com/julioCoronetti/frontal/wiki):
 
 - **[Home](https://github.com/julioCoronetti/frontal/wiki/Home)**: Hub central de documentação.
-- **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: Dossiê oficial da arquitetura implementada em Rust (v0.8.0), módulos, tema Atlas Crimson e suíte de 147 testes.
+- **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: Dossiê oficial da arquitetura implementada em Rust (v0.8.0), módulos, tema Atlas Crimson e suíte de 150 testes.
 - **[Board-Roadmap](https://github.com/julioCoronetti/frontal/wiki/Board-Roadmap)**: Especificação completa da stack em Rust, diretrizes arquiteturais, capacidades consolidadas e evolução contínua.
 - **Dossiê Antigravity CLI (`agy`)**:
   - [Agy](https://github.com/julioCoronetti/frontal/wiki/Agy): Visão geral do CLI oficial.
