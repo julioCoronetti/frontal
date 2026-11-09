@@ -11,6 +11,7 @@ pub mod model_effort;
 pub mod palette;
 pub mod respawn;
 pub mod select;
+pub mod usage;
 
 pub use danger::DangerConfirmationModal;
 pub use diff::DiffModal;
@@ -18,6 +19,7 @@ pub use model_effort::{ModelEffortModal, ModelEffortStep, ModelItem};
 pub use palette::{CommandPaletteModal, PaletteItem};
 pub use respawn::HotRespawnModal;
 pub use select::{DialogSelect, SelectItem, SelectResult};
+pub use usage::UsageModal;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModalAction {
@@ -46,6 +48,7 @@ pub enum Modal {
     Diff(DiffModal),
     Select(DialogSelect<ModalAction>),
     DangerConfirmation(DangerConfirmationModal),
+    Usage(UsageModal),
 }
 
 impl Modal {
@@ -61,6 +64,7 @@ impl Modal {
                 SelectResult::None => ModalAction::None,
             },
             Self::DangerConfirmation(m) => m.handle_key(key),
+            Self::Usage(m) => m.handle_key(key),
         }
     }
 
@@ -83,6 +87,7 @@ impl Modal {
                 }
                 _ => ModalAction::None,
             },
+            Self::Usage(m) => m.handle_mouse(mouse),
             _ => ModalAction::None,
         }
     }
@@ -95,6 +100,7 @@ impl Modal {
             Self::Diff(m) => m.render(frame, area),
             Self::Select(m) => m.render(frame, area),
             Self::DangerConfirmation(m) => m.render(frame, area),
+            Self::Usage(m) => m.render(frame, area),
         }
     }
 
@@ -110,6 +116,7 @@ impl Modal {
             Self::HotRespawn(_) => {
                 ModalStack::centered_rect_bounded(52, 58, 44, 68, 14, 24, screen)
             }
+            Self::Usage(_) => ModalStack::centered_rect_bounded(60, 68, 54, 78, 18, 30, screen),
             Self::DangerConfirmation(m) => {
                 let cmd_len = m.assessment.command.chars().count() + 6;
                 let warn_len = m.assessment.warning.chars().count() + 12;

@@ -3,17 +3,11 @@ use crate::ui::modal::{DiffModal, HotRespawnModal, Modal, ModalAction, ModelEffo
 
 impl App {
     pub fn load_git_diff() -> String {
-        if let Ok(out) = std::process::Command::new("git").args(["diff"]).output() {
-            if !out.stdout.is_empty() {
-                return String::from_utf8_lossy(&out.stdout).to_string();
-            }
-        }
-        if let Ok(out) = std::process::Command::new("git")
-            .args(["diff", "HEAD"])
-            .output()
-        {
-            if !out.stdout.is_empty() {
-                return String::from_utf8_lossy(&out.stdout).to_string();
+        for args in [["diff"].as_slice(), ["diff", "HEAD"].as_slice()] {
+            if let Ok(out) = std::process::Command::new("git").args(args).output() {
+                if !out.stdout.is_empty() {
+                    return String::from_utf8_lossy(&out.stdout).to_string();
+                }
             }
         }
         String::from("diff --git (working tree clean)\nNo unstaged or uncommitted changes found.\n")
@@ -139,13 +133,21 @@ impl App {
                             .push(Modal::Diff(DiffModal::new(&Self::load_git_diff())));
                         Some(None)
                     }
+                    "view_usage" => {
+                        let modal =
+                            crate::ui::modal::UsageModal::load(!self.history.is_in_memory());
+                        self.modals.push(Modal::Usage(modal));
+                        Some(None)
+                    }
                     "clear" => {
                         self.cache.clear();
                         self.viewport.clear_selection();
                         self.viewport.scroll_to_bottom();
                         self.last_turn_usage = None;
+                        self.accumulated_usage = crate::protocol::TokenUsage::default();
                         if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
                             tab.last_turn_usage = None;
+                            tab.accumulated_usage = crate::protocol::TokenUsage::default();
                         }
                         self.status_text = String::from("Cleared");
                         Some(None)
@@ -190,12 +192,24 @@ impl App {
             self.viewport.clear_selection();
             self.viewport.scroll_to_bottom();
             self.last_turn_usage = None;
+            self.accumulated_usage = crate::protocol::TokenUsage::default();
             self.queued_prompts.clear();
             if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
                 tab.last_turn_usage = None;
+                tab.accumulated_usage = crate::protocol::TokenUsage::default();
                 tab.queued_prompts.clear();
             }
             self.status_text = String::from("Cleared");
+            self.dirty = true;
+            Some(None)
+        } else if trimmed == "/new" {
+            self.sync_session_to_history(&self.active_session.clone());
+            self.status_text = String::from("New tab");
+            self.dirty = true;
+            Some(Some(AppAction::NewTab))
+        } else if trimmed == "/usage" {
+            let modal = crate::ui::modal::UsageModal::load(!self.history.is_in_memory());
+            self.modals.push(Modal::Usage(modal));
             self.dirty = true;
             Some(None)
         } else if trimmed == "/interrupt" {
@@ -210,23 +224,15 @@ impl App {
             }
             self.dirty = true;
             Some(Some(AppAction::Interrupt))
-        } else if trimmed == "/model" {
-            let modal = ModelEffortModal::with_models(self.available_models.clone())
-                .with_initial_selection(
-                    Some(self.active_model_name()),
-                    Some(self.active_effort_name()),
-                );
-            self.modals.push(Modal::ModelEffort(modal));
-            self.dirty = true;
-            Some(None)
-        } else if trimmed.starts_with("/model ") {
-            let model_name = trimmed.strip_prefix("/model ").unwrap().trim();
+        } else if trimmed == "/model" || trimmed.starts_with("/model ") {
             let mut modal = ModelEffortModal::with_models(self.available_models.clone())
                 .with_initial_selection(
                     Some(self.active_model_name()),
                     Some(self.active_effort_name()),
                 );
-            modal.query = model_name.to_string();
+            if let Some(query) = trimmed.strip_prefix("/model ") {
+                modal.query = query.trim().to_string();
+            }
             self.modals.push(Modal::ModelEffort(modal));
             self.dirty = true;
             Some(None)
@@ -248,12 +254,9 @@ impl App {
             )));
             self.dirty = true;
             Some(None)
-        } else if trimmed == "/resume" {
-            self.open_resume_modal(None);
-            Some(None)
-        } else if trimmed.starts_with("/resume ") {
-            let query = trimmed.strip_prefix("/resume ").unwrap().trim();
-            self.open_resume_modal(Some(query));
+        } else if trimmed == "/resume" || trimmed.starts_with("/resume ") {
+            let query = trimmed.strip_prefix("/resume ").map(|q| q.trim());
+            self.open_resume_modal(query);
             Some(None)
         } else if trimmed == "/rename" || trimmed.starts_with("/rename ") {
             let new_title = trimmed.strip_prefix("/rename").unwrap_or("").trim();
@@ -282,7 +285,7 @@ impl App {
         } else if trimmed == "/help" {
             self.cache.push_user_message("/help");
             self.cache.push_error(&format!(
-                "Frontal v{} - Available local commands: /clear, /interrupt, /quit, /exit, /help, /model, /diff, /respawn, /resume, /rename",
+                "Frontal v{} - Available local commands: /clear, /new, /usage, /interrupt, /quit, /exit, /help, /model, /diff, /respawn, /resume, /rename",
                 env!("CARGO_PKG_VERSION")
             ));
             self.status_text = String::from("Ready");
@@ -303,26 +306,48 @@ impl App {
 
     pub(crate) fn sync_session_to_history(&mut self, session_id: &crate::protocol::SessionId) {
         if let Some(meta) = self.session_manager.get_metadata(session_id) {
+            let tab_title = self
+                .tabs
+                .iter()
+                .find(|t| &t.session_id == session_id)
+                .map(|t| t.title.clone())
+                .filter(|t| !t.starts_with("Session ") && !t.trim().is_empty());
+
             let agent_title = meta
                 .conversation_id
                 .as_deref()
                 .and_then(crate::ui::history::query_agent_conversation_title);
-            let final_title = agent_title.or_else(|| {
-                meta.last_prompt
-                    .as_deref()
-                    .map(crate::ui::history::clean_session_title)
-            });
+            let final_title = agent_title
+                .or_else(|| {
+                    meta.last_prompt
+                        .as_deref()
+                        .map(crate::ui::history::clean_session_title)
+                })
+                .or(tab_title);
+
             if let Some(ref t) = final_title {
-                if let Some(tab) = self
-                    .tabs
-                    .iter_mut()
-                    .find(|t_tab| &t_tab.session_id == session_id)
-                {
+                if let Some(tab) = self.tabs.iter_mut().find(|tb| &tb.session_id == session_id) {
                     if tab.title.starts_with("Session ") || tab.title.trim().is_empty() {
                         tab.title = t.clone();
                     }
                 }
             }
+            if meta.conversation_id.is_none() && meta.last_prompt.is_none() && final_title.is_none()
+            {
+                return;
+            }
+            let existing_ts = self
+                .history
+                .sessions()
+                .iter()
+                .find(|s| {
+                    s.id == session_id.as_str()
+                        || (meta.conversation_id.is_some()
+                            && s.conversation_id.as_ref() == meta.conversation_id.as_ref())
+                })
+                .map(|s| s.created_at)
+                .unwrap_or(0);
+
             let record = crate::ui::history::SessionRecord {
                 id: session_id.as_str().to_string(),
                 conversation_id: meta.conversation_id.clone(),
@@ -330,7 +355,7 @@ impl App {
                 mode: meta.mode.clone(),
                 effort: meta.effort.clone(),
                 title: final_title,
-                created_at: 0,
+                created_at: existing_ts,
             };
             self.history.record_session(record);
         }
@@ -347,37 +372,69 @@ impl App {
             } else {
                 tab.title.clone()
             };
+            let tab_conv = self
+                .session_manager
+                .get_metadata(&tab.session_id)
+                .and_then(|m| m.conversation_id.clone());
+            let rel_time = self
+                .history
+                .sessions()
+                .iter()
+                .find(|s| {
+                    s.id == tab.session_id.as_str()
+                        || (tab_conv.is_some() && s.conversation_id == tab_conv)
+                })
+                .map(|s| s.relative_time())
+                .unwrap_or_else(|| String::from("just now"));
+
             items.push(
                 crate::ui::modal::SelectItem::new(
                     format!("tab-{}", idx),
                     display_title,
                     ModalAction::SwitchTab(idx),
                 )
-                .with_shortcut("ctrl + t")
+                .with_shortcut(rel_time)
                 .with_category("Current Sessions"),
             );
         }
 
-        let open_conv_ids: std::collections::HashSet<String> = self
-            .tabs
-            .iter()
-            .filter_map(|t| {
-                self.session_manager
-                    .get_metadata(&t.session_id)
-                    .and_then(|m| m.conversation_id.clone())
-            })
-            .filter(|c| !c.trim().is_empty())
-            .collect();
+        let mut open_ids = std::collections::HashSet::new();
+        for tab in &self.tabs {
+            open_ids.insert(tab.session_id.as_str().to_string());
+            if let Some(Some(cid)) = self
+                .session_manager
+                .get_metadata(&tab.session_id)
+                .map(|m| m.conversation_id.clone())
+            {
+                open_ids.insert(cid);
+            }
+            for s in self
+                .history
+                .sessions()
+                .iter()
+                .filter(|s| s.id == tab.session_id.as_str())
+            {
+                if let Some(ref cid) = s.conversation_id {
+                    open_ids.insert(cid.clone());
+                }
+            }
+        }
 
         let mut past_sessions = self.history.resumable_sessions();
         if !self.history.is_in_memory() {
-            let ext_sessions = crate::ui::history::load_agent_conversations();
-            for ext in ext_sessions {
+            for ext in crate::ui::history::load_agent_conversations() {
                 if let Some(ref cid) = ext.conversation_id {
-                    if !past_sessions
-                        .iter()
-                        .any(|p| p.conversation_id.as_ref() == Some(cid))
+                    if let Some(existing) = past_sessions
+                        .iter_mut()
+                        .find(|p| p.conversation_id.as_ref() == Some(cid))
                     {
+                        if (existing.title.is_none()
+                            || existing.title.as_deref() == Some(cid.as_str()))
+                            && ext.title.is_some()
+                        {
+                            existing.title = ext.title.clone();
+                        }
+                    } else {
                         past_sessions.push(ext);
                     }
                 }
@@ -385,28 +442,26 @@ impl App {
         }
         past_sessions.sort_by_key(|a| std::cmp::Reverse(a.created_at));
 
+        let mut seen_conv_ids = std::collections::HashSet::new();
         for s in past_sessions {
             let conv_id = s.conversation_id.clone().unwrap_or_default();
-            if conv_id.is_empty() || open_conv_ids.contains(&conv_id) {
+            if conv_id.is_empty()
+                || open_ids.contains(&conv_id)
+                || open_ids.contains(&s.id)
+                || !seen_conv_ids.insert(conv_id.clone())
+            {
                 continue;
             }
-            let rel_time = s.relative_time();
-            let title = s
+            let valid_title = s
                 .title
                 .as_ref()
-                .filter(|t| !t.trim().is_empty())
-                .map(|t| {
-                    let single_line = t.lines().next().unwrap_or(t).trim();
-                    if single_line.chars().count() > 42 {
-                        let mut truncated: String = single_line.chars().take(39).collect();
-                        truncated.push_str("...");
-                        truncated
-                    } else {
-                        single_line.to_string()
-                    }
-                })
-                .unwrap_or_else(|| conv_id.clone());
-
+                .map(|t| t.trim())
+                .filter(|t| !t.is_empty() && *t != conv_id);
+            let title = match valid_title {
+                Some(t) => crate::ui::history::clamp_display_title(t, 42),
+                None => continue,
+            };
+            let rel_time = s.relative_time();
             items.push(
                 crate::ui::modal::SelectItem::new(
                     conv_id.clone(),
