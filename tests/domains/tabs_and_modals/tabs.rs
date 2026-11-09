@@ -438,10 +438,10 @@ fn test_resume_modal_current_sessions_and_tab_switching() {
 
     assert_eq!(modal.items.len(), 2);
     assert_eq!(modal.items[0].title, "Session 1");
-    assert_eq!(modal.items[0].shortcut.as_deref(), Some("ctrl + t"));
+    assert_eq!(modal.items[0].shortcut.as_deref(), Some("just now"));
     assert_eq!(modal.items[0].category.as_deref(), Some("Current Sessions"));
     assert_eq!(modal.items[1].title, "Second Session");
-    assert_eq!(modal.items[1].shortcut.as_deref(), Some("ctrl + t"));
+    assert_eq!(modal.items[1].shortcut.as_deref(), Some("just now"));
 
     let enter_key = crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
     let modal_action = app.modals.handle_key_event(enter_key);
