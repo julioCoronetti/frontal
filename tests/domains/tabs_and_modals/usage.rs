@@ -72,16 +72,31 @@ fn test_usage_modal_sections_and_offline_fallback() {
     match state {
         UsageState::Ready(summary) => {
             assert!(summary.plan.tier_name.contains("Google AI Pro"));
-            assert_eq!(summary.groups.len(), 4);
-            assert_eq!(summary.groups[0].name, "Gemini Flash Models");
-            assert_eq!(summary.groups[0].buckets[0].name, "Gemini 3.8 Flash");
-            assert_eq!(summary.groups[1].name, "Gemini Argon Models");
-            assert_eq!(summary.groups[1].buckets[0].name, "Gemini 4 Argon");
-            assert_eq!(summary.groups[2].name, "Claude Models");
-            assert_eq!(summary.groups[2].buckets[0].name, "Claude Sonnet 5.5");
-            assert_eq!(summary.groups[2].buckets[1].name, "Claude Opus 5.5");
-            assert_eq!(summary.groups[3].name, "Other Models");
-            assert_eq!(summary.groups[3].buckets[0].name, "GPT-OSS 120B");
+            assert_eq!(summary.groups.len(), 3);
+
+            assert_eq!(summary.groups[0].name, "GEMINI MODELS");
+            assert_eq!(summary.groups[0].buckets.len(), 2);
+            assert_eq!(summary.groups[0].buckets[0].name, "Weekly Limit Remaining");
+            assert_eq!(
+                summary.groups[0].buckets[1].name,
+                "Five Hour Limit Remaining"
+            );
+
+            assert_eq!(summary.groups[1].name, "CLAUDE AND GPT MODELS");
+            assert_eq!(summary.groups[1].buckets.len(), 2);
+            assert_eq!(summary.groups[1].buckets[0].name, "Weekly Limit Remaining");
+            assert_eq!(
+                summary.groups[1].buckets[1].name,
+                "Five Hour Limit Remaining"
+            );
+
+            assert_eq!(summary.groups[2].name, "GEMINI 4 ARGON");
+            assert_eq!(summary.groups[2].buckets.len(), 1);
+            assert_eq!(
+                summary.groups[2].buckets[0].name,
+                "Gemini 4 Argon Weekly Limit"
+            );
+
             assert!(summary.credits.is_some());
         }
         _ => panic!("Expected UsageState::Ready in offline fallback"),
@@ -173,10 +188,10 @@ fn test_usage_modal_reset_time_formatting() {
     assert_eq!(malformed, "Resets periodically");
 
     let past = format_reset_time("1970-01-01T00:00:00Z");
-    assert_eq!(past, "Quota reset");
+    assert_eq!(past, "Quota available");
 
     let future = format_reset_time("2099-12-31T23:59:59Z");
-    assert!(future.starts_with("Resets in "));
+    assert!(future.starts_with("Refreshes in "));
 }
 
 #[test]
@@ -343,30 +358,33 @@ fn test_parse_available_models_maps_shared_pools_and_canonical_names() {
     });
 
     let groups = parse_available_models(&json).expect("should parse models");
-    assert_eq!(groups.len(), 4);
+    assert_eq!(groups.len(), 3);
 
-    assert_eq!(groups[0].name, "Gemini Flash Models");
-    assert_eq!(groups[0].description, Some("5 hours limit".to_string()));
-    assert_eq!(groups[0].buckets[0].name, "Gemini 3.8 Flash");
-    assert_eq!(groups[0].buckets[0].remaining_pct, 72.5);
-    assert!(groups[0].buckets[0].reset_label.starts_with("Resets in "));
-    assert!(!groups[0].buckets[0].exhausted);
+    assert_eq!(groups[0].name, "GEMINI MODELS");
+    assert_eq!(
+        groups[0].description,
+        Some("Models within this group: Gemini Flash, Gemini Pro".to_string())
+    );
+    assert_eq!(groups[0].buckets[0].name, "Weekly Limit Remaining");
+    assert_eq!(groups[0].buckets[1].name, "Five Hour Limit Remaining");
+    assert_eq!(groups[0].buckets[1].remaining_pct, 72.5);
+    assert!(groups[0].buckets[1]
+        .reset_label
+        .starts_with("Refreshes in "));
+    assert!(!groups[0].buckets[1].exhausted);
 
-    assert_eq!(groups[1].name, "Gemini Argon Models");
-    assert_eq!(groups[1].description, Some("Weekly limit".to_string()));
-    assert_eq!(groups[1].buckets[0].name, "Gemini 4 Argon");
+    assert_eq!(groups[1].name, "CLAUDE AND GPT MODELS");
+    assert_eq!(
+        groups[1].description,
+        Some("Models within this group: Claude Opus, Claude Sonnet, GPT-OSS".to_string())
+    );
+    assert_eq!(groups[1].buckets[0].name, "Weekly Limit Remaining");
     assert_eq!(groups[1].buckets[0].remaining_pct, 100.0);
-    assert!(!groups[1].buckets[0].exhausted);
+    assert_eq!(groups[1].buckets[1].name, "Five Hour Limit Remaining");
+    assert_eq!(groups[1].buckets[1].remaining_pct, 50.0);
 
-    assert_eq!(groups[2].name, "Claude Models");
-    assert_eq!(groups[2].buckets[0].name, "Claude Sonnet 5.5");
-    assert_eq!(groups[2].buckets[0].remaining_pct, 100.0);
-    assert_eq!(groups[2].buckets[1].name, "Claude Opus 5.5");
-    assert_eq!(groups[2].buckets[1].remaining_pct, 100.0);
-
-    assert_eq!(groups[3].name, "Other Models");
-    assert_eq!(groups[3].buckets[0].name, "GPT-OSS 120B");
-    assert_eq!(groups[3].buckets[0].remaining_pct, 50.0);
+    assert_eq!(groups[2].name, "GEMINI 4 ARGON");
+    assert_eq!(groups[2].buckets[0].name, "Gemini 4 Argon Weekly Limit");
 }
 
 #[test]
@@ -389,13 +407,13 @@ fn test_parse_available_models_handles_exhausted_and_missing_fields() {
     });
 
     let groups = parse_available_models(&json).expect("should parse");
-    assert_eq!(groups[0].buckets[0].name, "Gemini 3.8 Flash");
-    assert_eq!(groups[0].buckets[0].remaining_pct, 0.0);
-    assert!(groups[0].buckets[0].exhausted);
+    assert_eq!(groups[0].buckets[1].name, "Five Hour Limit Remaining");
+    assert_eq!(groups[0].buckets[1].remaining_pct, 0.0);
+    assert!(groups[0].buckets[1].exhausted);
 
-    assert_eq!(groups[2].buckets[0].name, "Claude Sonnet 5.5");
-    assert_eq!(groups[2].buckets[0].remaining_pct, 0.0);
-    assert!(groups[2].buckets[0].exhausted);
+    assert_eq!(groups[1].buckets[0].name, "Weekly Limit Remaining");
+    assert_eq!(groups[1].buckets[0].remaining_pct, 0.0);
+    assert!(groups[1].buckets[0].exhausted);
 }
 
 #[test]
@@ -408,7 +426,7 @@ fn test_build_usage_summary_rejects_empty_models_without_mock_fallback() {
         }
     });
 
-    assert!(build_usage_summary(Some(&plan), &empty_models, None).is_none());
+    assert!(build_usage_summary(Some(&plan), None, &empty_models, None).is_none());
 
     let plan_info = parse_plan_info(Some(&plan), Some("test@example.com".to_string()));
     assert_eq!(plan_info.tier_name, "Antigravity Pro");

@@ -8,86 +8,48 @@ fn civil_to_days(mut y: i64, m: u64, d: u64) -> i64 {
     let era = if y >= 0 { y } else { y - 399 } / 400;
     let yoe = (y - era * 400) as u64;
     let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146097 + doe as i64 - 719468
+    era * 146097 + (yoe * 365 + yoe / 4 - yoe / 100 + doy) as i64 - 719468
 }
 
 pub fn format_reset_time(iso: &str) -> String {
-    let parts: Vec<&str> = iso.split('T').collect();
-    if parts.len() < 2 {
+    let mut parts = iso.split('T');
+    let (d_str, t_str) = (
+        parts.next().unwrap_or(""),
+        parts.next().unwrap_or("").trim_end_matches('Z'),
+    );
+    let d: Vec<i64> = d_str.split('-').filter_map(|s| s.parse().ok()).collect();
+    let t: Vec<i64> = t_str
+        .split(':')
+        .filter_map(|s| s.split('.').next()?.parse().ok())
+        .collect();
+    if d.len() < 3 || t.len() < 2 {
         return "Resets periodically".to_string();
     }
-
-    let d_parts: Vec<&str> = parts[0].split('-').collect();
-    if d_parts.len() < 3 {
-        return "Resets periodically".to_string();
-    }
-
-    let y: i64 = match d_parts[0].parse() {
-        Ok(v) => v,
-        Err(_) => return "Resets periodically".to_string(),
-    };
-    let m: u64 = match d_parts[1].parse() {
-        Ok(v) => v,
-        Err(_) => return "Resets periodically".to_string(),
-    };
-    let d: u64 = match d_parts[2].parse() {
-        Ok(v) => v,
-        Err(_) => return "Resets periodically".to_string(),
-    };
-
-    let t_str = parts[1].trim_end_matches('Z');
-    let t_parts: Vec<&str> = t_str.split(':').collect();
-    if t_parts.len() < 2 {
-        return "Resets periodically".to_string();
-    }
-
-    let hr: i64 = match t_parts[0].parse() {
-        Ok(v) => v,
-        Err(_) => return "Resets periodically".to_string(),
-    };
-    let min: i64 = match t_parts[1].parse() {
-        Ok(v) => v,
-        Err(_) => return "Resets periodically".to_string(),
-    };
-    let sec: i64 = if t_parts.len() >= 3 {
-        t_parts[2]
-            .split('.')
-            .next()
-            .unwrap_or("0")
-            .parse()
-            .unwrap_or(0)
-    } else {
-        0
-    };
-
-    let days = civil_to_days(y, m, d);
-    let target_epoch = days * 86400 + hr * 3600 + min * 60 + sec;
-
+    let target = civil_to_days(d[0], d[1] as u64, d[2] as u64) * 86400
+        + t[0] * 3600
+        + t[1] * 60
+        + t.get(2).copied().unwrap_or(0);
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|dur| dur.as_secs() as i64)
         .unwrap_or(0);
-
-    let diff = target_epoch - now;
+    let diff = target - now;
     if diff <= 0 {
-        return "Quota reset".to_string();
+        return "Quota available".to_string();
     }
-
-    let h = diff / 3600;
-    let rem_m = (diff % 3600) / 60;
+    let (h, m) = (diff / 3600, (diff % 3600) / 60);
     if h > 0 {
-        format!("Resets in {}h {}m", h, rem_m)
+        format!("Refreshes in {}h {}m", h, m)
     } else {
-        format!("Resets in {}m", rem_m.max(1))
+        format!("Refreshes in {}m", m.max(1))
     }
 }
 
 pub fn fetch_quota_async(tx: Sender<UsageState>) {
     std::thread::spawn(move || {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let token_path = format!("{}/.gemini/antigravity-cli/antigravity-oauth-token", home);
-        let token_bytes = match std::fs::read(&token_path) {
+        let path = format!("{}/.gemini/antigravity-cli/antigravity-oauth-token", home);
+        let bytes = match std::fs::read(&path) {
             Ok(b) => b,
             Err(_) => {
                 let _ = tx.send(UsageState::Unavailable(
@@ -96,8 +58,7 @@ pub fn fetch_quota_async(tx: Sender<UsageState>) {
                 return;
             }
         };
-
-        let token_json: serde_json::Value = match serde_json::from_slice(&token_bytes) {
+        let token_json: serde_json::Value = match serde_json::from_slice(&bytes) {
             Ok(v) => v,
             Err(_) => {
                 let _ = tx.send(UsageState::Unavailable(
@@ -106,7 +67,6 @@ pub fn fetch_quota_async(tx: Sender<UsageState>) {
                 return;
             }
         };
-
         let access_token = match token_json
             .get("token")
             .and_then(|t| t.get("access_token"))
@@ -120,14 +80,11 @@ pub fn fetch_quota_async(tx: Sender<UsageState>) {
                 return;
             }
         };
-
         let email = token_json
             .get("id_token_email")
             .and_then(|e| e.as_str())
             .map(|s| s.to_string());
-
-        let state = execute_fetch(&access_token, email);
-        let _ = tx.send(state);
+        let _ = tx.send(execute_fetch(&access_token, email));
     });
 }
 
@@ -143,7 +100,6 @@ fn post_endpoint(
     if let Some(ua) = user_agent {
         cfg.push_str(&format!("header = \"User-Agent: {}\"\n", ua));
     }
-
     let mut child = std::process::Command::new("curl")
         .args([
             "-sS",
@@ -169,35 +125,37 @@ fn post_endpoint(
         use std::io::Write;
         let _ = stdin.write_all(cfg.as_bytes());
     }
-
-    let output = child
+    let out = child
         .wait_with_output()
         .map_err(|e| format!("network error: {}", e))?;
-
-    if !output.status.success() {
+    if !out.status.success() {
         return Err("request failed".to_string());
     }
-
     let val: serde_json::Value =
-        serde_json::from_slice(&output.stdout).map_err(|e| format!("parse error: {}", e))?;
-
+        serde_json::from_slice(&out.stdout).map_err(|e| format!("parse error: {}", e))?;
     if val.get("error").is_some() {
         return Err("api error".to_string());
     }
-
     Ok(val)
 }
 
 fn execute_fetch(token: &str, email: Option<String>) -> UsageState {
-    let (plan_res, models_res) = std::thread::scope(|s| {
-        let plan_handle = s.spawn(|| {
+    let (p_res, q_res, m_res) = std::thread::scope(|s| {
+        let p = s.spawn(|| {
             post_endpoint(
                 "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
                 token,
                 Some("Antigravity/1.5.3"),
             )
         });
-        let models_handle = s.spawn(|| {
+        let q = s.spawn(|| {
+            post_endpoint(
+                "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+                token,
+                Some("Antigravity/1.5.3"),
+            )
+        });
+        let m = s.spawn(|| {
             post_endpoint(
                 "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
                 token,
@@ -205,22 +163,16 @@ fn execute_fetch(token: &str, email: Option<String>) -> UsageState {
             )
         });
         (
-            plan_handle
-                .join()
-                .unwrap_or(Err("plan thread failed".to_string())),
-            models_handle
-                .join()
-                .unwrap_or(Err("models thread failed".to_string())),
+            p.join().unwrap_or(Err("err".to_string())),
+            q.join().unwrap_or(Err("err".to_string())),
+            m.join().unwrap_or(Err("err".to_string())),
         )
     });
-
-    let models_val = match models_res {
+    let models_val = match m_res {
         Ok(v) => v,
         Err(_) => return UsageState::Unavailable("Failed to fetch model quota".to_string()),
     };
-
-    let plan_val = plan_res.ok();
-    match build_usage_summary(plan_val.as_ref(), &models_val, email) {
+    match build_usage_summary(p_res.ok().as_ref(), q_res.ok().as_ref(), &models_val, email) {
         Some(summary) => UsageState::Ready(summary),
         None => UsageState::Unavailable("Model quota details unavailable".to_string()),
     }
@@ -233,12 +185,10 @@ pub fn parse_plan_info(val: Option<&serde_json::Value>, email: Option<String>) -
         upgrade_url: None,
         manage_url: None,
     };
-
     let val = match val {
         Some(v) => v,
         None => return default_plan,
     };
-
     let tier_name = if let Some(paid) = val.get("paidTier").and_then(|p| p.get("name")) {
         paid.as_str().unwrap_or("Google AI Pro").to_string()
     } else if let Some(tier) = val.get("currentTier").and_then(|t| t.get("name")) {
@@ -253,12 +203,10 @@ pub fn parse_plan_info(val: Option<&serde_json::Value>, email: Option<String>) -
     } else {
         "Google AI Pro".to_string()
     };
-
     let manage_url = val
         .get("manageSubscriptionUri")
         .and_then(|m| m.as_str())
         .map(|s| s.to_string());
-
     UsagePlanInfo {
         tier_name,
         account_email: email,
@@ -279,7 +227,6 @@ struct RawQuota {
 
 fn extract_raw_quotas(val: &serde_json::Value) -> Vec<RawQuota> {
     let mut results = Vec::new();
-
     let parse_entry = |key: &str, item: &serde_json::Value| -> Option<RawQuota> {
         let name = item
             .get("displayName")
@@ -291,10 +238,9 @@ fn extract_raw_quotas(val: &serde_json::Value) -> Vec<RawQuota> {
             .and_then(|p| p.as_str())
             .unwrap_or("")
             .to_string();
-
-        let quota_val = item.get("quotaInfo").unwrap_or(item);
-        let remaining_fraction = quota_val.get("remainingFraction").and_then(|f| f.as_f64());
-        let reset_time = quota_val
+        let q_val = item.get("quotaInfo").unwrap_or(item);
+        let remaining_fraction = q_val.get("remainingFraction").and_then(|f| f.as_f64());
+        let reset_time = q_val
             .get("resetTime")
             .and_then(|r| r.as_str())
             .map(|s| s.to_string());
@@ -302,11 +248,10 @@ fn extract_raw_quotas(val: &serde_json::Value) -> Vec<RawQuota> {
             .get("disabled")
             .and_then(|d| d.as_bool())
             .unwrap_or(false)
-            || quota_val
+            || q_val
                 .get("isExhausted")
                 .and_then(|e| e.as_bool())
                 .unwrap_or(false);
-
         Some(RawQuota {
             id: key.to_string(),
             name,
@@ -318,11 +263,7 @@ fn extract_raw_quotas(val: &serde_json::Value) -> Vec<RawQuota> {
     };
 
     if let Some(obj) = val.get("models").and_then(|m| m.as_object()) {
-        for (k, v) in obj {
-            if let Some(q) = parse_entry(k, v) {
-                results.push(q);
-            }
-        }
+        results.extend(obj.iter().filter_map(|(k, v)| parse_entry(k, v)));
     } else if let Some(arr) = val.get("models").and_then(|m| m.as_array()) {
         for v in arr {
             let key = v
@@ -335,7 +276,6 @@ fn extract_raw_quotas(val: &serde_json::Value) -> Vec<RawQuota> {
             }
         }
     }
-
     results
 }
 
@@ -346,7 +286,9 @@ fn make_bucket(name: &str, raw: Option<&RawQuota>) -> QuotaBucket {
                 .remaining_fraction
                 .unwrap_or(if r.disabled { 0.0 } else { 1.0 });
             let exhausted = r.disabled || frac <= 0.0;
-            let reset_label = if let Some(ref rt) = r.reset_time {
+            let reset_label = if frac >= 1.0 {
+                "Quota available".to_string()
+            } else if let Some(ref rt) = r.reset_time {
                 format_reset_time(rt)
             } else if exhausted {
                 "Quota exhausted".to_string()
@@ -375,84 +317,174 @@ pub fn parse_available_models(val: &serde_json::Value) -> Option<Vec<QuotaGroup>
         return None;
     }
 
-    let flash_raw = raws.iter().find(|r| {
+    let flash = raws.iter().find(|r| {
         let s = format!("{} {}", r.id, r.name).to_lowercase();
         s.contains("flash") && (r.provider.contains("GOOGLE") || s.contains("gemini"))
     });
-
-    let argon_raw = raws.iter().find(|r| {
+    let pro = raws.iter().find(|r| {
         let s = format!("{} {}", r.id, r.name).to_lowercase();
-        s.contains("argon")
+        s.contains("pro") && (r.provider.contains("GOOGLE") || s.contains("gemini"))
     });
-
-    let sonnet_raw = raws.iter().find(|r| {
-        let s = format!("{} {}", r.id, r.name).to_lowercase();
-        s.contains("sonnet")
+    let argon = raws.iter().find(|r| {
+        format!("{} {}", r.id, r.name)
+            .to_lowercase()
+            .contains("argon")
     });
-
-    let opus_raw = raws
+    let sonnet = raws.iter().find(|r| {
+        format!("{} {}", r.id, r.name)
+            .to_lowercase()
+            .contains("sonnet")
+    });
+    let opus = raws
         .iter()
         .find(|r| {
-            let s = format!("{} {}", r.id, r.name).to_lowercase();
-            s.contains("opus")
+            format!("{} {}", r.id, r.name)
+                .to_lowercase()
+                .contains("opus")
         })
-        .or(sonnet_raw);
-
-    let sonnet_raw = sonnet_raw.or(opus_raw);
-
-    let gpt_raw = raws.iter().find(|r| {
+        .or(sonnet);
+    let sonnet = sonnet.or(opus);
+    let gpt = raws.iter().find(|r| {
         let s = format!("{} {}", r.id, r.name).to_lowercase();
         s.contains("gpt-oss") || s.contains("120b") || r.provider.contains("OPENAI")
     });
 
-    let flash_group = QuotaGroup {
-        name: "Gemini Flash Models".to_string(),
-        description: Some("5 hours limit".to_string()),
-        buckets: vec![make_bucket("Gemini 3.8 Flash", flash_raw)],
+    let gemini_weekly = match pro.or(flash) {
+        Some(r) if r.remaining_fraction.unwrap_or(1.0) < 1.0 => {
+            make_bucket("Weekly Limit Remaining", Some(r))
+        }
+        _ => QuotaBucket {
+            name: "Weekly Limit Remaining".to_string(),
+            remaining_pct: 100.0,
+            reset_label: "Quota available".to_string(),
+            exhausted: false,
+        },
+    };
+    let gemini_five = make_bucket("Five Hour Limit Remaining", flash);
+    let gemini_group = QuotaGroup {
+        name: "GEMINI MODELS".to_string(),
+        description: Some("Models within this group: Gemini Flash, Gemini Pro".to_string()),
+        buckets: vec![gemini_weekly, gemini_five],
     };
 
-    let argon_bucket = match argon_raw {
-        Some(r) => make_bucket("Gemini 4 Argon", Some(r)),
+    let claude_weekly = make_bucket("Weekly Limit Remaining", sonnet);
+    let claude_five = match gpt.or(opus) {
+        Some(r) => make_bucket("Five Hour Limit Remaining", Some(r)),
         None => QuotaBucket {
-            name: "Gemini 4 Argon".to_string(),
+            name: "Five Hour Limit Remaining".to_string(),
+            remaining_pct: 100.0,
+            reset_label: "Quota available".to_string(),
+            exhausted: false,
+        },
+    };
+    let claude_group = QuotaGroup {
+        name: "CLAUDE AND GPT MODELS".to_string(),
+        description: Some(
+            "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS".to_string(),
+        ),
+        buckets: vec![claude_weekly, claude_five],
+    };
+
+    let argon_b = match argon {
+        Some(r) => make_bucket("Gemini 4 Argon Weekly Limit", Some(r)),
+        None => QuotaBucket {
+            name: "Gemini 4 Argon Weekly Limit".to_string(),
             remaining_pct: 100.0,
             reset_label: "Quota available (Weekly)".to_string(),
             exhausted: false,
         },
     };
-
     let argon_group = QuotaGroup {
-        name: "Gemini Argon Models".to_string(),
-        description: Some("Weekly limit".to_string()),
-        buckets: vec![argon_bucket],
+        name: "GEMINI 4 ARGON".to_string(),
+        description: Some(
+            "For paid Pro plans, Argon quota is separate. Higher Argon quota (included as part of the larger Gemini quota bucket) is available on Ultra plans.".to_string(),
+        ),
+        buckets: vec![argon_b],
     };
 
-    let claude_group = QuotaGroup {
-        name: "Claude Models".to_string(),
-        description: Some("5 hours limit".to_string()),
-        buckets: vec![
-            make_bucket("Claude Sonnet 5.5", sonnet_raw),
-            make_bucket("Claude Opus 5.5", opus_raw),
-        ],
-    };
+    Some(vec![gemini_group, claude_group, argon_group])
+}
 
-    let other_group = QuotaGroup {
-        name: "Other Models".to_string(),
-        description: Some("5 hours limit".to_string()),
-        buckets: vec![make_bucket("GPT-OSS 120B", gpt_raw)],
+pub fn parse_quota_summary_groups(val: &serde_json::Value) -> Vec<QuotaGroup> {
+    let arr = match val.get("groups").and_then(|g| g.as_array()) {
+        Some(a) => a,
+        None => return Vec::new(),
     };
+    arr.iter()
+        .filter_map(|item| {
+            let name = item
+                .get("displayName")
+                .and_then(|d| d.as_str())
+                .unwrap_or("")
+                .to_uppercase();
+            let description = item
+                .get("description")
+                .and_then(|d| d.as_str())
+                .map(|s| s.to_string());
+            let buckets: Vec<QuotaBucket> = item
+                .get("buckets")
+                .and_then(|b| b.as_array())?
+                .iter()
+                .filter_map(|b| {
+                    let b_name = b.get("displayName").and_then(|d| d.as_str())?.to_string();
+                    let frac = b
+                        .get("remainingFraction")
+                        .and_then(|f| f.as_f64())
+                        .unwrap_or(1.0);
+                    let exhausted = frac <= 0.0;
+                    let reset_label = if frac >= 1.0 {
+                        "Quota available".to_string()
+                    } else if let Some(rt) = b.get("resetTime").and_then(|s| s.as_str()) {
+                        format_reset_time(rt)
+                    } else {
+                        "Quota available".to_string()
+                    };
+                    Some(QuotaBucket {
+                        name: b_name,
+                        remaining_pct: (frac * 100.0).clamp(0.0, 100.0),
+                        reset_label,
+                        exhausted,
+                    })
+                })
+                .collect();
+            if buckets.is_empty() {
+                None
+            } else {
+                Some(QuotaGroup {
+                    name,
+                    description,
+                    buckets,
+                })
+            }
+        })
+        .collect()
+}
 
-    Some(vec![flash_group, argon_group, claude_group, other_group])
+fn merge_quota_groups(api_groups: Vec<QuotaGroup>, fallback: &mut [QuotaGroup]) -> Vec<QuotaGroup> {
+    fallback
+        .iter_mut()
+        .map(|fb| {
+            api_groups
+                .iter()
+                .find(|ag| ag.name.eq_ignore_ascii_case(&fb.name))
+                .cloned()
+                .unwrap_or_else(|| fb.clone())
+        })
+        .collect()
 }
 
 pub fn build_usage_summary(
     plan_json: Option<&serde_json::Value>,
+    quota_json: Option<&serde_json::Value>,
     models_json: &serde_json::Value,
     email: Option<String>,
 ) -> Option<UsageSummary> {
-    let groups = parse_available_models(models_json)?;
+    let mut fallback_groups = parse_available_models(models_json)?;
+    let api_groups = quota_json
+        .map(parse_quota_summary_groups)
+        .unwrap_or_default();
+    let groups = merge_quota_groups(api_groups, &mut fallback_groups);
     let plan = parse_plan_info(plan_json, email);
-
     Some(UsageSummary {
         plan,
         groups,

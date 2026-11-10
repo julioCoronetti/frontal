@@ -137,43 +137,42 @@ pub fn build_summary_lines(summary: &UsageSummary) -> Vec<Line<'static>> {
 
     for grp in &summary.groups {
         lines.push(Line::from(vec![Span::styled(
-            format!("  {}", grp.name),
+            grp.name.to_uppercase(),
             Style::default()
                 .fg(TEXT_PRIMARY)
                 .add_modifier(Modifier::BOLD),
         )]));
         if let Some(ref d) = grp.description {
             lines.push(Line::from(vec![Span::styled(
-                format!("    {}", d),
+                format!("  {}", d),
                 Style::default().fg(TEXT_MUTED),
             )]));
         }
+        lines.push(Line::raw(""));
 
         for b in &grp.buckets {
-            let (bar, bar_color) = render_progress_bar(b.remaining_pct, 14, b.exhausted);
             lines.push(Line::from(vec![
-                Span::raw("    "),
+                Span::raw("  "),
                 Span::styled(b.name.clone(), Style::default().fg(TEXT_PRIMARY)),
             ]));
+
+            let mut bar_spans = vec![Span::raw("  ")];
+            bar_spans.extend(render_progress_bar_spans(b.remaining_pct, 28, b.exhausted));
+            lines.push(Line::from(bar_spans));
+
+            let reset_color = if b.exhausted {
+                Color::Red
+            } else if b.remaining_pct <= 20.0 {
+                Color::Yellow
+            } else {
+                Color::Green
+            };
             lines.push(Line::from(vec![
-                Span::raw("    ["),
-                Span::styled(bar, Style::default().fg(bar_color)),
-                Span::raw("] "),
-                Span::styled(
-                    format!("{:.1}%", b.remaining_pct),
-                    Style::default().fg(TEXT_PRIMARY),
-                ),
                 Span::raw("  "),
-                Span::styled(b.reset_label.clone(), Style::default().fg(TEXT_MUTED)),
+                Span::styled(b.reset_label.clone(), Style::default().fg(reset_color)),
             ]));
-            if b.exhausted {
-                lines.push(Line::from(vec![Span::styled(
-                    "    Disabled: Quota exhausted",
-                    Style::default().fg(Color::Red),
-                )]));
-            }
+            lines.push(Line::raw(""));
         }
-        lines.push(Line::raw(""));
     }
 
     lines.push(Line::from(vec![Span::styled(
@@ -222,4 +221,35 @@ pub fn render_progress_bar(pct: f64, width: usize, exhausted: bool) -> (String, 
     };
 
     (bar, color)
+}
+
+pub fn render_progress_bar_spans(pct: f64, width: usize, exhausted: bool) -> Vec<Span<'static>> {
+    if exhausted || pct <= 0.0 {
+        return vec![
+            Span::raw("["),
+            Span::styled("░".repeat(width), Style::default().fg(Color::DarkGray)),
+            Span::raw("] "),
+            Span::styled("0.00%", Style::default().fg(Color::Red)),
+        ];
+    }
+
+    let clamped = pct.clamp(0.0, 100.0);
+    let filled = ((clamped / 100.0) * width as f64).round() as usize;
+    let empty = width.saturating_sub(filled);
+    let color = if clamped <= 20.0 {
+        Color::Yellow
+    } else {
+        Color::Green
+    };
+
+    vec![
+        Span::raw("["),
+        Span::styled("█".repeat(filled), Style::default().fg(color)),
+        Span::styled("░".repeat(empty), Style::default().fg(Color::DarkGray)),
+        Span::raw("] "),
+        Span::styled(
+            format!("{:.2}%", clamped),
+            Style::default().fg(TEXT_PRIMARY),
+        ),
+    ]
 }

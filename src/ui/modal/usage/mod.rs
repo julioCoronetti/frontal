@@ -103,37 +103,19 @@ impl UsageModal {
             },
             groups: vec![
                 QuotaGroup {
-                    name: "Gemini Flash Models".to_string(),
-                    description: Some("5 hours limit".to_string()),
-                    buckets: vec![QuotaBucket {
-                        name: "Gemini 3.8 Flash".to_string(),
-                        remaining_pct: 100.0,
-                        reset_label: "Quota available".to_string(),
-                        exhausted: false,
-                    }],
-                },
-                QuotaGroup {
-                    name: "Gemini Argon Models".to_string(),
-                    description: Some("Weekly limit".to_string()),
-                    buckets: vec![QuotaBucket {
-                        name: "Gemini 4 Argon".to_string(),
-                        remaining_pct: 100.0,
-                        reset_label: "Quota available (Weekly)".to_string(),
-                        exhausted: false,
-                    }],
-                },
-                QuotaGroup {
-                    name: "Claude Models".to_string(),
-                    description: Some("5 hours limit".to_string()),
+                    name: "GEMINI MODELS".to_string(),
+                    description: Some(
+                        "Models within this group: Gemini Flash, Gemini Pro".to_string(),
+                    ),
                     buckets: vec![
                         QuotaBucket {
-                            name: "Claude Sonnet 5.5".to_string(),
+                            name: "Weekly Limit Remaining".to_string(),
                             remaining_pct: 100.0,
                             reset_label: "Quota available".to_string(),
                             exhausted: false,
                         },
                         QuotaBucket {
-                            name: "Claude Opus 5.5".to_string(),
+                            name: "Five Hour Limit Remaining".to_string(),
                             remaining_pct: 100.0,
                             reset_label: "Quota available".to_string(),
                             exhausted: false,
@@ -141,10 +123,32 @@ impl UsageModal {
                     ],
                 },
                 QuotaGroup {
-                    name: "Other Models".to_string(),
-                    description: Some("5 hours limit".to_string()),
+                    name: "CLAUDE AND GPT MODELS".to_string(),
+                    description: Some(
+                        "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS".to_string(),
+                    ),
+                    buckets: vec![
+                        QuotaBucket {
+                            name: "Weekly Limit Remaining".to_string(),
+                            remaining_pct: 100.0,
+                            reset_label: "Quota available".to_string(),
+                            exhausted: false,
+                        },
+                        QuotaBucket {
+                            name: "Five Hour Limit Remaining".to_string(),
+                            remaining_pct: 100.0,
+                            reset_label: "Quota available".to_string(),
+                            exhausted: false,
+                        },
+                    ],
+                },
+                QuotaGroup {
+                    name: "GEMINI 4 ARGON".to_string(),
+                    description: Some(
+                        "For paid Pro plans, Argon quota is separate. Higher Argon quota (included as part of the larger Gemini quota bucket) is available on Ultra plans.".to_string(),
+                    ),
                     buckets: vec![QuotaBucket {
-                        name: "GPT-OSS 120B".to_string(),
+                        name: "Gemini 4 Argon Weekly Limit".to_string(),
                         remaining_pct: 100.0,
                         reset_label: "Quota available".to_string(),
                         exhausted: false,
