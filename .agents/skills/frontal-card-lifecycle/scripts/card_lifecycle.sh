@@ -27,8 +27,10 @@ case "$cmd" in
     next_patch=$((patch + 1))
     new_version="${major}.${minor}.${next_patch}"
     sed -i "s/^version = \"$current_version\"/version = \"$new_version\"/" Cargo.toml
+    sed -i "s/(versão \`$current_version\`)/(versão \`$new_version\`)/g" AGENTS.md
+    sed -i "s/versão \`$current_version\`/versão \`$new_version\`/g" AGENTS.md
     cargo check --quiet
-    echo "Bumped version from $current_version to $new_version in Cargo.toml and Cargo.lock"
+    echo "Bumped version from $current_version to $new_version in Cargo.toml, Cargo.lock, and AGENTS.md"
     ;;
   bump-minor)
     current_version=$(grep '^version = ' Cargo.toml | cut -d '"' -f 2)
@@ -36,13 +38,25 @@ case "$cmd" in
     next_minor=$((minor + 1))
     new_version="${major}.${next_minor}.0"
     sed -i "s/^version = \"$current_version\"/version = \"$new_version\"/" Cargo.toml
+    sed -i "s/(versão \`$current_version\`)/(versão \`$new_version\`)/g" AGENTS.md
+    sed -i "s/versão \`$current_version\`/versão \`$new_version\`/g" AGENTS.md
     cargo check --quiet
-    echo "Bumped version from $current_version to $new_version in Cargo.toml and Cargo.lock"
+    echo "Bumped version from $current_version to $new_version in Cargo.toml, Cargo.lock, and AGENTS.md"
     ;;
   tag)
     version="${2:-}"
     if [[ -z "$version" ]]; then
       echo "Error: Version argument required for tag (e.g. 0.9.1)." >&2
+      exit 1
+    fi
+    version="${version#v}"
+    current_version=$(grep '^version = ' Cargo.toml | cut -d '"' -f 2)
+    if [[ "$version" != "$current_version" ]]; then
+      echo "Error: Tag version $version does not match Cargo.toml version $current_version." >&2
+      exit 1
+    fi
+    if [[ -n "$(git status --porcelain)" ]]; then
+      echo "Error: Cannot tag release with uncommitted changes in git working tree." >&2
       exit 1
     fi
     git tag -a "v$version" -m "Release v$version"

@@ -36,3 +36,8 @@ Documentação de referência para consulta sob demanda dos módulos do reposit�
 - `src/ui/notify.rs`: Notificações sensoriais de terminal (campainha auditiva e flashes visuais).
 - `src/ui/terminal.rs`: Inicialização de modo raw, bracketed paste e panic hook para restauração de TTY.
 - `src/ui/theme.rs`: Definições visuais e paleta de cores inspirada no OpenCode.
+
+## Suíte de Testes de Integração (`tests/`)
+- `tests/suite.rs`: Ponto de entrada canônico do binário único de testes (*single integration test crate*).
+- `tests/common/mod.rs`: Utilitários compartilhados herméticos (`test_app`, `press_key`, guards RAII `TempDirGuard`/`TempFileGuard`, `PGID_TEST_LOCK`).
+- `tests/domains/`: Diretório dos 8 domínios de testes de integração particionados.
