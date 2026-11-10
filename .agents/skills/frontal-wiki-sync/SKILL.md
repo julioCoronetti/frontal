@@ -5,7 +5,7 @@ description: Audit, synchronize, and commit architectural documentation in the l
 
 # Frontal Wiki Sync Skill
 
-This skill automates the synchronization and invariant auditing of the local GitHub Wiki submodule/mirror (`.wiki/`), ensuring strict compliance with repository pre-commit hooks and `architecture.rs` metadata requirements.
+Automates synchronization and invariant auditing of the local GitHub Wiki mirror (`.wiki/`), ensuring strict compliance with repository pre-commit hooks and `architecture.rs` metadata invariants.
 
 ## Wiki Mirror Governance Rules
 
@@ -15,15 +15,19 @@ This skill automates the synchronization and invariant auditing of the local Git
 
 ## Usage
 
-Run the bundled wiki sync runner from within the repository root:
+Execute commands via the bundled runner script from the repository root:
 
+Check working tree status of the `.wiki/` mirror:
 ```bash
-# Check status of the .wiki/ mirror
 .agents/skills/frontal-wiki-sync/scripts/wiki_sync.sh status
+```
 
-# Verify invariant tokens and uncommitted changes
+Verify invariant tokens and uncommitted changes:
+```bash
 .agents/skills/frontal-wiki-sync/scripts/wiki_sync.sh check
+```
 
-# Stage and commit documentation changes in the .wiki/ mirror
+Stage and commit documentation updates in the `.wiki/` mirror:
+```bash
 .agents/skills/frontal-wiki-sync/scripts/wiki_sync.sh commit "update architecture docs for card #<id>"
 ```

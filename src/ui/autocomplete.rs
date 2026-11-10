@@ -88,17 +88,17 @@ impl AutocompletePopover {
 
     pub fn default_commands() -> Vec<AutocompleteItem> {
         let cmds = [
-            ("/help", "Exibir ajuda de comandos"),
-            ("/clear", "Limpar conversa ativa"),
-            ("/new", "Abrir nova sessao em aba"),
-            ("/model", "Selecionar modelo e esforco"),
-            ("/respawn", "Reiniciar sessao mantendo conversa"),
-            ("/resume", "Retomar sessao anterior do historico"),
-            ("/rename", "Renomear sessao ativa"),
-            ("/diff", "Visualizar alteracoes locais (git diff)"),
-            ("/quota", "Exibir quotas e limites dos modelos"),
-            ("/interrupt", "Interromper execucao corrente"),
-            ("/quit", "Sair do frontal"),
+            ("/help", "Show available commands"),
+            ("/clear", "Clear active conversation"),
+            ("/new", "Open new session tab"),
+            ("/model", "Select model and reasoning effort"),
+            ("/respawn", "Hot-respawn session preserving conversation"),
+            ("/resume", "Resume past session from history"),
+            ("/rename", "Rename active session"),
+            ("/diff", "View local git diff"),
+            ("/quota", "Show model quotas and plan limits"),
+            ("/interrupt", "Interrupt current execution"),
+            ("/quit", "Quit Frontal"),
         ];
 
         cmds.into_iter()

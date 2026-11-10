@@ -5,7 +5,7 @@ description: Run the canonical quality gate for the Frontal repository (cargo fm
 
 # Frontal Quality Gate Skill
 
-This skill executes the canonical validation pipeline required before every commit in the Frontal repository:
+Executes the canonical validation pipeline required before every commit in the Frontal repository:
 1. Canonical formatting verification (`cargo fmt --check`)
 2. Strict linting without warnings (`cargo clippy --all-targets -- -D warnings`)
 3. Hermetic integration test suite execution (`cargo test --quiet`), validating:
@@ -18,7 +18,7 @@ This skill executes the canonical validation pipeline required before every comm
 
 ## Usage
 
-Run the bundled runner script from within the repository root:
+Run the bundled runner script from the repository root:
 
 ```bash
 .agents/skills/frontal-quality-gate/scripts/quality_gate.sh
@@ -27,5 +27,5 @@ Run the bundled runner script from within the repository root:
 ## Failure Diagnosis
 
 - **Formatting failure**: Run `cargo fmt` to apply canonical formatting automatically.
-- **Clippy failure**: Resolve all reported compiler warnings; flags enforce `-D warnings`.
+- **Clippy failure**: Resolve all reported compiler warnings; compiler flags enforce `-D warnings`.
 - **Architecture test failure**: Inspect `tests/domains/architecture.rs` output to identify offending files (comment violations, files exceeding 500 lines, or metadata desynchronization).
