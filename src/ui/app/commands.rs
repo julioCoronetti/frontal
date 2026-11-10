@@ -313,10 +313,13 @@ impl App {
                 .map(|t| t.title.clone())
                 .filter(|t| !t.starts_with("Session ") && !t.trim().is_empty());
 
-            let agent_title = meta
-                .conversation_id
-                .as_deref()
-                .and_then(crate::ui::history::query_agent_conversation_title);
+            let agent_title = if self.history.is_in_memory() {
+                None
+            } else {
+                meta.conversation_id
+                    .as_deref()
+                    .and_then(crate::ui::history::query_agent_conversation_title)
+            };
             let final_title = agent_title
                 .or_else(|| {
                     meta.last_prompt

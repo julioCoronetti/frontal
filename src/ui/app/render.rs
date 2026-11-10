@@ -223,16 +223,18 @@ impl App {
             let total_tokens = self
                 .last_turn_usage
                 .as_ref()
-                .map(|u| u.total_tokens)
+                .map(|u| u.effective_total())
                 .unwrap_or(0);
-            let pct = (total_tokens as f64 / 1_000_000.0 * 100.0).min(100.0);
+            let max_context =
+                crate::protocol::context_window_for_model(&self.active_model_name()) as f64;
+            let pct = (total_tokens as f64 / max_context.max(1.0) * 100.0).min(100.0);
             let filled_blocks = ((pct / 100.0) * 14.0).round() as usize;
             let bar = format!(
                 "{}{}",
                 "■".repeat(filled_blocks),
                 "░".repeat(14usize.saturating_sub(filled_blocks))
             );
-            let sb_lines = vec![
+            let mut sb_lines = vec![
                 Line::from(vec![
                     Span::styled("● ", Style::default().fg(Color::Green)),
                     Span::styled(
@@ -259,6 +261,17 @@ impl App {
                     Style::default().fg(TEXT_PRIMARY),
                 )]),
                 Line::from(vec![Span::styled(bar, Style::default().fg(ACCENT_PRIMARY))]),
+            ];
+            if self.accumulated_usage.effective_total() > 0 {
+                sb_lines.push(Line::from(vec![Span::styled(
+                    format!(
+                        "Cache hit: {:.1}%",
+                        self.accumulated_usage.cache_hit_percentage()
+                    ),
+                    Style::default().fg(TEXT_MUTED),
+                )]));
+            }
+            sb_lines.extend(vec![
                 Line::from(""),
                 Line::from(vec![Span::styled(
                     "Workspace",
@@ -268,7 +281,7 @@ impl App {
                     &self.cwd_display,
                     Style::default().fg(TEXT_MUTED),
                 )]),
-            ];
+            ]);
             let sb_widget = Paragraph::new(sb_lines).block(
                 Block::default()
                     .borders(Borders::LEFT)

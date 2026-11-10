@@ -217,15 +217,16 @@ impl App {
             if let Some(ref cid) = final_conv_id {
                 let cid_clone = cid.clone();
                 let mut hydrated_cache = crate::ui::cache::RenderCache::new();
-                let (hydrated, new_cache) = tokio::task::spawn_blocking(move || {
+                let (hydrated, new_cache, maybe_title) = tokio::task::spawn_blocking(move || {
                     let ok = crate::ui::history::hydrate_cache_from_transcript(
                         &cid_clone,
                         &mut hydrated_cache,
                     );
-                    (ok, hydrated_cache)
+                    let title = crate::ui::history::query_agent_conversation_title(&cid_clone);
+                    (ok, hydrated_cache, title)
                 })
                 .await
-                .unwrap_or((false, crate::ui::cache::RenderCache::new()));
+                .unwrap_or((false, crate::ui::cache::RenderCache::new(), None));
 
                 if hydrated {
                     self.cache = new_cache;
@@ -233,7 +234,7 @@ impl App {
                 } else if is_different_conv {
                     self.cache.clear();
                 }
-                if let Some(title) = crate::ui::history::query_agent_conversation_title(cid) {
+                if let Some(title) = maybe_title {
                     if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
                         tab.title = title;
                     }
