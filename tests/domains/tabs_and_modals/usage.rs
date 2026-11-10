@@ -253,27 +253,19 @@ fn test_usage_modal_exhausted_bucket_and_rendering() {
 }
 
 #[test]
-fn test_slash_usage_command_and_palette_dispatch() {
+fn test_slash_quota_command_and_palette_dispatch() {
     let (mut app, _) = test_app();
     let enter = press_key(KeyCode::Enter, KeyModifiers::NONE);
 
     app.editor.insert_str("/quota");
-    let act = app.handle_terminal_event(enter.clone());
+    let act = app.handle_terminal_event(enter);
     assert_eq!(act, None);
     assert_eq!(app.modals.stack.len(), 1);
     assert!(matches!(app.modals.top(), Some(Modal::Usage(_))));
 
     let esc = press_key(KeyCode::Esc, KeyModifiers::NONE);
-    let act_close = app.handle_terminal_event(esc.clone());
+    let act_close = app.handle_terminal_event(esc);
     assert_eq!(act_close, None);
-    assert!(app.modals.is_empty());
-
-    app.editor.insert_str("/usage");
-    let act2 = app.handle_terminal_event(enter);
-    assert_eq!(act2, None);
-    assert_eq!(app.modals.stack.len(), 1);
-    assert!(matches!(app.modals.top(), Some(Modal::Usage(_))));
-    app.handle_terminal_event(esc);
     assert!(app.modals.is_empty());
 }
 

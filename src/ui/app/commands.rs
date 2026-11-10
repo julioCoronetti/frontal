@@ -207,7 +207,7 @@ impl App {
             self.status_text = String::from("New tab");
             self.dirty = true;
             Some(Some(AppAction::NewTab))
-        } else if trimmed == "/quota" || trimmed == "/usage" {
+        } else if trimmed == "/quota" {
             let modal = crate::ui::modal::UsageModal::load(!self.history.is_in_memory());
             self.modals.push(Modal::Usage(modal));
             self.dirty = true;
