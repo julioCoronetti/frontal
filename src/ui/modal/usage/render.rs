@@ -5,7 +5,21 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use super::{UsageModal, UsageState, UsageSummary};
-use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY};
+use crate::ui::theme::{ACCENT_HIGHLIGHT, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY};
+
+fn section_header(title: &str, width: usize) -> Line<'static> {
+    let prefix = format!("── {} ", title);
+    let bar_len = width.saturating_sub(prefix.chars().count()).min(45);
+    Line::from(vec![
+        Span::styled(
+            prefix,
+            Style::default()
+                .fg(ACCENT_HIGHLIGHT)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("─".repeat(bar_len), Style::default().fg(BORDER_SUBTLE)),
+    ])
+}
 
 pub fn render_modal(modal: &UsageModal, frame: &mut Frame, area: Rect) {
     modal.poll_rx();
@@ -22,7 +36,7 @@ pub fn render_modal(modal: &UsageModal, frame: &mut Frame, area: Rect) {
         .border_style(Style::default().fg(BORDER_SUBTLE))
         .padding(ratatui::widgets::Padding::new(2, 2, 1, 1))
         .title(Span::styled(
-            " Antigravity CLI 1.5.3 · Usage & Quota ",
+            " Antigravity CLI 1.5.3 · Quota ",
             Style::default()
                 .fg(ACCENT_HIGHLIGHT)
                 .add_modifier(Modifier::BOLD),
@@ -35,21 +49,12 @@ pub fn render_modal(modal: &UsageModal, frame: &mut Frame, area: Rect) {
 
     let current_state = modal.state.lock().unwrap().clone();
     let lines = match current_state {
-        UsageState::Loading => vec![
-            Line::raw(""),
-            Line::from(vec![Span::styled(
-                "  Loading subscription and quota...",
-                Style::default().fg(TEXT_MUTED),
-            )]),
-        ],
+        UsageState::Loading => vec![Line::from(vec![Span::styled(
+            "  Loading subscription and quota...",
+            Style::default().fg(TEXT_MUTED),
+        )])],
         UsageState::Unavailable(err) => vec![
-            Line::raw(""),
-            Line::from(vec![Span::styled(
-                "PLAN",
-                Style::default()
-                    .fg(ACCENT_PRIMARY)
-                    .add_modifier(Modifier::BOLD),
-            )]),
+            section_header("PLAN", inner.width as usize),
             Line::from(vec![
                 Span::raw("  Your Plan: "),
                 Span::styled(
@@ -60,12 +65,7 @@ pub fn render_modal(modal: &UsageModal, frame: &mut Frame, area: Rect) {
                 ),
             ]),
             Line::raw(""),
-            Line::from(vec![Span::styled(
-                "STATUS",
-                Style::default()
-                    .fg(ACCENT_PRIMARY)
-                    .add_modifier(Modifier::BOLD),
-            )]),
+            section_header("STATUS", inner.width as usize),
             Line::from(vec![Span::styled(
                 format!("  {}", err),
                 Style::default().fg(Color::Yellow),
@@ -76,7 +76,7 @@ pub fn render_modal(modal: &UsageModal, frame: &mut Frame, area: Rect) {
                 Style::default().fg(TEXT_MUTED),
             )]),
         ],
-        UsageState::Ready(ref summary) => build_summary_lines(summary),
+        UsageState::Ready(ref summary) => build_summary_lines(summary, inner.width as usize),
     };
 
     let total_lines = lines.len();
@@ -89,16 +89,10 @@ pub fn render_modal(modal: &UsageModal, frame: &mut Frame, area: Rect) {
     frame.render_widget(paragraph, inner);
 }
 
-pub fn build_summary_lines(summary: &UsageSummary) -> Vec<Line<'static>> {
+pub fn build_summary_lines(summary: &UsageSummary, width: usize) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
-    lines.push(Line::raw(""));
 
-    lines.push(Line::from(vec![Span::styled(
-        "PLAN",
-        Style::default()
-            .fg(ACCENT_PRIMARY)
-            .add_modifier(Modifier::BOLD),
-    )]));
+    lines.push(section_header("PLAN", width));
     if let Some(ref email) = summary.plan.account_email {
         lines.push(Line::from(vec![
             Span::raw("  Account: "),
@@ -128,12 +122,7 @@ pub fn build_summary_lines(summary: &UsageSummary) -> Vec<Line<'static>> {
     }
     lines.push(Line::raw(""));
 
-    lines.push(Line::from(vec![Span::styled(
-        "MODEL QUOTAS",
-        Style::default()
-            .fg(ACCENT_PRIMARY)
-            .add_modifier(Modifier::BOLD),
-    )]));
+    lines.push(section_header("MODEL QUOTAS", width));
 
     for grp in &summary.groups {
         lines.push(Line::from(vec![Span::styled(
@@ -174,32 +163,6 @@ pub fn build_summary_lines(summary: &UsageSummary) -> Vec<Line<'static>> {
             lines.push(Line::raw(""));
         }
     }
-
-    lines.push(Line::from(vec![Span::styled(
-        "MODEL CREDITS",
-        Style::default()
-            .fg(ACCENT_PRIMARY)
-            .add_modifier(Modifier::BOLD),
-    )]));
-
-    if let Some(ref cred) = summary.credits {
-        let avail = cred.available.as_deref().unwrap_or("$0.00");
-        let over = cred.overages.as_deref().unwrap_or("$0.00");
-        lines.push(Line::from(vec![
-            Span::raw("  Available AI Credits: "),
-            Span::styled(avail.to_string(), Style::default().fg(TEXT_PRIMARY)),
-        ]));
-        lines.push(Line::from(vec![
-            Span::raw("  AI Credit Overages:   "),
-            Span::styled(over.to_string(), Style::default().fg(TEXT_PRIMARY)),
-        ]));
-    } else {
-        lines.push(Line::from(vec![Span::styled(
-            "  No AI credits available for this account",
-            Style::default().fg(TEXT_MUTED),
-        )]));
-    }
-    lines.push(Line::raw(""));
 
     lines
 }

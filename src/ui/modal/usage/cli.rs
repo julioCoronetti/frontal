@@ -1,7 +1,7 @@
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use super::{CreditInfo, UsagePlanInfo, UsageSummary};
+use super::{UsagePlanInfo, UsageSummary};
 use crate::transport::EngineConfig;
 
 pub fn fetch_agy_cli_quota() -> Result<UsageSummary, String> {
@@ -74,14 +74,7 @@ pub fn fetch_agy_cli_quota() -> Result<UsageSummary, String> {
         manage_url: None,
     };
 
-    Ok(UsageSummary {
-        plan,
-        groups,
-        credits: Some(CreditInfo {
-            available: Some("$0.00".to_string()),
-            overages: Some("$0.00".to_string()),
-        }),
-    })
+    Ok(UsageSummary { plan, groups })
 }
 
 fn read_oauth_email() -> Option<String> {

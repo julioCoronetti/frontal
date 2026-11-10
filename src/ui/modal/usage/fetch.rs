@@ -1,7 +1,7 @@
 use std::sync::mpsc::Sender;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::{CreditInfo, QuotaBucket, QuotaGroup, UsagePlanInfo, UsageState, UsageSummary};
+use super::{QuotaBucket, QuotaGroup, UsagePlanInfo, UsageState, UsageSummary};
 
 fn civil_to_days(mut y: i64, m: u64, d: u64) -> i64 {
     y -= (m <= 2) as i64;
@@ -472,12 +472,5 @@ pub fn build_usage_summary(
         .unwrap_or_default();
     let groups = merge_quota_groups(api_groups, &mut fallback_groups);
     let plan = parse_plan_info(plan_json, email);
-    Some(UsageSummary {
-        plan,
-        groups,
-        credits: Some(CreditInfo {
-            available: Some("$0.00".to_string()),
-            overages: Some("$0.00".to_string()),
-        }),
-    })
+    Some(UsageSummary { plan, groups })
 }

@@ -6,7 +6,7 @@ use frontal::ui::modal::usage::{
     },
     format_reset_time,
     render::render_progress_bar,
-    CreditInfo, QuotaBucket, QuotaGroup, UsagePlanInfo, UsageState, UsageSummary,
+    QuotaBucket, QuotaGroup, UsagePlanInfo, UsageState, UsageSummary,
 };
 use frontal::ui::modal::{Modal, ModalAction, UsageModal};
 use ratatui::backend::TestBackend;
@@ -98,8 +98,6 @@ fn test_usage_modal_sections_and_offline_fallback() {
                 summary.groups[2].buckets[0].name,
                 "Gemini 4 Argon Weekly Limit"
             );
-
-            assert!(summary.credits.is_some());
         }
         _ => panic!("Expected UsageState::Ready in offline fallback"),
     }
@@ -229,10 +227,6 @@ fn test_usage_modal_exhausted_bucket_and_rendering() {
                 },
             ],
         }],
-        credits: Some(CreditInfo {
-            available: Some("$50.00".to_string()),
-            overages: Some("$0.00".to_string()),
-        }),
     };
 
     let (bar_ex, col_ex) = render_progress_bar(0.0, 10, true);

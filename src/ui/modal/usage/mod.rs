@@ -43,16 +43,9 @@ pub struct QuotaGroup {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct CreditInfo {
-    pub available: Option<String>,
-    pub overages: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
 pub struct UsageSummary {
     pub plan: UsagePlanInfo,
     pub groups: Vec<QuotaGroup>,
-    pub credits: Option<CreditInfo>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -169,10 +162,6 @@ impl UsageModal {
                     }],
                 },
             ],
-            credits: Some(CreditInfo {
-                available: Some("$0.00".to_string()),
-                overages: Some("$0.00".to_string()),
-            }),
         };
 
         Self::with_data(summary)
