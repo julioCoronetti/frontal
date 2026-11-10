@@ -51,6 +51,7 @@ Documentações profundas e procedimentos mecânicos foram desacoplados em módu
 - **Documentação Especializada (`.agents/docs/`):**
   - `.agents/docs/structure.md`: Mapeamento detalhado arquivo por arquivo do núcleo e UI.
   - `.agents/docs/sources.md`: Catálogo completo de links, referências do GitHub, Wiki oficial e dossiês técnicos (`agy`, `OpenCode`).
+  - `.agents/docs/subagents.md`: Diretrizes, perfis e anti-padrões para delegação a subagentes.
 
 ---
 
