@@ -6,9 +6,10 @@ description: Run the canonical quality gate for the Frontal repository (cargo fm
 # Frontal Quality Gate Skill
 
 Executes the canonical validation pipeline required before every commit in the Frontal repository:
-1. Canonical formatting verification (`cargo fmt --check`)
-2. Strict linting without warnings (`cargo clippy --all-targets -- -D warnings`)
-3. Hermetic integration test suite execution (`cargo test --quiet`), validating:
+1. Atomic threshold check: Maximum 5 modified files (unless `ATOMIC_OVERRIDE=1`)
+2. Canonical formatting verification (`cargo fmt --check`)
+3. Strict linting without warnings (`cargo clippy --all-targets -- -D warnings`)
+4. Hermetic integration test suite execution (`cargo test --quiet`), validating:
    - Zero comments across all Rust source files
    - Modularity ceiling of 500 lines per `.rs` file
    - Multi-session swap invariants (`App` <-> `TabState`)

@@ -44,3 +44,9 @@ Transition item to `Done` on GitHub Project Board #8:
 ```bash
 .agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh close-board <ITEM_ID>
 ```
+
+Validate commit message format and trailers:
+```bash
+.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh validate-commit --head
+.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh validate-commit <file>
+```
