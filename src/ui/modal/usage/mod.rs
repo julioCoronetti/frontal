@@ -104,7 +104,7 @@ impl UsageModal {
         let summary = UsageSummary {
             plan: UsagePlanInfo {
                 tier_name: "Google AI Pro".to_string(),
-                account_email: Some("juliocoronetti22@gmail.com".to_string()),
+                account_email: None,
                 upgrade_url: None,
                 manage_url: None,
             },
@@ -175,7 +175,7 @@ impl UsageModal {
     }
 
     pub fn refresh(&mut self) {
-        if !self.allow_network {
+        if !self.allow_network || self.is_loading() {
             return;
         }
         if let Ok(mut cache) = USAGE_CACHE.lock() {

@@ -77,7 +77,7 @@
 - `src/ui/editor/`: Editor de prompt multilinha sobre B-Tree (`ropey`), extmarks atômicos (`@`, `/`) e pílulas de paste (`mod.rs`, `mutations.rs`, `navigation.rs`).
 - `src/ui/autocomplete.rs`: Popover flutuante de autocompletação para comandos e arquivos (`FileSearchWorker`).
 - `src/ui/history.rs`: Persistência de histórico de comandos em SQLite WAL (`PromptHistory`).
-- `src/ui/modal/`: Pilha de diálogos modais flutuantes particionada (`mod.rs`, `danger.rs`, `diff.rs`, `model_effort.rs`, `palette.rs`, `respawn.rs`, `select.rs`).
+- `src/ui/modal/`: Pilha de diálogos modais flutuantes particionada (`mod.rs`, `danger.rs`, `diff.rs`, `model_effort.rs`, `palette.rs`, `respawn.rs`, `select.rs`, `usage/`).
 - `src/ui/diff.rs`: Visualizador de diffs unificados integrado.
 - `src/ui/clipboard.rs`: Suporte à área de transferência do sistema via `arboard` com buffer isolado em memória e fallback OSC 52.
 - `src/ui/notify.rs`: Notificações sensoriais de terminal (campainha auditiva e flashes visuais).
@@ -99,6 +99,7 @@
   - `model_effort.rs`: Seletor de modelo/esforço, normalização de catálogo e restauração de seleções.
   - `select.rs`: Componente genérico DialogSelect, filtragem multitermo, navegação por teclado e mouse, scroll offset e viewport clipping.
   - `resume.rs`: Hidratação de histórico transcript.jsonl, fallback de preview e preservação de timestamp e título.
+  - `usage.rs`: Modal de cotas e limites de planos/modelos, fallback offline, extração assíncrona agy cli e cache com TTL.
 - `tests/domains/tui_integration/`: Testes particionados fim-a-fim (< 500 linhas por arquivo, 20 testes):
   - `rendering.rs`: Layout visual OpenCode, spinner, cabeçalho/rodapé e dimensões adversariais de terminal.
   - `input_and_events.rs`: Comandos locais (`/quit`, `/clear`, `/help`, etc.), mouse routing e bracketed paste.

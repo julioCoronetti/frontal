@@ -47,10 +47,31 @@ pub fn format_reset_time(iso: &str) -> String {
 
 pub fn fetch_quota_async(tx: Sender<UsageState>) {
     if super::FETCH_IN_FLIGHT.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        std::thread::spawn(move || {
+            for _ in 0..100 {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                if !super::FETCH_IN_FLIGHT.load(std::sync::atomic::Ordering::SeqCst) {
+                    if let Ok(guard) = super::USAGE_CACHE.lock() {
+                        if let Some((_, ref summary)) = *guard {
+                            let _ = tx.send(UsageState::Ready(summary.clone()));
+                            return;
+                        }
+                    }
+                    let _ = tx.send(UsageState::Unavailable("Fetch failed in worker.".into()));
+                    return;
+                }
+            }
+            let _ = tx.send(UsageState::Unavailable("Fetch timeout.".into()));
+        });
         return;
     }
     std::thread::spawn(move || {
         let state = execute_fetch();
+        if let UsageState::Ready(ref summary) = state {
+            if let Ok(mut cache) = super::USAGE_CACHE.lock() {
+                *cache = Some((std::time::Instant::now(), summary.clone()));
+            }
+        }
         super::FETCH_IN_FLIGHT.store(false, std::sync::atomic::Ordering::SeqCst);
         let _ = tx.send(state);
     });
@@ -261,13 +282,13 @@ fn extract_raw_quotas(val: &serde_json::Value) -> Vec<RawQuota> {
 }
 
 fn make_bucket(name: &str, raw: Option<&RawQuota>) -> QuotaBucket {
-    match raw {
+    let (frac, exhausted, reset_label) = match raw {
         Some(r) => {
             let frac = r
                 .remaining_fraction
                 .unwrap_or(if r.disabled { 0.0 } else { 1.0 });
             let exhausted = r.disabled || frac <= 0.0;
-            let reset_label = if frac >= 1.0 {
+            let label = if frac >= 1.0 {
                 "Quota available".to_string()
             } else if let Some(ref rt) = r.reset_time {
                 format_reset_time(rt)
@@ -276,19 +297,15 @@ fn make_bucket(name: &str, raw: Option<&RawQuota>) -> QuotaBucket {
             } else {
                 "Quota available".to_string()
             };
-            QuotaBucket {
-                name: name.to_string(),
-                remaining_pct: (frac * 100.0).clamp(0.0, 100.0),
-                reset_label,
-                exhausted,
-            }
+            (frac, exhausted, label)
         }
-        None => QuotaBucket {
-            name: name.to_string(),
-            remaining_pct: 100.0,
-            reset_label: "Quota available".to_string(),
-            exhausted: false,
-        },
+        None => (1.0, false, "Quota available".to_string()),
+    };
+    QuotaBucket {
+        name: name.to_string(),
+        remaining_pct: (frac * 100.0).clamp(0.0, 100.0),
+        reset_label,
+        exhausted,
     }
 }
 
@@ -344,10 +361,7 @@ pub fn parse_available_models(val: &serde_json::Value) -> Option<Vec<QuotaGroup>
     };
 
     let claude_weekly = make_bucket("Weekly Limit Remaining", sonnet);
-    let claude_five = match gpt.or(opus) {
-        Some(r) => make_bucket("Five Hour Limit Remaining", Some(r)),
-        None => make_bucket("Five Hour Limit Remaining", None),
-    };
+    let claude_five = make_bucket("Five Hour Limit Remaining", gpt.or(opus));
     let claude_group = QuotaGroup {
         name: "CLAUDE AND GPT MODELS".to_string(),
         description: Some(
