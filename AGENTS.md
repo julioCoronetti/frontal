@@ -54,15 +54,17 @@ Operational procedures and reference documentation are decoupled from the base p
 ## Git Delivery Flow & Atomic Commits
 
 ### Canonical Quality Gate
-Every change must pass the automated gate (`.agents/skills/frontal-quality-gate/scripts/quality_gate.sh`) enforced by `.githooks/pre-commit`:
-1. `cargo fmt --check`: Canonical formatting.
-2. `cargo clippy --all-targets -- -D warnings`: Strict linting with zero warnings.
-3. `cargo test --quiet`: Unified integration suite passing 150 tests.
+Every change must pass the automated gate (`.agents/skills/frontal-quality-gate/scripts/quality_gate.sh`):
+1. Atomic threshold: Maximum 5 modified files (unless `ATOMIC_OVERRIDE=1`).
+2. Canonical formatting: `cargo fmt --check`.
+3. Strict linting: `cargo clippy --all-targets -- -D warnings` (zero warnings).
+4. Test suite pass: `cargo test --quiet` (unified integration suite passing 150 tests).
 
-### Hooks Activation
-```bash
-git config core.hooksPath .githooks
-```
+### Commit Message Governance
+Commit messages and trailers are validated via `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh validate-commit`:
+- Must match canonical header regex and include mandatory sections (`- Why:`, `- What:`, `- Invariants:`).
+- `Card-Status: In Review` strictly requires prior Argon Advisor audit (rejects `Reviewed-By: Argon-Advisor <mode:none>`).
+- `Card-Status: In Review` and `Done` require a clean `.wiki/` documentation mirror.
 
 ### SemVer Policy
 - Version Series `0.y.z`: Maturing software following SemVer. Version `0.9.0` represents production consolidation.
