@@ -3,7 +3,7 @@
 ## 1. Visão Geral do Projeto
 - **Projeto**: Frontal.
 - **Objetivo**: Interface de usuário em terminal (TUI) desacoplada, de alta performance e assíncrona para o Antigravity CLI (`agy`) e motores compatíveis com o protocolo `stream-json`.
-- **Status do Projeto**: Arquitetura em Rust implementada e operacional (versão `0.8.0`), consolidada na branch `main` por suíte unificada de integração com 8 domínios (150 testes). O desenvolvimento evolui em fluxo contínuo orientado por cards e issues do GitHub Project Board #8.
+- **Status do Projeto**: Arquitetura em Rust implementada e operacional (versão `0.9.0`), consolidada na branch `main` por suíte unificada de integração com 8 domínios (150 testes). O desenvolvimento evolui em fluxo contínuo orientado por cards e issues do GitHub Project Board #8.
 - **Stack Oficial Ativa (Crates do `Cargo.toml`)**:
   - `tokio` (features: `rt-multi-thread`, `macros`, `process`, `io-util`, `sync`, `time`, `signal`, `fs`)
   - `tokio-util` (feature: `codec`)
@@ -152,10 +152,10 @@ git config core.hooksPath .githooks
 ```
 
 ### Política de Versionamento SemVer
-1. **Série `0.y.z`:** O projeto segue SemVer para softwares em maturação contínua. A versão `0.8.0` reflete a arquitetura consolidada em produção e a evolução contínua guiada por cards do Project Board.
+1. **Série `0.y.z`:** O projeto segue SemVer para softwares em maturação contínua. A versão `0.9.0` reflete a arquitetura consolidada em produção e a evolução contínua guiada por cards do Project Board.
 2. **Regra de Ouro SemVer:** É terminantemente proibido alterar o campo `version` no `Cargo.toml` em commits intermediários (`Card-Status: In Progress`).
 3. **Bump Exclusivo no Fechamento (`Done`):** O incremento SemVer ocorre exclusivamente no commit de encerramento (`Card-Status: Done`) autorizado pelo Senhor:
-   - **Patch (`0.8.x`):** Para correções de bugs (`fix(...)`) ou refatorações puras.
+   - **Patch (`0.9.x`):** Para correções de bugs (`fix(...)`) ou refatorações puras.
    - **Minor (`0.x.0`):** Para fechamento de cards funcionais de features estruturais do Board.
    - O commit de fechamento deve ser acompanhado imediatamente pela criação da tag Git anotada (`git tag -a vX.Y.Z -m "Release vX.Y.Z"`).
 4. **Simetria de Exposição:** A versão da aplicação deve ser exposta de forma idêntica tanto via CLI (`frontal --version` / `frontal -V`) quanto na TUI (no cabeçalho de resposta do comando `/help`).
