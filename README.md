@@ -1,120 +1,119 @@
 # Frontal
 
-Terminal User Interface (TUI) harness desacoplado, assíncrono e de alta performance desenvolvido em **Rust** (versão `0.9.0`) para o Antigravity CLI (`agy`) e motores agênticos compatíveis com o protocolo `stream-json`.
+Decoupled, asynchronous, high-performance Terminal User Interface (TUI) harness developed in **Rust** (version `0.9.0`) for the Antigravity CLI (`agy`) and agentic engines compatible with the `stream-json` protocol.
 
 ---
 
-## 1. Visão Geral
+## 1. Overview
 
-O Frontal provê uma camada de apresentação em terminal de altíssima performance focada na renderização estável e responsiva de fluxos contínuos de tokens de LLM. O harness consome eventos estruturados (NDJSON) emitidos via pipes de processo (`stdin`/`stdout`), desacoplando integralmente o ciclo de vida do motor de IA da interface visual. A estabilidade mecânica da arquitetura é validada por uma suíte unificada de **150 testes automatizados em 8 domínios**.
+Frontal provides a high-performance terminal presentation layer designed for the stable, responsive rendering of continuous LLM token streams. The harness consumes structured events (NDJSON) over process pipes (`stdin`/`stdout`), fully decoupling the AI engine lifecycle from the visual interface. Architectural stability is verified by a unified suite of **150 tests across 8 domains**.
 
-O design arquitetural é fundamentado na engenharia reversa e análise comparativa de dois harnesses de referência:
-- **Antigravity CLI (`agy`)**: Referência em simplicidade operacional, estabilidade de processos e protocolo enxuto `stream-json`.
-- **OpenCode**: Referência em ergonomia visual de terminal, decomposição de mensagens em partes atômicas, cards de ferramentas e controle de contexto.
+The design is informed by comparative analysis of two reference harnesses:
+- **Antigravity CLI (`agy`)**: Benchmark for operational simplicity, process stability, and a streamlined `stream-json` protocol.
+- **OpenCode**: Benchmark for terminal ergonomics, message chunking, tool cards, and context management.
 
 ---
 
-## 2. Stack Tecnológica Oficial (Rust)
+## 2. Official Technology Stack (Rust)
 
-A arquitetura do Frontal foi definida para garantir execução determinística a 60 FPS com consumo mínimo de recursos e zero dependências externas de runtime:
+Frontal's architecture delivers deterministic 60 FPS execution with minimal resource utilization and zero external runtime dependencies:
 
-| Camada | Crate / Biblioteca | Papel e Justificativa Técnica |
+| Layer | Crate / Library | Role and Technical Justification |
 | :--- | :--- | :--- |
-| **Apresentação & TUI** | `ratatui` + `crossterm` | Renderização imediata (*immediate-mode*) com double-buffering e diff de células em microssegundos. |
-| **Async Runtime & IPC** | `tokio` + `tokio-util` | Orquestração assíncrona de subprocessos (`tokio::process`), canais MPSC e decodificação de linhas NDJSON via `LinesCodec`. |
-| **Serialização** | `serde` + `serde_json` | Deserialização estrita e tipada dos eventos e comandos do protocolo `stream-json`. |
-| **Editor de Prompt** | `ropey` + Token Registry | Buffer baseado em B-Tree (Rope) para navegação multilinha rápida, suporte a menções atômicas (`@`, `/`) e colapso de textos colados longos (`[Pasted ~N lines]`). |
-| **Parsing de Markdown** | `pulldown-cmark` | Parser de eventos CommonMark de alto desempenho gerando árvore interna de blocos modulares (`MessageBlock`). |
-| **Realce de Sintaxe** | `syntect` | Destaque sintático incremental por linha com 150+ gramáticas embutidas sem necessidade de compilação de código C nativo. |
-| **Persistência Local** | `rusqlite` (WAL mode) | SQLite embutido leve para metadados de sessão, histórico de comandos e cache. |
-| **Área de Transferência** | `arboard` + OSC 52 | Suporte nativo ao clipboard do sistema com fallback para escape sequences OSC 52 em sessões remotas (SSH). |
-| **Isolamento de Processo & POSIX** | `libc` | Grupos de processo POSIX (`setpgid` / `killpg`) e hook de terminação de processos órfãos (`PR_SET_PDEATHSIG`). |
-| **Buffers & Utilitários Async** | `bytes` + `futures-util` | Gerenciamento de buffers de rede e manipuladores de stream assíncrono com alocação mínima. |
-| **Terminal Virtual (PTY)** | `portable-pty` (RFC futuro, fora do `Cargo.toml`) | Pseudo-terminais assíncronos multiplataforma para comandos interativos (extensão opcional futura). |
+| **Presentation & TUI** | `ratatui` + `crossterm` | Immediate-mode rendering with double-buffering and microsecond cell diffing. |
+| **Async Runtime & IPC** | `tokio` + `tokio-util` | Asynchronous subprocess orchestration (`tokio::process`), MPSC channels, and NDJSON decoding via `LinesCodec`. |
+| **Serialization** | `serde` + `serde_json` | Strict, typed deserialization of `stream-json` events and commands. |
+| **Prompt Editor** | `ropey` + Token Registry | B-Tree (Rope) buffer for fast multiline navigation, atomic mention extmarks (`@`, `/`), and large paste collapse (`[Pasted ~N lines]`). |
+| **Markdown Parsing** | `pulldown-cmark` | High-performance CommonMark event parser building an internal AST of modular blocks (`MessageBlock`). |
+| **Syntax Highlighting** | `syntect` | Line-incremental highlighting with 150+ bundled grammars without native C compilation. |
+| **Local Persistence** | `rusqlite` (WAL mode) | Embedded lightweight SQLite for session metadata, command history, and cache. |
+| **System Clipboard** | `arboard` + OSC 52 | Native system clipboard access with fallback to OSC 52 escape sequences for remote SSH sessions. |
+| **Process Isolation & POSIX** | `libc` | POSIX process groups (`setpgid` / `killpg`) and orphan prevention (`PR_SET_PDEATHSIG`). |
+| **Buffers & Async Utils** | `bytes` + `futures-util` | Network buffer management and async stream combinators with minimal allocations. |
 
 ---
 
-## 3. Diretrizes de Arquitetura
+## 3. Architectural Invariants
 
-1. **Cache de Renderização em Dois Níveis**:
-   - Mensagens de turnos consolidados são preservadas como AST semântica imutável (`MessageBlock` com spans destacados) no Nível 1.
-   - O Nível 2 mantém linhas visuais pré-formatadas indexadas por largura e revisão `(width, revision)`, invalidado preguiçosamente apenas em redimensionamentos (`SIGWINCH`) ou expansão/colapso de blocos.
-   - Apenas o turno ativo em streaming processa deltas, mantendo o custo de desenho em $O(1)$ e a taxa de quadros estável em 60 FPS independentemente do tamanho da conversa.
-2. **Sticky Scroll Inteligente**:
-   - Viewport travado na borda inferior durante o streaming de tokens, com desancoragem imediata ao navegar para cima e reancoragem ao retornar ao rodapé.
-3. **Colapso de Pastes Volumosos**:
-   - Inserções da área de transferência com mais de 5 linhas são compactadas em pílulas visuais no prompt, evitando quebras de layout.
-4. **Isolamento e Limpeza de Subprocessos**:
-   - Configuração de `PR_SET_PDEATHSIG` (Linux) e grupos de processo (`setpgid` / `killpg`) para garantir que encerramentos do Frontal nunca deixem processos órfãos do `agy` em execução.
-
----
-
-## 4. Capacidades Arquiteturais Consolidadas e Evolução Contínua
-
-A arquitetura do Frontal encontra-se implementada e operacional (versão `0.9.0`), validada por **150 testes automatizados em 8 domínios**. O desenvolvimento opera em fluxo contínuo orientado por demandas e cards no GitHub Project Board #8, estruturado nos seguintes domínios consolidados:
-
-- **Fundação, Protocolo `stream-json` e IPC Headless:**
-  - Workspace Cargo, multiplexação interna via `SessionId`, tipagem `stream-json`, abstração `EngineTransport` (`SubprocessEngine` e `FixtureReplayEngine`), orquestração assíncrona com `LinesCodec` (16 MB) e isolamento POSIX robusto (`setpgid`/`killpg`/`PR_SET_PDEATHSIG`).
-- **Core TUI (60 FPS), Viewport Sticky Scroll e Cache em 2 Níveis:**
-  - Loop assíncrono Ratatui a 60 FPS debounced, *bracketed paste*, *panic hook* de restauração de TTY, sticky scroll determinístico e cache de 2 níveis (AST semântica imutável no Nível 1 e linhas indexadas por `(width, revision)` no Nível 2).
-- **Streaming Incremental de Markdown, Realce `syntect` e Tool Cards:**
-  - Pipeline incremental `pulldown-cmark` resiliente a cercas incompletas e parsing de listas soltas, realce `syntect` com checkpoints de estado por linha, sanitização de saídas de terminal (`\r`/ANSI), visual minimalista para raciocínio (`+ Thought`/`- Thought` com borda lateral), comandos com marcador circular `●` discreto e auto-colapso de ferramentas concluídas com expansão por clique de mouse.
-- **Editor `ropey` com Extmarks Atômicos, Autocomplete e Persistência SQLite WAL:**
-  - Buffer de edição multilinha sobre `ropey`, primitiva de overlay/popover com foco prioritário, extmarks atômicos para menções (`@`, `/`), colapso de pastes volumosos (`HashMap` externo), busca assíncrona de arquivos e histórico persistente em SQLite WAL (`rusqlite`).
-- **Multissessão (`TabState`), Pilha de Modais (`DialogSelect`), Guardião de Segurança e Hot-Respawn:**
-  - Multissessão (`Alt+1..9`) sobre `SessionManager`, barreira de turno com fila de staging de prompts (`queued_prompts`) por aba, interceptação local de slash commands desconhecidos, pilha de diálogos modais flutuantes com *backdrop dimming*, Guardião de Segurança determinístico (`DangerAssessment`) com modal de contenção e confirmação (`DangerConfirmationModal`) para interceptação de comandos destrutivos, componente unificado `DialogSelect` com navegação por teclado e interação por mouse (clique e rolagem), alternância de modelos via *hot-respawn*, paleta de comandos (`Ctrl+P`) e visualizador de diffs integrado.
-- **Ergonomia Visual OpenCode, Tema Atlas Crimson e Fidelidade de Clipboard:**
-  - Estado de boas-vindas centralizado, transição fluida para layout de duas colunas (chat + Context Sidebar), popover de autocompletação em duas colunas alinhadas com janela deslizante, indicador flutuante de rolagem, tema visual **Atlas Crimson**, seletor `/model` normalizado com *slider* horizontal de esforço (`◀ ●──◎──● ▶`), alinhamento de margens na coluna 0, seleção granular de texto no viewport e cópia fiel para a área de transferência.
+1. **Two-Level Render Cache ($O(1)$ during active streaming)**:
+   - Consolidated turn messages are preserved as immutable semantic ASTs (`MessageBlock` with style spans) in Level 1.
+   - Level 2 maintains pre-formatted visual lines indexed by `(width, revision)`, lazily invalidated on terminal resizes (`SIGWINCH`) or block expand/collapse.
+   - Only the active streaming block computes deltas, keeping frame generation at $O(1)$ and locking display refresh to 60 FPS regardless of conversation history size.
+2. **Deterministic Sticky Scroll**:
+   - Viewport remains locked to the bottom edge during token streaming, immediately unanchors on user scroll-up, and re-anchors upon returning to the footer.
+3. **Large Paste Folding**:
+   - Clipboard insertions exceeding 5 lines collapse into interactive visual pills in the prompt, preventing layout disruption.
+4. **POSIX Process Isolation & Cleanup**:
+   - Subprocesses are spawned in dedicated process groups via `setpgid(0, 0)` with `PR_SET_PDEATHSIG(libc::SIGTERM)` to guarantee that terminating Frontal never leaves orphaned `agy` processes running.
 
 ---
 
-## 5. Compilação, Testes e Execução
+## 4. Consolidated Capabilities and Continuous Evolution
 
-### Pré-requisitos
-- Toolchain Rust estável (`cargo`, `rustc` 2021 edition).
-- Subprocesso `agy` ou motor compatível acessível no `PATH` (ou configurado via `--agy-bin`).
+Frontal is operational in production (version `0.9.0`), fully verified by **150 tests across 8 domains**. Development progresses continuously via GitHub Project Board #8 cards across these consolidated domains:
 
-### Comandos de Build e Teste
+- **Foundation, `stream-json` Protocol, and Headless IPC:**
+  - Single Cargo workspace, session multiplexing via `SessionId`, typed `stream-json` protocol, dual `EngineTransport` implementations (`SubprocessEngine` and `FixtureReplayEngine`), async line decoding via `LinesCodec` (16 MB buffer), and POSIX process isolation (`setpgid`/`killpg`/`PR_SET_PDEATHSIG`).
+- **Core TUI (60 FPS), Sticky Scroll Viewport, and 2-Level Cache:**
+  - Non-blocking Ratatui event loop at 60 FPS, bracketed paste, TTY restore panic hook, deterministic sticky scroll, and 2-level render cache (L1 immutable AST, L2 width/revision indexed visual lines).
+- **Incremental Markdown Streaming, `syntect` Highlighting, and Tool Cards:**
+  - Resilient `pulldown-cmark` incremental parser handling open code blocks, line-by-line syntax highlighting with state checkpoints, terminal output sanitization (`\r`/ANSI), clean collapsible thinking blocks (`+ Thought`/`- Thought`), command indicators (`●`), and interactive tool execution cards.
+- **`ropey` Editor with Atomic Extmarks, Autocomplete, and SQLite WAL History:**
+  - Multiline B-Tree buffer, priority popover overlay, atomic mention tags (`@`, `/`), collapsed paste pills, async file searching worker, and persistent SQLite WAL command history.
+- **Multi-Session (`TabState`), Modal Stack (`DialogSelect`), Safety Guardian, and Hot-Respawn:**
+  - Multi-tab management (`Alt+1..9`) via `SessionManager`, staged prompt barrier, local command dispatch, floating modal dialog stack with backdrop dimming, deterministic Safety Guardian (`DangerAssessment`) with confirmation containment modal for destructive actions, unified `DialogSelect` component (keyboard and mouse navigation), hot-respawn model switching, command palette (`Ctrl+P`), and integrated git diff viewer.
+- **OpenCode Visual Ergonomics, Atlas Crimson Theme, and Clipboard Fidelity:**
+  - Centered welcome state, fluid transition to 2-column layout (conversation + Context Sidebar), 2-column aligned autocomplete popover, scroll indicator, **Atlas Crimson** theme, normalized `/model` selector with reasoning effort slider (`◀ ●──◎──● ▶`), clean column 0 margin alignment, granular text selection in viewport, and faithful clipboard copying.
+
+---
+
+## 5. Build, Test, and Run
+
+### Prerequisites
+- Stable Rust toolchain (`cargo`, `rustc` 2021 edition).
+- `agy` executable or compatible engine available in `PATH` (or configured via `--agy-bin`).
+
+### Build & Verification Commands
 ```bash
-# Compilação otimizada para release
+# Optimized release build
 cargo build --release
 
-# Validação integral da suíte unificada de 150 testes em 8 domínios
+# Execute full 150 tests across 8 domains
 cargo test --quiet
 ```
 
-### Inicialização e Opções CLI
+### Launch and CLI Options
 ```bash
-# Inicialização interativa padrão (TUI)
+# Standard interactive TUI
 cargo run --release
 
-# Especificação de modelo, esforço de raciocínio e modo de execução
+# Specify model, reasoning effort, and mode
 cargo run --release -- --model gemini-3.8-flash-high --effort high --mode plan
 
-# Retomada de conversa existente por UUID
+# Resume existing conversation by UUID
 cargo run --release -- --conversation <UUID>
 
-# Execução headless automatizada com prompt único
-cargo run --release -- --headless -p "Descreva a arquitetura do projeto"
+# Automated headless execution with a single prompt
+cargo run --release -- --headless -p "Describe the project architecture"
 ```
 
 ---
 
-## 6. Documentação e Especificações Técnicas
+## 6. Technical Documentation and Specifications
 
-A documentação técnica oficial reside na [Wiki do GitHub](https://github.com/julioCoronetti/frontal/wiki):
+Detailed technical documentation is available on the [GitHub Wiki](https://github.com/julioCoronetti/frontal/wiki):
 
-- **[Home](https://github.com/julioCoronetti/frontal/wiki/Home)**: Hub central de documentação.
-- **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: Dossiê oficial da arquitetura implementada em Rust (v0.9.0), módulos, tema Atlas Crimson e suíte de 150 testes.
-- **[Board-Roadmap](https://github.com/julioCoronetti/frontal/wiki/Board-Roadmap)**: Especificação completa da stack em Rust, diretrizes arquiteturais, capacidades consolidadas e evolução contínua.
-- **Dossiê Antigravity CLI (`agy`)**:
-  - [Agy](https://github.com/julioCoronetti/frontal/wiki/Agy): Visão geral do CLI oficial.
-  - [Agy-Architecture](https://github.com/julioCoronetti/frontal/wiki/Agy-Architecture): Binário Go, orquestração e protocolo `stream-json`.
-  - [Agy-Backend](https://github.com/julioCoronetti/frontal/wiki/Agy-Backend): Motor Cortex, ferramentas, segurança e persistência SQLite.
-  - [Agy-UI](https://github.com/julioCoronetti/frontal/wiki/Agy-UI): Bubble Tea v2, 48 modelos, EditArea e viewports.
-- **Dossiê OpenCode**:
-  - [OpenCode](https://github.com/julioCoronetti/frontal/wiki/OpenCode): Visão geral da referência ergonômica.
-  - [OpenCode-Architecture](https://github.com/julioCoronetti/frontal/wiki/OpenCode-Architecture): Monorepo de 34 pacotes, runtime Effect-TS e bi-processo RPC.
-  - [OpenCode-Backend](https://github.com/julioCoronetti/frontal/wiki/OpenCode-Backend): Ciclo de turnos, bounding de ferramentas, Git sombra e compactação.
-  - [OpenCode-UI](https://github.com/julioCoronetti/frontal/wiki/OpenCode-UI): SolidJS + OpenTUI, Tree-sitter WASM, extmarks, keymaps e theming.
-- **[Legacy](https://github.com/julioCoronetti/frontal/wiki/Legacy)**: Registro técnico do protótipo inicial v0.1 em Python / Textual (código integral preservado na branch [`legacy`](https://github.com/julioCoronetti/frontal/tree/legacy)).
+- **[Home](https://github.com/julioCoronetti/frontal/wiki/Home)**: Central documentation index.
+- **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: Official Rust implementation architecture (v0.9.0), modules, Atlas Crimson theme, and 150 tests suite.
+- **[Board-Roadmap](https://github.com/julioCoronetti/frontal/wiki/Board-Roadmap)**: Architecture specification, Rust tech stack, decision matrix, consolidated capabilities, and Project Board evolution.
+- **Antigravity CLI (`agy`) Dossier**:
+  - [Agy](https://github.com/julioCoronetti/frontal/wiki/Agy): Official CLI overview.
+  - [Agy-Architecture](https://github.com/julioCoronetti/frontal/wiki/Agy-Architecture): Go binary, process orchestration, and `stream-json` protocol.
+  - [Agy-Backend](https://github.com/julioCoronetti/frontal/wiki/Agy-Backend): Cortex engine, tools, security containment, and SQLite storage.
+  - [Agy-UI](https://github.com/julioCoronetti/frontal/wiki/Agy-UI): Bubble Tea v2, 48 model catalog, EditArea, and viewports.
+- **OpenCode Dossier**:
+  - [OpenCode](https://github.com/julioCoronetti/frontal/wiki/OpenCode): Ergonomic reference overview.
+  - [OpenCode-Architecture](https://github.com/julioCoronetti/frontal/wiki/OpenCode-Architecture): 34-package monorepo, Effect-TS runtime, dual-process RPC.
+  - [OpenCode-Backend](https://github.com/julioCoronetti/frontal/wiki/OpenCode-Backend): Turn cycle, tool bounding, shadow Git, and session compaction.
+  - [OpenCode-UI](https://github.com/julioCoronetti/frontal/wiki/OpenCode-UI): SolidJS + OpenTUI, Tree-sitter WASM, extmarks, keymaps, and theming.
+- **[Legacy](https://github.com/julioCoronetti/frontal/wiki/Legacy)**: Initial v0.1 Python/Textual prototype dossier (code preserved on the [`legacy`](https://github.com/julioCoronetti/frontal/tree/legacy) branch).

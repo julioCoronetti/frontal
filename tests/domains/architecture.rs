@@ -339,6 +339,8 @@ fn test_documentation_and_metadata_sync() {
     let extinct_paths = [
         "tests/ui_polish_gate.rs",
         "< 400 linhas",
+        "< 400 lines",
+        " testes",
         "Fase 1",
         "Fase 2",
         "Fase 3",
@@ -408,7 +410,7 @@ fn test_documentation_and_metadata_sync() {
         *domain_counts.entry(domain_key).or_insert(0) += count;
     }
 
-    let expected_total_str = format!("{} testes", total_tests);
+    let expected_total_str = format!("{} tests", total_tests);
     assert!(
         agents_content.match_indices(&expected_total_str).count() >= 2,
         "AGENTS.md missing dynamic test count token {} in both header and verification sections",
@@ -449,7 +451,7 @@ fn test_documentation_and_metadata_sync() {
     }
 
     for (domain_key, count) in &domain_counts {
-        let expected_domain_str = format!("{} testes", count);
+        let expected_domain_str = format!("{} tests", count);
         let path_token = if domain_key.ends_with(".rs") {
             format!("tests/domains/{}", domain_key)
         } else {

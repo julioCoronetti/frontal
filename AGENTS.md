@@ -1,107 +1,99 @@
-# Diretrizes do Agente - Repositório Frontal
-
-## 1. Visão Geral do Projeto
-- **Projeto**: Frontal.
-- **Objetivo**: Interface de usuário em terminal (TUI) desacoplada, de alta performance e assíncrona para o Antigravity CLI (`agy`) e motores compatíveis com o protocolo `stream-json`.
-- **Status do Projeto**: Arquitetura em Rust implementada e operacional (versão `0.9.0`), consolidada na branch `main` por suíte unificada de integração com 8 domínios (150 testes). O desenvolvimento evolui em fluxo contínuo orientado por cards e issues do GitHub Project Board #8.
-- **Stack Oficial Ativa (Crates do `Cargo.toml`)**: `tokio`, `tokio-util`, `bytes`, `futures-util`, `serde`, `serde_json`, `libc`, `ratatui` (0.29), `crossterm` (0.28), `pulldown-cmark` (0.12), `syntect` (5.2), `ropey` (1.6), `rusqlite` (0.32), `arboard` (3.4). Single-crate estrito; sem dependências externas adicionais sem autorização prévia.
-- **Branches de Referência**: `main` (ativa) e `origin/legacy` (protótipo Python/Textual preservado).
-- **Papel do Agente**: Engenheiro de software focado em features, correções, refatoração e testes com máxima performance, estabilidade e conformidade arquitetural.
+## Project Overview & Core Constraints
+- Project: Frontal.
+- Purpose: High-performance, asynchronous, decoupled Terminal User Interface (TUI) harness for Antigravity CLI (`agy`) and `stream-json` compatible engines.
+- Status: Production architecture in Rust (version `0.9.0`), verified by 150 tests across 8 hermetic domains on branch `main`. Continuous flow driven by GitHub Project Board #8.
+- Stack: `tokio`, `tokio-util`, `bytes`, `futures-util`, `serde`, `serde_json`, `libc`, `ratatui` (0.29), `crossterm` (0.28), `pulldown-cmark` (0.12), `syntect` (5.2), `ropey` (1.6), `rusqlite` (0.32), `arboard` (3.4). Single-crate repository; no external dependencies allowed without explicit operator authorization.
+- Branches: `main` (active) and `origin/legacy` (Python/Textual prototype).
 
 ---
 
-## 2. Princípios de Engenharia e Invariantes Arquiteturais
+## Engineering Standards & Architectural Invariants
 
-### Princípios Fundamentais
-1. **Zero Comentários no Código:** É terminantemente proibido inserir comentários no código-fonte. Toda documentação deve residir na Wiki do GitHub, na documentação formal ou nas mensagens de commit.
-2. **Simplicidade e Modularidade:** Código limpo, desacoplado, modular e sem over-engineering. Nomes padronizados em inglês. Sem prints residuais, logs ou depuração ad-hoc.
-3. **Qualidade e Testes:** Aderência estrita à compilação, linters e testes da stack Rust.
-4. **Limite de Complexidade e Modularidade:** Teto formal de **500 linhas** por arquivo `.rs`. Ultrapassando o teto, o módulo deve ser decomposto via blocos `impl` particionados em subdiretórios homônimos (como em `src/ui/app/`), mantendo re-exports públicos e zero quebra de API.
+### Mechanical Rules
+- Zero comments in code: Strictly forbidden across all source files. Documentation belongs in git commit messages, GitHub Wiki, or `.agents/docs/`.
+- File modularity ceiling: Strict limit of 500 lines per `.rs` file. Files exceeding this ceiling must be partitioned into cohesive submodules with public re-exports.
+- Quality enforcement: Strict compilation without warnings (`cargo clippy --all-targets -- -D warnings`), canonical formatting (`cargo fmt --check`), and 150 tests clean pass.
 
-### Invariantes Arquiteturais Obrigatórios
-1. **Cache de Renderização em 2 Níveis ($O(1)$ no turno ativo):** Nível 1 preserva a AST imutável (`MessageBlock` com spans de estilo). Nível 2 mantém linhas visuais indexadas por `(width, revision)`. Redimensionamentos ou expansão invalidam apenas Nível 2. Apenas o bloco ativo emite deltas em streaming (60 FPS estável).
-2. **Event Loop TUI Não-Bloqueante (60 FPS):** O loop `tokio::select!` em `src/ui/mod.rs` jamais deve executar I/O síncrono ou bloqueante na thread de renderização. Varreduras de disco (`FileSearchWorker`), persistência (`PromptHistory`) e subprocessos operam fora da thread visual.
-3. **Sincronização Multisessão (`App` ↔ `TabState` via `std::mem::swap`):** Estado ativo reside em `App` e é permutado via `std::mem::swap`. Novos campos por aba devem obrigatoriamente ser espelhados em `TabState`, incluídos no swap e manipulados em background.
-4. **Isolamento POSIX de Subprocessos:** Todo subprocesso agêntico (`agy`) deve ser instanciado em grupo próprio via `setpgid(0, 0)` e registrar `PR_SET_PDEATHSIG(libc::SIGTERM)` no hook `pre_exec`. Encerramento via `killpg` ordenado (`SIGINT` -> `SIGTERM` -> `SIGKILL`).
-5. **Isolamento de Efeitos Colaterais em Testes:** Persistência em testes deve usar `PromptHistory::open_in_memory()`. Clipboard em testes deve utilizar `SystemClipboard::new_isolated()`.
-
----
-
-## 3. Suíte Unificada de Testes de Integração (`tests/`)
-A suíte canônica consolidada em `tests/suite.rs` valida hermeticamente todos os domínios do sistema:
-- `tests/domains/architecture.rs`: Testes de invariantes mecânicas de arquitetura (4 testes).
-- `tests/domains/protocol_and_cli.rs`: Testes de protocolo `stream-json`, NDJSON e CLI (13 testes).
-- `tests/domains/engine_and_session.rs`: Testes de subprocesso `agy`, fixtures e POSIX (10 testes).
-- `tests/domains/cache_and_markdown.rs`: Testes de RenderCache L1/L2 e Markdown (16 testes).
-- `tests/domains/viewport_and_clipboard.rs`: Testes de sticky scroll, seleção limpa e clipboard (16 testes).
-- `tests/domains/editor_and_history.rs`: Testes de editor `ropey` e histórico SQLite WAL (16 testes).
-- `tests/domains/tabs_and_modals/`: Testes particionados de multissessão e modais (55 testes).
-- `tests/domains/tui_integration/`: Testes particionados de integração TUI (20 testes).
-
-*Para consulta estrutural detalhada de módulos `src/` e `src/ui/`, consultar `.agents/docs/structure.md`.*
+### Architectural Invariants
+1. 2-Level Render Cache ($O(1)$ during active turns): Level 1 stores immutable AST (`MessageBlock` with styled spans). Level 2 caches formatted visual lines indexed by `(width, revision)`. Resizes or block toggles invalidate Level 2 only. Active streaming emits deltas at 60 FPS without re-parsing history.
+2. Non-blocking TUI Event Loop (60 FPS): Async `tokio::select!` in `src/ui/mod.rs` must never execute synchronous disk I/O, persistence, or process scans on the render thread.
+3. Multi-Session Synchronization (`App` <-> `TabState` via `std::mem::swap`): Active tab state resides in `App` and swaps via `std::mem::swap`. Every tab-specific field added to `App` must be mirrored in `TabState` and handled in background stream processing.
+4. POSIX Process Isolation: Subprocesses (`agy`) must run in a dedicated process group (`setpgid(0, 0)`) with `PR_SET_PDEATHSIG(libc::SIGTERM)`. Teardown must issue ordered `killpg` escalation (`SIGINT` -> `SIGTERM` -> `SIGKILL`).
+5. Side-Effect Isolation in Tests: Use `PromptHistory::open_in_memory()` for database fixtures and `SystemClipboard::new_isolated()` for clipboard tests.
 
 ---
 
-## 4. Recursos Sob Demanda (Progressive Disclosure)
-Documentações profundas e procedimentos mecânicos foram desacoplados em módulos especializados sob demanda:
-- **Skills Operacionais (`.agents/skills/`):**
-  - `frontal-quality-gate`: Execução da tríade Cargo (`cargo fmt`, `cargo clippy`, `cargo test`) e validação de invariantes mecânicas.
-  - `frontal-card-lifecycle`: Gestão do ciclo de fechamento de card, SemVer, tags Git anotadas e transição no Board #8.
-  - `frontal-wiki-sync`: Auditoria de invariantes, prevenção de tokens extintos e sincronização no espelho local `.wiki/`.
-- **Documentação Especializada (`.agents/docs/`):**
-  - `.agents/docs/structure.md`: Mapeamento detalhado arquivo por arquivo do núcleo e UI.
-  - `.agents/docs/sources.md`: Catálogo completo de links, referências do GitHub, Wiki oficial e dossiês técnicos (`agy`, `OpenCode`).
-  - `.agents/docs/subagents.md`: Diretrizes, perfis e anti-padrões para delegação a subagentes.
+## Unified Integration Test Suite (tests/)
+Canonical test harness in `tests/suite.rs` validates all 8 architectural domains:
+- `tests/domains/architecture.rs`: Architectural mechanical invariants (4 tests).
+- `tests/domains/protocol_and_cli.rs`: Protocol `stream-json`, NDJSON, and CLI (13 tests).
+- `tests/domains/engine_and_session.rs`: Subprocess `agy`, fixtures, and POSIX (10 tests).
+- `tests/domains/cache_and_markdown.rs`: RenderCache L1/L2 and Markdown (16 tests).
+- `tests/domains/viewport_and_clipboard.rs`: Sticky scroll, clean selection, and clipboard (16 tests).
+- `tests/domains/editor_and_history.rs`: Editor `ropey` and SQLite WAL history (16 tests).
+- `tests/domains/tabs_and_modals/`: Multi-session and modal dialogs (55 tests).
+- `tests/domains/tui_integration/`: End-to-end TUI integration (20 tests).
+
+Detailed module mapping available on demand in `.agents/docs/structure.md`.
 
 ---
 
-## 5. Fluxo de Entrega e Governança Git (Commits Atômicos)
+## On-Demand Resources & Skills (.agents/)
+Operational procedures and reference documentation are decoupled from the base prompt:
+- Skills (`.agents/skills/`):
+  - `frontal-quality-gate`: Runs the canonical Cargo triad (`fmt`, `clippy`, and 150 tests) and verifies architectural invariants.
+  - `frontal-card-lifecycle`: Manages card closure workflows, SemVer bumping, release tags, and Project Board #8 transitions.
+  - `frontal-wiki-sync`: Audits invariant tokens, prevents extinct legacy terms, and commits to the `.wiki/` mirror.
+- Documentation (`.agents/docs/`):
+  - `structure.md`: Comprehensive module layout for core and UI crates.
+  - `sources.md`: GitHub, Wiki, and technical dossier references (`agy`, `OpenCode`).
+  - `subagents.md`: Guidelines, profiles, and anti-patterns for subagent delegation.
 
-### Esteira Mecânica Nativa de Qualidade
-Para qualquer alteração, a validação canônica é executada via script `.agents/skills/frontal-quality-gate/scripts/quality_gate.sh` e assegurada pelo hook `.githooks/pre-commit`:
-1. `cargo fmt --check`: Formatação canônica.
-2. `cargo clippy --all-targets -- -D warnings`: Linting rigoroso sem warnings.
-3. `cargo test --quiet`: Execução da suíte unificada em `tests/suite.rs` (validando as regras de arquitetura em `architecture.rs` e os 8 domínios funcionais, 150 testes).
+---
 
-### Ativação Obrigatória dos Git Hooks
+## Git Delivery Flow & Atomic Commits
+
+### Canonical Quality Gate
+Every change must pass the automated gate (`.agents/skills/frontal-quality-gate/scripts/quality_gate.sh`) enforced by `.githooks/pre-commit`:
+1. `cargo fmt --check`: Canonical formatting.
+2. `cargo clippy --all-targets -- -D warnings`: Strict linting with zero warnings.
+3. `cargo test --quiet`: Unified integration suite passing 150 tests.
+
+### Hooks Activation
 ```bash
 git config core.hooksPath .githooks
 ```
 
-### Política de Versionamento SemVer
-1. **Série `0.y.z`:** O projeto segue SemVer para softwares em maturação contínua. A versão `0.9.0` reflete a arquitetura consolidada em produção e a evolução contínua guiada por cards do Project Board.
-2. **Regra de Ouro SemVer:** Proibido alterar `version` no `Cargo.toml` em commits intermediários (`Card-Status: In Progress`).
-3. **Bump Exclusivo no Fechamento (`Done`):** O incremento ocorre unicamente no commit de encerramento (`Card-Status: Done`) autorizado pelo Senhor:
-   - **Patch (`0.9.x`):** Para correções de bugs (`fix(...)`) ou refatorações puras.
-   - **Minor (`0.x.0`):** Para fechamento de cards funcionais de features estruturais do Board.
-   - O commit de fechamento deve ser acompanhado imediatamente pela criação da tag Git anotada (`git tag -a vX.Y.Z -m "Release vX.Y.Z"`).
-4. **Simetria de Exposição:** A versão deve ser idêntica na CLI (`frontal --version` / `frontal -V`) e na TUI (`/help`).
+### SemVer Policy
+- Version Series `0.y.z`: Maturing software following SemVer. Version `0.9.0` represents production consolidation.
+- Golden Rule: Never modify `version` in `Cargo.toml` during intermediate commits (`Card-Status: In Progress`).
+- Done Commit Bump: Version bump occurs exclusively in the closing commit (`Card-Status: Done`) authorized by the Senhor:
+  - Patch (`0.9.x`): Bug fixes (`fix(...)`) or pure refactorings (`refactor(...)`).
+  - Minor (`0.x.0`): Structural features closing Project Board cards.
+  - Every closing commit requires an annotated Git tag (`git tag -a vX.Y.Z -m "Release vX.Y.Z"`).
+- Symmetry: CLI (`frontal --version` / `frontal -V`) and TUI (`/help`) versions must match identically.
 
-### Disciplina de Commits Atômicos
-1. **1 Commit = 1 Mudança Lógica Indivisível:** Nunca misturar refatoração, bug fix e documentação.
-2. **Limite Operacional:** Máximo estrito de **3 a 5 arquivos alterados por commit** (salvo renomeações puras ou `ATOMIC_OVERRIDE=1`).
-3. **Template Canônico de Commit:**
+### Atomic Commit Discipline
+- 1 Commit = 1 Indivisible Change: Maximum 3 to 5 modified files per commit (unless `ATOMIC_OVERRIDE=1`).
+- Commit Template:
 ```text
 <type>(<scope>): <imperative summary in english, max 72 chars>
 
-- Why: <justificativa técnica ou causa raiz do problema>
-- What: <síntese objetiva das alterações estruturais ou comportamentais>
-- Invariants: <invariantes preservadas: cache L1/L2, swap App/TabState, pgid POSIX, etc.>
+- Why: <technical justification or root cause>
+- What: <concise summary of structural or behavioral changes>
+- Invariants: <preserved invariants: L1/L2 cache, swap App/TabState, POSIX pgid, etc.>
 
-Refs: #<card_ou_issue>
+Refs: #<card_or_issue>
 Card-Status: <In Progress | In Review | Done>
 Reviewed-By: Argon-Advisor <mode:none|review|design|troubleshoot|deep-dive|refine>
 ```
-- **Tipos:** `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`.
-- **Escopos:** `config`, `protocol`, `transport`, `engine`, `session`, `cli`, `ui/app`, `ui/cache`, `ui/editor`, `ui/markdown`, `ui/modal`, `ui/tab`, `ui/viewport`, `tests`, `agents`, `wiki`.
-- **Trava Mecânica do Advisor (`commit-msg`):** Se `Card-Status: In Review` for declarado, o hook rejeita se `Reviewed-By:` contiver `<mode:none>`.
+- Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`.
+- Scopes: `config`, `protocol`, `transport`, `engine`, `session`, `cli`, `ui/app`, `ui/cache`, `ui/editor`, `ui/markdown`, `ui/modal`, `ui/tab`, `ui/viewport`, `tests`, `agents`, `wiki`.
 
 ---
 
-## 6. Metodologia de Desenvolvimento Agêntica e Workflow de Cards
-
-### Ciclo Triádico por Card (Senhor ↔ Flash ↔ Argon)
-1. **Etapa 1 (Design & Action Plan - Kickoff):** Invocação preventiva do Advisor (`advisor.sh --mode design -f <arquivos> "..."`) ao mover para `In Progress`.
-2. **Etapa 2 (Execução TDD em Fatias Atômicas):** Ciclos mínimos de TDD (Teste Vermelho -> Código Verde -> `quality_gate.sh` -> Commit Atômico com `Card-Status: In Progress`).
-3. **Etapa 3 (Auditoria Adversarial & Trava de Revisão):** Auditoria de diff pelo Advisor (`advisor.sh --mode review`). Parecer favorável habilita `Card-Status: In Review` e aviso formal ao Senhor.
-4. **Etapa 4 (Fechamento do Card & SemVer):** Sob autorização do Senhor, execução do script `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh` para bump SemVer, commit `Card-Status: Done`, tag `vX.Y.Z` e atualização no Board #8.
+## Card Workflow & Advisor Governance
+1. Stage 1 (Kickoff): Invoke Argon Advisor (`advisor.sh --mode design -f <files> "..."`) when moving card to `In Progress`.
+2. Stage 2 (Atomic TDD): Implement via minimal test-driven slices (`quality_gate.sh` -> Commit with `Card-Status: In Progress`).
+3. Stage 3 (Adversarial Review): Run diff audit (`advisor.sh --mode review`). Favorable verdict unlocks `Card-Status: In Review`.
+4. Stage 4 (Card Closure & Release): With operator authorization, run `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh` to bump SemVer, commit `Card-Status: Done`, tag `vX.Y.Z`, and transition Project Board #8 card to `Done`.
