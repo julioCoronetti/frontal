@@ -1,7 +1,9 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use frontal::protocol::{context_window_for_model, SessionId, TokenUsage};
 use frontal::ui::modal::usage::{
-    fetch::{build_usage_summary, parse_available_models, parse_plan_info},
+    fetch::{
+        build_usage_summary, parse_available_models, parse_plan_info, parse_quota_summary_groups,
+    },
     format_reset_time,
     render::render_progress_bar,
     CreditInfo, QuotaBucket, QuotaGroup, UsagePlanInfo, UsageState, UsageSummary,
@@ -438,4 +440,40 @@ fn test_build_usage_summary_rejects_empty_models_without_mock_fallback() {
     let default_plan = parse_plan_info(None, None);
     assert_eq!(default_plan.tier_name, "Google AI Pro");
     assert_eq!(default_plan.account_email, None);
+
+    let cli_json = serde_json::json!({
+        "command": {"name": "usage", "data": {"groups": [
+            {
+                "name": "Gemini Models",
+                "buckets": [
+                    {"name": "Weekly Limit Remaining", "remaining_fraction": 0.45, "reset_time": "2099-12-31T23:59:59Z"},
+                    {"name": "Five Hour Limit Remaining", "remaining_fraction": 0.75, "reset_time": "2099-12-31T23:59:59Z"}
+                ]
+            },
+            {
+                "name": "Claude and GPT models",
+                "buckets": [
+                    {"name": "Weekly Limit Remaining", "remaining_fraction": 0.95, "reset_time": "2099-12-31T23:59:59Z"},
+                    {"name": "Five Hour Limit Remaining", "remaining_fraction": 1.0, "reset_time": "2099-12-31T23:59:59Z"}
+                ]
+            },
+            {
+                "name": "Gemini 4 Argon",
+                "buckets": [
+                    {"name": "Gemini 4 Argon Weekly Limit", "remaining_fraction": 0.50, "reset_time": "2099-12-31T23:59:59Z"}
+                ]
+            }
+        ]}}
+    });
+
+    let cli_groups = parse_quota_summary_groups(&cli_json);
+    assert_eq!(cli_groups.len(), 3);
+    assert_eq!(cli_groups[0].name, "GEMINI MODELS");
+    assert_eq!(cli_groups[0].buckets[0].remaining_pct, 45.0);
+    assert_eq!(cli_groups[0].buckets[1].remaining_pct, 75.0);
+    assert_eq!(cli_groups[1].name, "CLAUDE AND GPT MODELS");
+    assert_eq!(cli_groups[1].buckets[0].remaining_pct, 95.0);
+    assert_eq!(cli_groups[1].buckets[1].remaining_pct, 100.0);
+    assert_eq!(cli_groups[2].name, "GEMINI 4 ARGON");
+    assert_eq!(cli_groups[2].buckets[0].remaining_pct, 50.0);
 }

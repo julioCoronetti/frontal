@@ -1,9 +1,12 @@
+pub mod cli;
 pub mod fetch;
 pub mod render;
 
 use std::cell::Cell;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
@@ -12,6 +15,9 @@ use ratatui::Frame;
 pub use fetch::format_reset_time;
 
 use crate::ui::modal::ModalAction;
+
+pub static USAGE_CACHE: Mutex<Option<(Instant, UsageSummary)>> = Mutex::new(None);
+pub static FETCH_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UsagePlanInfo {
@@ -69,6 +75,14 @@ impl UsageModal {
     pub fn load(allow_network: bool) -> Self {
         if !allow_network {
             return Self::offline_fallback();
+        }
+
+        if let Ok(guard) = USAGE_CACHE.lock() {
+            if let Some((instant, ref summary)) = *guard {
+                if instant.elapsed() < Duration::from_secs(60) {
+                    return Self::with_data(summary.clone());
+                }
+            }
         }
 
         let (tx, rx) = channel();
@@ -177,6 +191,9 @@ impl UsageModal {
         if !self.allow_network {
             return;
         }
+        if let Ok(mut cache) = USAGE_CACHE.lock() {
+            *cache = None;
+        }
         let (tx, rx) = channel();
         *self.state.lock().unwrap() = UsageState::Loading;
         self.rx = Some(Arc::new(Mutex::new(rx)));
@@ -244,6 +261,11 @@ impl UsageModal {
         if let Some(ref rx_lock) = self.rx {
             if let Ok(rx) = rx_lock.lock() {
                 if let Ok(new_state) = rx.try_recv() {
+                    if let UsageState::Ready(ref summary) = new_state {
+                        if let Ok(mut cache) = USAGE_CACHE.lock() {
+                            *cache = Some((Instant::now(), summary.clone()));
+                        }
+                    }
                     if let Ok(mut current) = self.state.lock() {
                         *current = new_state;
                         return true;

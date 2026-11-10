@@ -46,46 +46,49 @@ pub fn format_reset_time(iso: &str) -> String {
 }
 
 pub fn fetch_quota_async(tx: Sender<UsageState>) {
+    if super::FETCH_IN_FLIGHT.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
     std::thread::spawn(move || {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let path = format!("{}/.gemini/antigravity-cli/antigravity-oauth-token", home);
-        let bytes = match std::fs::read(&path) {
-            Ok(b) => b,
-            Err(_) => {
-                let _ = tx.send(UsageState::Unavailable(
-                    "OAuth credentials not found. Log in via agy.".to_string(),
-                ));
-                return;
-            }
-        };
-        let token_json: serde_json::Value = match serde_json::from_slice(&bytes) {
-            Ok(v) => v,
-            Err(_) => {
-                let _ = tx.send(UsageState::Unavailable(
-                    "Invalid OAuth credentials format.".to_string(),
-                ));
-                return;
-            }
-        };
-        let access_token = match token_json
-            .get("token")
-            .and_then(|t| t.get("access_token"))
-            .and_then(|a| a.as_str())
-        {
-            Some(tok) => tok.to_string(),
-            None => {
-                let _ = tx.send(UsageState::Unavailable(
-                    "No access token found in credentials.".to_string(),
-                ));
-                return;
-            }
-        };
-        let email = token_json
-            .get("id_token_email")
-            .and_then(|e| e.as_str())
-            .map(|s| s.to_string());
-        let _ = tx.send(execute_fetch(&access_token, email));
+        let state = execute_fetch();
+        super::FETCH_IN_FLIGHT.store(false, std::sync::atomic::Ordering::SeqCst);
+        let _ = tx.send(state);
     });
+}
+
+fn execute_fetch() -> UsageState {
+    if let Ok(summary) = super::cli::fetch_agy_cli_quota() {
+        return UsageState::Ready(summary);
+    }
+    execute_http_fallback()
+}
+
+fn execute_http_fallback() -> UsageState {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let path = format!("{}/.gemini/antigravity-cli/antigravity-oauth-token", home);
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(_) => {
+            return UsageState::Unavailable(
+                "OAuth credentials not found. Log in via agy.".to_string(),
+            );
+        }
+    };
+    let token_json: serde_json::Value = match serde_json::from_slice(&bytes) {
+        Ok(v) => v,
+        Err(_) => return UsageState::Unavailable("Invalid OAuth credentials format.".to_string()),
+    };
+    let Some(access_token) = token_json
+        .pointer("/token/access_token")
+        .and_then(|a| a.as_str())
+    else {
+        return UsageState::Unavailable("No access token found in credentials.".to_string());
+    };
+    let email = token_json
+        .get("id_token_email")
+        .and_then(|e| e.as_str())
+        .map(|s| s.to_string());
+    execute_http_fetch(access_token, email)
 }
 
 fn post_endpoint(
@@ -139,28 +142,16 @@ fn post_endpoint(
     Ok(val)
 }
 
-fn execute_fetch(token: &str, email: Option<String>) -> UsageState {
+fn execute_http_fetch(token: &str, email: Option<String>) -> UsageState {
+    let ep = |url: &'static str| post_endpoint(url, token, Some("Antigravity/1.5.3"));
     let (p_res, q_res, m_res) = std::thread::scope(|s| {
-        let p = s.spawn(|| {
-            post_endpoint(
-                "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
-                token,
-                Some("Antigravity/1.5.3"),
-            )
-        });
+        let p =
+            s.spawn(|| ep("https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"));
         let q = s.spawn(|| {
-            post_endpoint(
-                "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
-                token,
-                Some("Antigravity/1.5.3"),
-            )
+            ep("https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")
         });
         let m = s.spawn(|| {
-            post_endpoint(
-                "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
-                token,
-                Some("Antigravity/1.5.3"),
-            )
+            ep("https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels")
         });
         (
             p.join().unwrap_or(Err("err".to_string())),
@@ -185,24 +176,14 @@ pub fn parse_plan_info(val: Option<&serde_json::Value>, email: Option<String>) -
         upgrade_url: None,
         manage_url: None,
     };
-    let val = match val {
-        Some(v) => v,
-        None => return default_plan,
-    };
-    let tier_name = if let Some(paid) = val.get("paidTier").and_then(|p| p.get("name")) {
-        paid.as_str().unwrap_or("Google AI Pro").to_string()
-    } else if let Some(tier) = val.get("currentTier").and_then(|t| t.get("name")) {
-        tier.as_str().unwrap_or("Antigravity").to_string()
-    } else if let Some(first_tier) = val
-        .get("allowedTiers")
-        .and_then(|a| a.as_array())
-        .and_then(|arr| arr.first())
-        .and_then(|t| t.get("name"))
-    {
-        first_tier.as_str().unwrap_or("Antigravity").to_string()
-    } else {
-        "Google AI Pro".to_string()
-    };
+    let Some(val) = val else { return default_plan };
+    let tier_name = val
+        .pointer("/paidTier/name")
+        .or_else(|| val.pointer("/currentTier/name"))
+        .or_else(|| val.pointer("/allowedTiers/0/name"))
+        .and_then(|n| n.as_str())
+        .unwrap_or("Google AI Pro")
+        .to_string();
     let manage_url = val
         .get("manageSubscriptionUri")
         .and_then(|m| m.as_str())
@@ -353,12 +334,7 @@ pub fn parse_available_models(val: &serde_json::Value) -> Option<Vec<QuotaGroup>
         Some(r) if r.remaining_fraction.unwrap_or(1.0) < 1.0 => {
             make_bucket("Weekly Limit Remaining", Some(r))
         }
-        _ => QuotaBucket {
-            name: "Weekly Limit Remaining".to_string(),
-            remaining_pct: 100.0,
-            reset_label: "Quota available".to_string(),
-            exhausted: false,
-        },
+        _ => make_bucket("Weekly Limit Remaining", None),
     };
     let gemini_five = make_bucket("Five Hour Limit Remaining", flash);
     let gemini_group = QuotaGroup {
@@ -370,12 +346,7 @@ pub fn parse_available_models(val: &serde_json::Value) -> Option<Vec<QuotaGroup>
     let claude_weekly = make_bucket("Weekly Limit Remaining", sonnet);
     let claude_five = match gpt.or(opus) {
         Some(r) => make_bucket("Five Hour Limit Remaining", Some(r)),
-        None => QuotaBucket {
-            name: "Five Hour Limit Remaining".to_string(),
-            remaining_pct: 100.0,
-            reset_label: "Quota available".to_string(),
-            exhausted: false,
-        },
+        None => make_bucket("Five Hour Limit Remaining", None),
     };
     let claude_group = QuotaGroup {
         name: "CLAUDE AND GPT MODELS".to_string(),
@@ -396,9 +367,7 @@ pub fn parse_available_models(val: &serde_json::Value) -> Option<Vec<QuotaGroup>
     };
     let argon_group = QuotaGroup {
         name: "GEMINI 4 ARGON".to_string(),
-        description: Some(
-            "For paid Pro plans, Argon quota is separate. Higher Argon quota (included as part of the larger Gemini quota bucket) is available on Ultra plans.".to_string(),
-        ),
+        description: Some("For paid Pro plans, Argon quota is separate. Higher Argon quota (included as part of the larger Gemini quota bucket) is available on Ultra plans.".to_string()),
         buckets: vec![argon_b],
     };
 
@@ -406,14 +375,17 @@ pub fn parse_available_models(val: &serde_json::Value) -> Option<Vec<QuotaGroup>
 }
 
 pub fn parse_quota_summary_groups(val: &serde_json::Value) -> Vec<QuotaGroup> {
-    let arr = match val.get("groups").and_then(|g| g.as_array()) {
-        Some(a) => a,
-        None => return Vec::new(),
-    };
+    let arr = val
+        .pointer("/command/data/groups")
+        .or_else(|| val.pointer("/data/groups"))
+        .or_else(|| val.get("groups"))
+        .and_then(|g| g.as_array());
+    let Some(arr) = arr else { return Vec::new() };
     arr.iter()
         .filter_map(|item| {
             let name = item
                 .get("displayName")
+                .or_else(|| item.get("name"))
                 .and_then(|d| d.as_str())
                 .unwrap_or("")
                 .to_uppercase();
@@ -426,16 +398,31 @@ pub fn parse_quota_summary_groups(val: &serde_json::Value) -> Vec<QuotaGroup> {
                 .and_then(|b| b.as_array())?
                 .iter()
                 .filter_map(|b| {
-                    let b_name = b.get("displayName").and_then(|d| d.as_str())?.to_string();
+                    let b_name = b
+                        .get("displayName")
+                        .or_else(|| b.get("name"))
+                        .and_then(|d| d.as_str())?
+                        .to_string();
                     let frac = b
                         .get("remainingFraction")
+                        .or_else(|| b.get("remaining_fraction"))
                         .and_then(|f| f.as_f64())
                         .unwrap_or(1.0);
-                    let exhausted = frac <= 0.0;
+                    let exhausted = frac <= 0.0
+                        || b.get("disabled").and_then(|d| d.as_bool()).unwrap_or(false)
+                        || b.get("isExhausted")
+                            .and_then(|e| e.as_bool())
+                            .unwrap_or(false);
                     let reset_label = if frac >= 1.0 {
                         "Quota available".to_string()
-                    } else if let Some(rt) = b.get("resetTime").and_then(|s| s.as_str()) {
+                    } else if let Some(rt) = b
+                        .get("resetTime")
+                        .or_else(|| b.get("reset_time"))
+                        .and_then(|s| s.as_str())
+                    {
                         format_reset_time(rt)
+                    } else if exhausted {
+                        "Quota exhausted".to_string()
                     } else {
                         "Quota available".to_string()
                     };
