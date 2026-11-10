@@ -151,9 +151,7 @@ impl UsageModal {
                 },
                 QuotaGroup {
                     name: "GEMINI 4 ARGON".to_string(),
-                    description: Some(
-                        "For paid Pro plans, Argon quota is separate. Higher Argon quota (included as part of the larger Gemini quota bucket) is available on Ultra plans.".to_string(),
-                    ),
+                    description: Some("For paid Pro plans, Argon quota is separate.".to_string()),
                     buckets: vec![QuotaBucket {
                         name: "Gemini 4 Argon Weekly Limit".to_string(),
                         remaining_pct: 100.0,

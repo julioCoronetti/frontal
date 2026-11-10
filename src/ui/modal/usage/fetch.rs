@@ -367,7 +367,7 @@ pub fn parse_available_models(val: &serde_json::Value) -> Option<Vec<QuotaGroup>
     };
     let argon_group = QuotaGroup {
         name: "GEMINI 4 ARGON".to_string(),
-        description: Some("For paid Pro plans, Argon quota is separate. Higher Argon quota (included as part of the larger Gemini quota bucket) is available on Ultra plans.".to_string()),
+        description: Some("For paid Pro plans, Argon quota is separate.".to_string()),
         buckets: vec![argon_b],
     };
 

@@ -132,8 +132,13 @@ pub fn build_summary_lines(summary: &UsageSummary, width: usize) -> Vec<Line<'st
                 .add_modifier(Modifier::BOLD),
         )]));
         if let Some(ref d) = grp.description {
+            let desc = if d.contains("Argon quota is separate") {
+                "For paid Pro plans, Argon quota is separate."
+            } else {
+                d.as_str()
+            };
             lines.push(Line::from(vec![Span::styled(
-                format!("  {}", d),
+                format!("  {}", desc),
                 Style::default().fg(TEXT_MUTED),
             )]));
         }
