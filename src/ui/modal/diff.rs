@@ -81,7 +81,7 @@ impl DiffModal {
         );
         let nav_hint = "↑/↓/PgUp/PgDn: Scroll ";
         let nav_pad = (area.width as usize)
-            .saturating_sub(line_info.chars().count() + nav_hint.chars().count() + 2);
+            .saturating_sub(line_info.chars().count() + nav_hint.chars().count() + 5);
         lines.push(Line::from(vec![
             Span::styled(line_info, Style::default().fg(TEXT_PRIMARY)),
             Span::styled(
@@ -89,7 +89,7 @@ impl DiffModal {
                 Style::default().fg(TEXT_MUTED),
             ),
         ]));
-        let line_w = (area.width as usize).saturating_sub(6);
+        let line_w = (area.width as usize).saturating_sub(8);
         let divider = "─".repeat(line_w);
         lines.push(Line::from(vec![Span::styled(
             format!("   {}", divider),

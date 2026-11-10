@@ -329,7 +329,7 @@ impl<T: Clone> DialogSelect<T> {
             display_query,
             Span::styled("█", Style::default().fg(ACCENT_HIGHLIGHT)),
         ]));
-        let line_w = (area.width as usize).saturating_sub(6);
+        let line_w = (area.width as usize).saturating_sub(8);
         let divider = "─".repeat(line_w);
         lines.push(Line::from(vec![Span::styled(
             format!("   {}", divider),

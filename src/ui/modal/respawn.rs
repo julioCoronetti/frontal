@@ -130,7 +130,7 @@ impl HotRespawnModal {
         let param_title = "   Session Configuration:";
         let nav_hint = "Tab/Shift+Tab: Navigate  Enter: Run ";
         let nav_pad = (area.width as usize)
-            .saturating_sub(param_title.chars().count() + nav_hint.chars().count() + 2);
+            .saturating_sub(param_title.chars().count() + nav_hint.chars().count() + 5);
         lines.push(Line::from(vec![
             Span::styled(param_title, Style::default().fg(TEXT_PRIMARY)),
             Span::styled(
@@ -138,7 +138,7 @@ impl HotRespawnModal {
                 Style::default().fg(TEXT_MUTED),
             ),
         ]));
-        let line_w = (area.width as usize).saturating_sub(6);
+        let line_w = (area.width as usize).saturating_sub(8);
         let divider = "─".repeat(line_w);
         lines.push(Line::from(vec![Span::styled(
             format!("   {}", divider),

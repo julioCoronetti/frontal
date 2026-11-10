@@ -40,7 +40,7 @@ pub fn render_modal(modal: &UsageModal, frame: &mut Frame, area: Rect) {
     let info_title = "   Account & Subscription:";
     let nav_hint = "↑/↓: Scroll  r: Refresh ";
     let nav_pad = (area.width as usize)
-        .saturating_sub(info_title.chars().count() + nav_hint.chars().count() + 2);
+        .saturating_sub(info_title.chars().count() + nav_hint.chars().count() + 5);
     lines.push(Line::from(vec![
         Span::styled(info_title, Style::default().fg(TEXT_PRIMARY)),
         Span::styled(
@@ -49,7 +49,7 @@ pub fn render_modal(modal: &UsageModal, frame: &mut Frame, area: Rect) {
         ),
     ]));
 
-    let line_w = (area.width as usize).saturating_sub(6);
+    let line_w = (area.width as usize).saturating_sub(8);
     let divider = "─".repeat(line_w);
     lines.push(Line::from(vec![Span::styled(
         format!("   {}", divider),
