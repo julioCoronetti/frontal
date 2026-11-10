@@ -207,7 +207,7 @@ impl App {
             self.status_text = String::from("New tab");
             self.dirty = true;
             Some(Some(AppAction::NewTab))
-        } else if trimmed == "/usage" {
+        } else if trimmed == "/quota" || trimmed == "/usage" {
             let modal = crate::ui::modal::UsageModal::load(!self.history.is_in_memory());
             self.modals.push(Modal::Usage(modal));
             self.dirty = true;
@@ -285,7 +285,7 @@ impl App {
         } else if trimmed == "/help" {
             self.cache.push_user_message("/help");
             self.cache.push_error(&format!(
-                "Frontal v{} - Available local commands: /clear, /new, /usage, /interrupt, /quit, /exit, /help, /model, /diff, /respawn, /resume, /rename",
+                "Frontal v{} - Available local commands: /clear, /new, /quota, /interrupt, /quit, /exit, /help, /model, /diff, /respawn, /resume, /rename",
                 env!("CARGO_PKG_VERSION")
             ));
             self.status_text = String::from("Ready");

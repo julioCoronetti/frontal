@@ -96,7 +96,8 @@ impl AutocompletePopover {
             ("/resume", "Retomar sessao anterior do historico"),
             ("/rename", "Renomear sessao ativa"),
             ("/diff", "Visualizar alteracoes locais (git diff)"),
-            ("/usage", "Exibir metricas de uso e tokens"),
+            ("/quota", "Exibir quotas e limites dos modelos"),
+            ("/usage", "Exibir quotas e limites dos modelos"),
             ("/interrupt", "Interromper execucao corrente"),
             ("/quit", "Sair do frontal"),
         ];

@@ -66,8 +66,8 @@ impl CommandPaletteModal {
             },
             PaletteItem {
                 id: "view_usage".to_string(),
-                title: "View Token Usage & Telemetry".to_string(),
-                shortcut: "/usage".to_string(),
+                title: "View Model Quotas".to_string(),
+                shortcut: "/quota".to_string(),
             },
             PaletteItem {
                 id: "clear".to_string(),

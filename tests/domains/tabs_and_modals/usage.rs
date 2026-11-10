@@ -257,15 +257,23 @@ fn test_slash_usage_command_and_palette_dispatch() {
     let (mut app, _) = test_app();
     let enter = press_key(KeyCode::Enter, KeyModifiers::NONE);
 
-    app.editor.insert_str("/usage");
-    let act = app.handle_terminal_event(enter);
+    app.editor.insert_str("/quota");
+    let act = app.handle_terminal_event(enter.clone());
     assert_eq!(act, None);
     assert_eq!(app.modals.stack.len(), 1);
     assert!(matches!(app.modals.top(), Some(Modal::Usage(_))));
 
     let esc = press_key(KeyCode::Esc, KeyModifiers::NONE);
-    let act_close = app.handle_terminal_event(esc);
+    let act_close = app.handle_terminal_event(esc.clone());
     assert_eq!(act_close, None);
+    assert!(app.modals.is_empty());
+
+    app.editor.insert_str("/usage");
+    let act2 = app.handle_terminal_event(enter);
+    assert_eq!(act2, None);
+    assert_eq!(app.modals.stack.len(), 1);
+    assert!(matches!(app.modals.top(), Some(Modal::Usage(_))));
+    app.handle_terminal_event(esc);
     assert!(app.modals.is_empty());
 }
 
