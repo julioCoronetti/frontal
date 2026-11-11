@@ -217,3 +217,42 @@ fn test_model_effort_modal_restores_last_selected_effort_and_model() {
         panic!("expected ModelEffort modal");
     }
 }
+
+#[test]
+fn test_model_effort_modal_backend_toggle_preserves_catalogs_and_query() {
+    let mut modal = ModelEffortModal::with_models(vec![(
+        "gemini-3.8-flash-high".to_string(),
+        "Gemini 3.8 Flash (High)".to_string(),
+    )]);
+    modal.set_opencode_models(vec![(
+        "opencode-go/deepseek-v4.1-flash".to_string(),
+        "deepseek-v4.1-flash".to_string(),
+    )]);
+    assert_eq!(modal.backend, frontal::config::BackendKind::Agy);
+
+    modal.handle_key(KeyEvent::new(KeyCode::F(2), KeyModifiers::NONE));
+    assert_eq!(modal.backend, frontal::config::BackendKind::OpenCode);
+    assert_eq!(modal.models[0].id, "opencode-go/deepseek-v4.1-flash");
+
+    modal.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
+    assert_eq!(modal.query, "b");
+    assert_eq!(modal.backend, frontal::config::BackendKind::OpenCode);
+
+    modal.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL));
+    assert_eq!(modal.backend, frontal::config::BackendKind::Agy);
+    assert_eq!(modal.models[0].id, "gemini-3.8-flash");
+    assert!(modal.query.is_empty());
+
+    let backend = TestBackend::new(50, 18);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal.draw(|f| modal.render(f, f.area())).unwrap();
+    let rendered = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+    assert!(rendered.contains("[Agy]"));
+    assert!(rendered.contains('◎'));
+}

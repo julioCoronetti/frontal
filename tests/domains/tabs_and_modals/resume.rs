@@ -287,3 +287,32 @@ async fn test_resume_modal_filters_uuid_fallbacks_and_deduplicates_open_sessions
         std::env::remove_var("HOME");
     }
 }
+
+#[tokio::test]
+async fn test_switching_backend_clears_conversation_id() {
+    let (mut app, _) = test_app();
+    app.user_config.backend = frontal::config::BackendKind::OpenCode;
+    let new_session_id = app
+        .respawn_active_session(Some("conv-agy-1".to_string()), None, None, None)
+        .await
+        .unwrap();
+    let meta = app.session_manager.get_metadata(&new_session_id).unwrap();
+    assert!(meta.conversation_id.is_none());
+    assert_eq!(app.tabs[0].backend, frontal::config::BackendKind::OpenCode);
+
+    let (mut same_backend_app, _) = test_app();
+    same_backend_app.user_config.backend = frontal::config::BackendKind::Agy;
+    let preserved = same_backend_app
+        .respawn_active_session(Some("conv-agy-2".to_string()), None, None, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        same_backend_app
+            .session_manager
+            .get_metadata(&preserved)
+            .unwrap()
+            .conversation_id
+            .as_deref(),
+        Some("conv-agy-2")
+    );
+}
