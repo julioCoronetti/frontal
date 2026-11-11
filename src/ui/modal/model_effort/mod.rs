@@ -24,7 +24,6 @@ pub struct ModelEffortModal {
     pub fallback_efforts: Vec<String>,
     pub selected_model_idx: usize,
     pub selected_effort_idx: usize,
-    pub chosen_model: Option<String>,
     pub current_model: Option<String>,
     pub current_effort: Option<String>,
 }
@@ -60,7 +59,6 @@ impl ModelEffortModal {
             fallback_efforts: fallback,
             selected_model_idx: 0,
             selected_effort_idx: initial_effort_idx,
-            chosen_model: None,
             current_model: None,
             current_effort: None,
         }
@@ -224,6 +222,17 @@ impl ModelEffortModal {
         self.selected_effort_idx = def_idx;
     }
 
+    pub fn set_query(&mut self, query: impl Into<String>) {
+        let prev_eff = self
+            .current_supported_efforts()
+            .get(self.selected_effort_idx)
+            .cloned()
+            .or_else(|| self.current_effort.clone());
+        self.query = query.into();
+        self.selected_model_idx = 0;
+        self.sync_effort_after_model_change(prev_eff);
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) -> ModalAction {
         let max_model = self.filtered_indices().len().saturating_sub(1);
         let max_eff = self.current_supported_efforts().len().saturating_sub(1);
@@ -282,7 +291,6 @@ impl ModelEffortModal {
                         .get(self.selected_effort_idx)
                         .cloned()
                         .unwrap_or_else(|| "high".to_string());
-                    self.chosen_model = Some(model.clone());
                     ModalAction::SelectModelEffort { model, effort }
                 } else {
                     ModalAction::None

@@ -90,18 +90,29 @@ fn extract_candidate_commands(params: Option<&Value>, fallback: Option<&str>) ->
     let mut out = Vec::new();
     if let Some(val) = params {
         match val {
-            Value::String(s) => out.push(s.clone()),
+            Value::String(s) => {
+                let trimmed = s.trim();
+                if !trimmed.is_empty() {
+                    out.push(trimmed.to_string());
+                }
+            }
             Value::Object(map) => {
                 for key in ["CommandLine", "command", "cmd", "script", "query", "sql"] {
                     if let Some(s) = map.get(key).and_then(|v| v.as_str()) {
-                        out.push(s.to_string());
+                        let trimmed = s.trim();
+                        if !trimmed.is_empty() {
+                            out.push(trimmed.to_string());
+                        }
                     }
                 }
             }
             _ => {}
         }
-    } else if let Some(fb) = fallback {
-        out.push(fb.to_string());
+    }
+    if out.is_empty() {
+        if let Some(fb) = fallback.filter(|s| !s.trim().is_empty()) {
+            out.push(fb.trim().to_string());
+        }
     }
     out
 }

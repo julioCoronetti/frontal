@@ -27,11 +27,6 @@ impl App {
             self.last_turn_usage = None;
             self.accumulated_usage = crate::protocol::TokenUsage::default();
             self.queued_prompts.clear();
-            if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
-                tab.last_turn_usage = None;
-                tab.accumulated_usage = crate::protocol::TokenUsage::default();
-                tab.queued_prompts.clear();
-            }
             self.status_text = String::from("Cleared");
             self.dirty = true;
             Some(None)
@@ -59,7 +54,7 @@ impl App {
                     Some(self.active_effort_name()),
                 );
             if let Some(query) = trimmed.strip_prefix("/model ") {
-                modal.query = query.trim().to_string();
+                modal.set_query(query.trim());
             }
             self.modals.push(Modal::ModelEffort(modal));
             self.dirty = true;
@@ -93,9 +88,7 @@ impl App {
                 self.dirty = true;
                 return Some(None);
             }
-            if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
-                tab.title = new_title.to_string();
-            }
+            self.title = new_title.to_string();
             self.sync_session_to_history(&self.active_session.clone());
             self.history
                 .rename_session(self.active_session.as_str(), new_title);

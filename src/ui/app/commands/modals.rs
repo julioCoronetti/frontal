@@ -130,10 +130,6 @@ impl App {
                         self.viewport.scroll_to_bottom();
                         self.last_turn_usage = None;
                         self.accumulated_usage = crate::protocol::TokenUsage::default();
-                        if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
-                            tab.last_turn_usage = None;
-                            tab.accumulated_usage = crate::protocol::TokenUsage::default();
-                        }
                         self.status_text = String::from("Cleared");
                         Some(None)
                     }
