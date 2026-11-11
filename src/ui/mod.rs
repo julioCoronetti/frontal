@@ -30,17 +30,23 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     let (models_tx, mut models_rx) = tokio::sync::mpsc::channel(1);
-    let agy_bin = crate::transport::EngineConfig::resolve_agy_binary();
+    let engine_config = app.session_manager.get_engine_config(&app.active_session);
+    let agy_bin = engine_config
+        .as_ref()
+        .map(|config| config.agy_bin.clone())
+        .unwrap_or_else(crate::transport::EngineConfig::resolve_agy_binary);
     tokio::spawn(async move {
         let models = crate::transport::EngineConfig::fetch_available_models(&agy_bin).await;
         let _ = models_tx.send(models).await;
     });
 
     let (opencode_tx, mut opencode_rx) = tokio::sync::mpsc::channel(1);
+    let opencode_bin = engine_config
+        .as_ref()
+        .map(|config| config.opencode_bin.clone())
+        .unwrap_or_else(crate::transport::resolve_opencode_binary);
     tokio::spawn(async move {
-        let models =
-            crate::transport::fetch_opencode_models(&crate::transport::resolve_opencode_binary())
-                .await;
+        let models = crate::transport::fetch_opencode_models(&opencode_bin).await;
         let _ = opencode_tx.send(models).await;
     });
 
