@@ -3,6 +3,12 @@ use crate::ui::cache::{BlockKind, RenderCache};
 use crate::ui::editor::{EditorSnapshot, PromptEditor};
 use crate::ui::viewport::ConversationViewport;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StreamOutcome {
+    DangerRequired(crate::security::DangerAssessment),
+    TurnCompleted { is_result: bool },
+}
+
 pub struct TabState {
     pub session_id: SessionId,
     pub title: String,
@@ -42,23 +48,26 @@ impl TabState {
         }
     }
 
-    pub fn handle_background_stream_event(
+    pub fn apply_stream_event(
         &mut self,
         event: &StreamEvent,
         mode: &str,
         model: &str,
-    ) -> bool {
+        is_active: bool,
+    ) -> Option<StreamOutcome> {
         if self.pending_danger.is_some() {
             self.suspended_events.push(event.clone());
-            return false;
+            return None;
         }
-        let mut turn_completed = false;
+        let mut outcome = None;
         match event {
             StreamEvent::Init(ev) => {
                 if let Some(conv_id) = &ev.conversation_id {
                     self.status_text = format!("Conversation: {}", conv_id);
                 }
-                self.has_unread = true;
+                if !is_active {
+                    self.has_unread = true;
+                }
             }
             StreamEvent::StepUpdate(update) => {
                 if let Some(data) = &update.step_update {
@@ -70,14 +79,18 @@ impl TabState {
                         self.cache
                             .append_streaming_delta(BlockKind::Assistant, delta);
                         self.status_text = String::from("Streaming...");
-                        self.has_unread = true;
+                        if !is_active {
+                            self.has_unread = true;
+                        }
                     }
                     if let Some(thought) = &data.thought {
                         self.waiting_for_response = false;
                         self.cache
                             .append_streaming_delta(BlockKind::Thought, thought);
                         self.status_text = String::from("Thinking...");
-                        self.has_unread = true;
+                        if !is_active {
+                            self.has_unread = true;
+                        }
                     }
                     if let Some(tool_name) = data.resolved_tool_name() {
                         self.waiting_for_response = false;
@@ -103,14 +116,18 @@ impl TabState {
                                 params_val,
                                 args.as_deref(),
                             ) {
-                                self.pending_danger = Some(danger);
+                                self.pending_danger = Some(danger.clone());
                                 self.status_text = String::from("Security confirmation required");
-                                self.has_unread = true;
-                                return false;
+                                if !is_active {
+                                    self.has_unread = true;
+                                }
+                                return Some(StreamOutcome::DangerRequired(danger));
                             }
                         }
                         self.status_text = format!("Tool: {}", tool_name);
-                        self.has_unread = true;
+                        if !is_active {
+                            self.has_unread = true;
+                        }
                     }
                 }
             }
@@ -145,8 +162,10 @@ impl TabState {
                 self.cache
                     .consolidate_active_turn_with_meta(fallback, Some(meta));
                 self.status_text = String::from("Ready");
-                self.has_unread = true;
-                turn_completed = true;
+                if !is_active {
+                    self.has_unread = true;
+                }
+                outcome = Some(StreamOutcome::TurnCompleted { is_result: true });
             }
             StreamEvent::Error(err) => {
                 self.waiting_for_response = false;
@@ -158,11 +177,25 @@ impl TabState {
                     .unwrap_or("Unknown error");
                 self.cache.push_error(msg);
                 self.status_text = String::from("Error received");
-                self.has_unread = true;
-                turn_completed = true;
+                if !is_active {
+                    self.has_unread = true;
+                }
+                outcome = Some(StreamOutcome::TurnCompleted { is_result: false });
             }
             _ => {}
         }
-        turn_completed
+        outcome
+    }
+
+    pub fn handle_background_stream_event(
+        &mut self,
+        event: &StreamEvent,
+        mode: &str,
+        model: &str,
+    ) -> bool {
+        matches!(
+            self.apply_stream_event(event, mode, model, false),
+            Some(StreamOutcome::TurnCompleted { .. })
+        )
     }
 }

@@ -1,330 +1,133 @@
-use crate::protocol::{EngineEvent, SessionEnvelope, StepState, StreamEvent};
+use crate::protocol::{EngineEvent, SessionEnvelope, StreamEvent};
 use crate::ui::app::App;
-use crate::ui::cache::BlockKind;
+use crate::ui::modal::{DangerConfirmationModal, Modal};
 use crate::ui::notify::emit_sensory_notification;
+use crate::ui::tab::StreamOutcome;
 
 impl App {
     pub fn handle_engine_envelope(&mut self, envelope: SessionEnvelope) {
-        if envelope.session_id == self.active_session {
-            if self.pending_danger.is_some() {
-                if let EngineEvent::Stream(boxed_ev) = envelope.event {
-                    self.suspended_events.push(*boxed_ev);
-                    return;
-                }
-            }
-            match envelope.event {
-                EngineEvent::Stream(boxed_ev) => match *boxed_ev {
-                    StreamEvent::Init(ev) => {
-                        if let Some(conv_id) = ev.conversation_id {
-                            self.status_text = format!("Conversation: {}", conv_id);
-                            self.session_manager.set_session_metadata(
-                                &envelope.session_id,
-                                Some(conv_id),
-                                None,
-                                None,
-                                None,
-                            );
-                            self.sync_session_to_history(&envelope.session_id);
-                        }
-                        self.dirty = true;
-                    }
-                    StreamEvent::StepUpdate(update) => {
-                        if let Some(data) = update.step_update {
-                            if let Some(usage) = data.usage {
-                                self.last_turn_usage = Some(usage);
-                            }
-                            if let Some(ref delta) = data.text_delta {
-                                self.waiting_for_response = false;
-                                self.cache
-                                    .append_streaming_delta(BlockKind::Assistant, delta);
-                                self.status_text = String::from("Streaming...");
-                                self.dirty = true;
-                            }
-                            if let Some(ref thought) = data.thought {
-                                self.waiting_for_response = false;
-                                self.cache
-                                    .append_streaming_delta(BlockKind::Thought, thought);
-                                self.status_text = String::from("Thinking...");
-                                self.dirty = true;
-                            }
-                            if let Some(tool_name) = data.resolved_tool_name() {
-                                self.waiting_for_response = false;
-                                let state = data.state.unwrap_or(StepState::Active);
-                                let args = data
-                                    .tool_info
-                                    .as_ref()
-                                    .and_then(|info| info.parameters_text());
-                                let output =
-                                    data.tool_info.as_ref().and_then(|info| info.output_text());
-                                self.cache.upsert_tool_call(
-                                    data.step_index,
-                                    tool_name,
-                                    state,
-                                    args.as_deref(),
-                                    output.as_deref(),
-                                );
-                                if state == StepState::Active && output.is_none() {
-                                    let params_val =
-                                        data.tool_info.as_ref().and_then(|i| i.parameters.as_ref());
-                                    if let Some(danger) = crate::security::evaluate_tool_call(
-                                        tool_name,
-                                        data.step_index,
-                                        params_val,
-                                        args.as_deref(),
-                                    ) {
-                                        self.pending_danger = Some(danger.clone());
-                                        self.status_text =
-                                            String::from("Security confirmation required");
-                                        self.modals.push(
-                                            crate::ui::modal::Modal::DangerConfirmation(
-                                                crate::ui::modal::DangerConfirmationModal::new(
-                                                    danger,
-                                                ),
-                                            ),
-                                        );
-                                        self.dirty = true;
-                                        return;
-                                    }
-                                }
-                                self.status_text = format!("Tool: {}", tool_name);
-                                self.dirty = true;
-                            }
-                        }
-                    }
-                    StreamEvent::Result(res) => {
-                        self.waiting_for_response = false;
-                        let fallback = res.result.as_ref().and_then(|r| r.response.as_deref());
-                        let duration = res
-                            .result
-                            .as_ref()
-                            .and_then(|r| r.duration_seconds)
-                            .or_else(|| {
-                                self.turn_started_at
-                                    .take()
-                                    .map(|t| t.elapsed().as_secs_f64())
-                            });
-                        let usage = res
-                            .result
-                            .as_ref()
-                            .and_then(|r| r.usage)
-                            .or(self.last_turn_usage);
-                        let tokens = usage.as_ref().map(|u| u.output_tokens);
-                        if let Some(ref u) = usage {
-                            self.accumulated_usage.accumulate(u);
-                        }
-                        self.last_turn_usage = usage;
-                        let conv_id = res.conversation_id.clone().or_else(|| {
-                            res.result.as_ref().and_then(|r| r.conversation_id.clone())
-                        });
-                        if let Some(cid) = conv_id {
-                            self.session_manager.set_session_metadata(
-                                &envelope.session_id,
-                                Some(cid.clone()),
-                                None,
-                                None,
-                                None,
-                            );
-                            if let Some(agent_title) =
-                                crate::ui::history::query_agent_conversation_title(&cid)
-                            {
-                                if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
-                                    tab.title = agent_title.clone();
-                                }
-                                self.history.rename_session(&cid, &agent_title);
-                            }
-                            self.sync_session_to_history(&envelope.session_id);
-                        }
-                        let meta = crate::ui::cache::TurnMeta {
-                            mode: self.active_mode_name(),
-                            model: self.active_model_name(),
-                            duration_seconds: duration,
-                            output_tokens: tokens,
-                        };
-                        self.cache
-                            .consolidate_active_turn_with_meta(fallback, Some(meta));
-                        self.status_text = String::from("Ready");
-                        if !self.clipboard.is_isolated() {
-                            let title = self
-                                .tabs
-                                .get(self.active_tab_index)
-                                .map(|t| t.title.as_str())
-                                .unwrap_or("Active Session");
-                            emit_sensory_notification(
-                                "Frontal Session Completed",
-                                &format!("Turn completed in {}", title),
-                            );
-                        }
-                        if let Some(next_prompt) = self.queued_prompts.pop_front() {
-                            self.cache.push_user_message(&next_prompt);
-                            self.waiting_for_response = true;
-                            self.turn_started_at = Some(std::time::Instant::now());
-                            self.status_text = format!(
-                                "Processing queued prompt ({} left)",
-                                self.queued_prompts.len()
-                            );
-                            self.pending_engine_prompts
-                                .push_back((self.active_session.clone(), next_prompt));
-                        }
-                        self.dirty = true;
-                    }
-                    StreamEvent::Error(err) => {
-                        self.waiting_for_response = false;
-                        self.last_turn_usage = None;
-                        let msg = err
-                            .error
-                            .or(err.message)
-                            .unwrap_or_else(|| String::from("Unknown error"));
-                        self.cache.push_error(&msg);
-                        self.status_text = String::from("Error received");
-                        if let Some(next_prompt) = self.queued_prompts.pop_front() {
-                            self.cache.push_user_message(&next_prompt);
-                            self.waiting_for_response = true;
-                            self.turn_started_at = Some(std::time::Instant::now());
-                            self.status_text = format!(
-                                "Processing queued prompt ({} left)",
-                                self.queued_prompts.len()
-                            );
-                            self.pending_engine_prompts
-                                .push_back((self.active_session.clone(), next_prompt));
-                        }
-                        self.dirty = true;
-                    }
-                    _ => {}
-                },
-                EngineEvent::Stderr(line) => {
-                    self.status_text = format!("stderr: {}", line);
-                    self.dirty = true;
-                }
-                EngineEvent::ProtocolError { message, .. } => {
-                    self.waiting_for_response = false;
-                    self.pending_danger = None;
-                    self.suspended_events.clear();
-                    self.queued_prompts.clear();
-                    self.modals.remove_danger_modal();
-                    self.cache
-                        .push_error(&format!("Protocol Error: {}", message));
-                    self.status_text = String::from("Protocol Error");
-                    self.dirty = true;
-                }
-                EngineEvent::ProcessExited { code, .. } => {
-                    self.waiting_for_response = false;
-                    self.pending_danger = None;
-                    self.suspended_events.clear();
-                    self.queued_prompts.clear();
-                    self.modals.remove_danger_modal();
-                    self.status_text = format!("Process exited: {:?}", code);
-                    self.dirty = true;
-                }
-            }
-        } else if self
+        let tab_idx = match self
             .tabs
             .iter()
-            .any(|t| t.session_id == envelope.session_id)
+            .position(|t| t.session_id == envelope.session_id)
         {
-            if let EngineEvent::Stream(ref boxed_ev) = envelope.event {
-                if let StreamEvent::Init(ref ev) = **boxed_ev {
-                    if let Some(ref conv_id) = ev.conversation_id {
-                        self.session_manager.set_session_metadata(
-                            &envelope.session_id,
-                            Some(conv_id.clone()),
-                            None,
-                            None,
-                            None,
-                        );
-                        self.sync_session_to_history(&envelope.session_id);
+            Some(idx) => idx,
+            None => return,
+        };
+        let is_active = tab_idx == self.active_tab_index;
+
+        if let EngineEvent::Stream(ref boxed_ev) = envelope.event {
+            if let StreamEvent::Init(ref ev) = **boxed_ev {
+                if let Some(ref conv_id) = ev.conversation_id {
+                    self.session_manager.set_session_metadata(
+                        &envelope.session_id,
+                        Some(conv_id.clone()),
+                        None,
+                        None,
+                        None,
+                    );
+                    self.sync_session_to_history(&envelope.session_id);
+                }
+            } else if let StreamEvent::Result(ref res) = **boxed_ev {
+                let conv_id = res
+                    .conversation_id
+                    .clone()
+                    .or_else(|| res.result.as_ref().and_then(|r| r.conversation_id.clone()));
+                if let Some(cid) = conv_id {
+                    self.session_manager.set_session_metadata(
+                        &envelope.session_id,
+                        Some(cid.clone()),
+                        None,
+                        None,
+                        None,
+                    );
+                    if let Some(agent_title) =
+                        crate::ui::history::query_agent_conversation_title(&cid)
+                    {
+                        self.tabs[tab_idx].title = agent_title.clone();
+                        self.history.rename_session(&cid, &agent_title);
                     }
-                } else if let StreamEvent::Result(ref res) = **boxed_ev {
-                    let conv_id = res
-                        .conversation_id
-                        .clone()
-                        .or_else(|| res.result.as_ref().and_then(|r| r.conversation_id.clone()));
-                    if let Some(cid) = conv_id {
-                        self.session_manager.set_session_metadata(
-                            &envelope.session_id,
-                            Some(cid.clone()),
-                            None,
-                            None,
-                            None,
-                        );
-                        if let Some(agent_title) =
-                            crate::ui::history::query_agent_conversation_title(&cid)
-                        {
-                            if let Some(tab) = self
-                                .tabs
-                                .iter_mut()
-                                .find(|t| t.session_id == envelope.session_id)
-                            {
-                                tab.title = agent_title.clone();
-                            }
-                            self.history.rename_session(&cid, &agent_title);
-                        }
-                        self.sync_session_to_history(&envelope.session_id);
-                    }
+                    self.sync_session_to_history(&envelope.session_id);
                 }
             }
-            let (bg_mode, bg_model) = {
-                let meta = self.session_manager.get_metadata(&envelope.session_id);
-                (
-                    meta.and_then(|m| m.mode.clone())
-                        .unwrap_or_else(|| crate::config::DEFAULT_MODE.to_string()),
-                    meta.and_then(|m| m.model.clone())
-                        .unwrap_or_else(|| crate::config::DEFAULT_MODEL.to_string()),
-                )
-            };
-            if let Some(tab) = self
-                .tabs
-                .iter_mut()
-                .find(|t| t.session_id == envelope.session_id)
-            {
-                match envelope.event {
-                    EngineEvent::Stream(boxed_ev) => {
-                        let turn_completed =
-                            tab.handle_background_stream_event(&boxed_ev, &bg_mode, &bg_model);
-                        if turn_completed {
-                            if let Some(next_prompt) = tab.queued_prompts.pop_front() {
-                                tab.cache.push_user_message(&next_prompt);
-                                tab.waiting_for_response = true;
-                                tab.turn_started_at = Some(std::time::Instant::now());
-                                tab.status_text = format!(
-                                    "Processing queued prompt ({} left)",
-                                    tab.queued_prompts.len()
-                                );
-                                self.pending_engine_prompts
-                                    .push_back((tab.session_id.clone(), next_prompt));
-                            }
-                            if !self.clipboard.is_isolated() {
-                                emit_sensory_notification(
-                                    "Frontal Session Completed",
-                                    &format!("Turn completed in {}", tab.title),
-                                );
-                            }
+        }
+
+        match envelope.event {
+            EngineEvent::Stream(boxed_ev) => {
+                let (mode, model) = {
+                    let meta = self.session_manager.get_metadata(&envelope.session_id);
+                    (
+                        meta.as_ref()
+                            .and_then(|m| m.mode.clone())
+                            .unwrap_or_else(|| self.user_config.mode.clone()),
+                        meta.as_ref()
+                            .and_then(|m| m.model.clone())
+                            .unwrap_or_else(|| self.user_config.model.clone()),
+                    )
+                };
+                let outcome =
+                    self.tabs[tab_idx].apply_stream_event(&boxed_ev, &mode, &model, is_active);
+                match outcome {
+                    Some(StreamOutcome::DangerRequired(danger)) => {
+                        if is_active {
+                            self.modals.push(Modal::DangerConfirmation(
+                                DangerConfirmationModal::new(danger),
+                            ));
                         }
-                        self.dirty = true;
                     }
-                    EngineEvent::ProtocolError { message, .. } => {
-                        tab.waiting_for_response = false;
-                        tab.pending_danger = None;
-                        tab.suspended_events.clear();
-                        tab.queued_prompts.clear();
-                        tab.cache
-                            .push_error(&format!("Protocol Error: {}", message));
-                        tab.status_text = String::from("Protocol Error");
-                        tab.has_unread = true;
-                        self.dirty = true;
+                    Some(StreamOutcome::TurnCompleted { is_result }) => {
+                        if let Some(next_prompt) = self.tabs[tab_idx].queued_prompts.pop_front() {
+                            self.tabs[tab_idx].cache.push_user_message(&next_prompt);
+                            self.tabs[tab_idx].waiting_for_response = true;
+                            self.tabs[tab_idx].turn_started_at = Some(std::time::Instant::now());
+                            self.tabs[tab_idx].status_text = format!(
+                                "Processing queued prompt ({} left)",
+                                self.tabs[tab_idx].queued_prompts.len()
+                            );
+                            self.pending_engine_prompts
+                                .push_back((self.tabs[tab_idx].session_id.clone(), next_prompt));
+                        }
+                        if (is_result || !is_active) && !self.clipboard.is_isolated() {
+                            emit_sensory_notification(
+                                "Frontal Session Completed",
+                                &format!("Turn completed in {}", self.tabs[tab_idx].title),
+                            );
+                        }
                     }
-                    EngineEvent::Stderr(line) => {
-                        tab.status_text = format!("stderr: {}", line);
-                        self.dirty = true;
-                    }
-                    EngineEvent::ProcessExited { .. } => {
-                        tab.waiting_for_response = false;
-                        tab.pending_danger = None;
-                        tab.suspended_events.clear();
-                        tab.queued_prompts.clear();
-                        tab.status_text = String::from("Process exited");
-                        self.dirty = true;
-                    }
+                    None => {}
                 }
+                self.dirty = true;
+            }
+            EngineEvent::Stderr(line) => {
+                self.tabs[tab_idx].status_text = format!("stderr: {}", line);
+                self.dirty = true;
+            }
+            EngineEvent::ProtocolError { message, .. } => {
+                self.tabs[tab_idx].waiting_for_response = false;
+                self.tabs[tab_idx].pending_danger = None;
+                self.tabs[tab_idx].suspended_events.clear();
+                self.tabs[tab_idx].queued_prompts.clear();
+                if is_active {
+                    self.modals.remove_danger_modal();
+                } else {
+                    self.tabs[tab_idx].has_unread = true;
+                }
+                self.tabs[tab_idx]
+                    .cache
+                    .push_error(&format!("Protocol Error: {}", message));
+                self.tabs[tab_idx].status_text = String::from("Protocol Error");
+                self.dirty = true;
+            }
+            EngineEvent::ProcessExited { code, .. } => {
+                self.tabs[tab_idx].waiting_for_response = false;
+                self.tabs[tab_idx].pending_danger = None;
+                self.tabs[tab_idx].suspended_events.clear();
+                self.tabs[tab_idx].queued_prompts.clear();
+                if is_active {
+                    self.modals.remove_danger_modal();
+                }
+                self.tabs[tab_idx].status_text = format!("Process exited: {:?}", code);
+                self.dirty = true;
             }
         }
     }
