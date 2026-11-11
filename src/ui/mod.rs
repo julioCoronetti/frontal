@@ -59,10 +59,14 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(action) = app.handle_terminal_event(event) {
                         match action {
                             AppAction::SubmitPrompt(prompt) => {
-                                let _ = app
+                                let session_id = app.active_session.clone();
+                                if let Err(err) = app
                                     .session_manager
-                                    .send_prompt(&app.active_session, &prompt)
-                                    .await;
+                                    .send_prompt(&session_id, &prompt)
+                                    .await
+                                {
+                                    app.handle_prompt_failure(&session_id, &err.to_string());
+                                }
                             }
                             AppAction::Interrupt => {
                                 let _ = app.session_manager.interrupt_active();
@@ -111,7 +115,9 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(envelope) = maybe_envelope {
                     app.handle_engine_envelope(envelope);
                     while let Some((sid, prompt)) = app.pending_engine_prompts.pop_front() {
-                        let _ = app.session_manager.send_prompt(&sid, &prompt).await;
+                        if let Err(err) = app.session_manager.send_prompt(&sid, &prompt).await {
+                            app.handle_prompt_failure(&sid, &err.to_string());
+                        }
                     }
                 }
             }

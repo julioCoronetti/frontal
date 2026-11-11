@@ -5,6 +5,30 @@ use crate::ui::notify::emit_sensory_notification;
 use crate::ui::tab::StreamOutcome;
 
 impl App {
+    pub fn handle_prompt_failure(
+        &mut self,
+        session_id: &crate::protocol::SessionId,
+        message: &str,
+    ) {
+        let is_active = &self.active_session == session_id;
+        if let Some(tab) = self
+            .tabs
+            .iter_mut()
+            .find(|tab| &tab.session_id == session_id)
+        {
+            tab.waiting_for_response = false;
+            tab.turn_started_at = None;
+            tab.queued_prompts.clear();
+            tab.cache.consolidate_active_turn_with_meta(None, None);
+            tab.cache.push_error(message);
+            tab.status_text = String::from("Error received");
+            if !is_active {
+                tab.has_unread = true;
+            }
+        }
+        self.dirty = true;
+    }
+
     pub fn handle_engine_envelope(&mut self, envelope: SessionEnvelope) {
         let tab_idx = match self
             .tabs
