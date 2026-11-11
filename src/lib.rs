@@ -1,8 +1,10 @@
 pub mod cli;
-pub mod config;
+pub mod core;
 pub mod engine;
-pub mod protocol;
-pub mod security;
 pub mod session;
 pub mod transport;
 pub mod ui;
+
+pub use crate::core::config;
+pub use crate::core::protocol;
+pub use crate::core::security;
