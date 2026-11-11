@@ -1,3 +1,4 @@
+use crate::config::BackendKind;
 use crate::protocol::{SessionId, StepState, StreamEvent, TokenUsage};
 use crate::ui::cache::{BlockKind, RenderCache};
 use crate::ui::editor::{EditorSnapshot, PromptEditor};
@@ -11,6 +12,7 @@ pub enum StreamOutcome {
 
 pub struct TabState {
     pub session_id: SessionId,
+    pub backend: BackendKind,
     pub title: String,
     pub cache: RenderCache,
     pub viewport: ConversationViewport,
@@ -31,6 +33,7 @@ impl TabState {
     pub fn new(session_id: SessionId, title: String) -> Self {
         Self {
             session_id,
+            backend: BackendKind::Agy,
             title,
             cache: RenderCache::new(),
             viewport: ConversationViewport::new(),
@@ -176,6 +179,7 @@ impl TabState {
                     .or(err.message.as_deref())
                     .unwrap_or("Unknown error");
                 self.cache.push_error(msg);
+                self.cache.consolidate_active_turn_with_meta(None, None);
                 self.status_text = String::from("Error received");
                 if !is_active {
                     self.has_unread = true;

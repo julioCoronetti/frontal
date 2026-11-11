@@ -3,7 +3,8 @@ use std::path::Path;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-use crate::engine::SubprocessEngine;
+use crate::config::BackendKind;
+use crate::engine::{AgyEngine, OpenCodeEngine};
 use crate::protocol::{EngineEvent, SessionEnvelope, SessionId, StreamEvent};
 use crate::transport::{EngineConfig, EngineError, FixtureReplayEngine, ReplayMode};
 
@@ -28,14 +29,17 @@ pub struct SessionMetadata {
     pub status: SessionStatus,
 }
 
-pub enum SessionEngine {
-    Subprocess(Box<SubprocessEngine>),
+pub enum FrontalEngine {
+    Agy(Box<AgyEngine>),
+    OpenCode(Box<OpenCodeEngine>),
     Replay(FixtureReplayEngine),
 }
 
+pub type SessionEngine = FrontalEngine;
+
 pub struct SessionHandle {
     pub metadata: SessionMetadata,
-    pub engine: SessionEngine,
+    pub engine: FrontalEngine,
 }
 
 pub struct SessionManager {
@@ -81,7 +85,7 @@ impl SessionManager {
             session_id.clone(),
             SessionHandle {
                 metadata,
-                engine: SessionEngine::Replay(replay),
+                engine: FrontalEngine::Replay(replay),
             },
         );
         if self.active_session_id.is_none() {
@@ -104,14 +108,18 @@ impl SessionManager {
             last_prompt: None,
             status: SessionStatus::Initializing,
         };
-        let engine = SubprocessEngine::spawn(session_id.clone(), config, self.tx.clone()).await?;
-        self.sessions.insert(
-            session_id.clone(),
-            SessionHandle {
-                metadata,
-                engine: SessionEngine::Subprocess(Box::new(engine)),
-            },
-        );
+        let engine = match config.backend {
+            BackendKind::Agy => FrontalEngine::Agy(Box::new(
+                AgyEngine::spawn(session_id.clone(), config, self.tx.clone()).await?,
+            )),
+            BackendKind::OpenCode => FrontalEngine::OpenCode(Box::new(OpenCodeEngine::new(
+                session_id.clone(),
+                config,
+                self.tx.clone(),
+            ))),
+        };
+        self.sessions
+            .insert(session_id.clone(), SessionHandle { metadata, engine });
         if self.active_session_id.is_none() {
             self.active_session_id = Some(session_id.clone());
         }
@@ -141,7 +149,7 @@ impl SessionManager {
             session_id.clone(),
             SessionHandle {
                 metadata,
-                engine: SessionEngine::Replay(replay),
+                engine: FrontalEngine::Replay(replay),
             },
         );
         if self.active_session_id.is_none() {
@@ -173,7 +181,7 @@ impl SessionManager {
             session_id.clone(),
             SessionHandle {
                 metadata,
-                engine: SessionEngine::Replay(replay),
+                engine: FrontalEngine::Replay(replay),
             },
         );
         if self.active_session_id.is_none() {
@@ -198,14 +206,15 @@ impl SessionManager {
     pub fn is_replay_session(&self, session_id: &SessionId) -> bool {
         self.sessions
             .get(session_id)
-            .map(|h| matches!(h.engine, SessionEngine::Replay(_)))
+            .map(|h| matches!(h.engine, FrontalEngine::Replay(_)))
             .unwrap_or(false)
     }
 
     pub fn get_engine_config(&self, session_id: &SessionId) -> Option<EngineConfig> {
         self.sessions.get(session_id).and_then(|h| match &h.engine {
-            SessionEngine::Subprocess(engine) => Some(engine.config().clone()),
-            SessionEngine::Replay(_) => None,
+            FrontalEngine::Agy(engine) => Some(engine.config().clone()),
+            FrontalEngine::OpenCode(engine) => Some(engine.config().clone()),
+            FrontalEngine::Replay(_) => None,
         })
     }
 
@@ -266,8 +275,9 @@ impl SessionManager {
         let prev_status = handle.metadata.status;
         handle.metadata.status = SessionStatus::RunningTurn;
         let res = match &mut handle.engine {
-            SessionEngine::Subprocess(engine) => engine.send_prompt(prompt).await,
-            SessionEngine::Replay(engine) => engine.send_prompt(prompt).await,
+            FrontalEngine::Agy(engine) => engine.send_prompt(prompt).await,
+            FrontalEngine::OpenCode(engine) => engine.send_prompt(prompt).await,
+            FrontalEngine::Replay(engine) => engine.send_prompt(prompt).await,
         };
         if res.is_err() {
             handle.metadata.status = prev_status;
@@ -282,8 +292,9 @@ impl SessionManager {
             .ok_or(EngineError::ProcessNotRunning)?;
         handle.metadata.status = SessionStatus::Interrupted;
         match &mut handle.engine {
-            SessionEngine::Subprocess(engine) => engine.interrupt(),
-            SessionEngine::Replay(engine) => engine.interrupt(),
+            FrontalEngine::Agy(engine) => engine.interrupt(),
+            FrontalEngine::OpenCode(engine) => engine.interrupt(),
+            FrontalEngine::Replay(engine) => engine.interrupt(),
         }
     }
 
@@ -306,8 +317,9 @@ impl SessionManager {
         if let Some(mut handle) = self.sessions.remove(session_id) {
             handle.metadata.status = SessionStatus::Closed;
             match &mut handle.engine {
-                SessionEngine::Subprocess(engine) => engine.shutdown(grace).await,
-                SessionEngine::Replay(engine) => engine.shutdown(),
+                FrontalEngine::Agy(engine) => engine.shutdown(grace).await,
+                FrontalEngine::OpenCode(engine) => engine.shutdown(grace).await,
+                FrontalEngine::Replay(engine) => engine.shutdown(),
             }
         } else {
             Ok(None)
@@ -341,6 +353,24 @@ impl SessionManager {
                             }
                         }
                         handle.metadata.status = SessionStatus::Ready;
+                    }
+                    StreamEvent::Error(_) => {
+                        handle.metadata.status = SessionStatus::Ready;
+                    }
+                    StreamEvent::StepUpdate(update_ev) => {
+                        if let Some(conv_id) = update_ev
+                            .conversation_id
+                            .as_deref()
+                            .or_else(|| {
+                                update_ev
+                                    .step_update
+                                    .as_ref()
+                                    .and_then(|u| u.conversation_id.as_deref())
+                            })
+                            .filter(|id| !id.is_empty())
+                        {
+                            handle.metadata.conversation_id = Some(conv_id.to_string());
+                        }
                     }
                     _ => {}
                 },
