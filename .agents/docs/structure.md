@@ -4,7 +4,7 @@ Reference documentation for on-demand inspection of repository modules.
 
 ## Core Domain (`src/core/`)
 - `src/core/mod.rs`: Domain module declarations and public exports.
-- `src/core/protocol.rs`: Strict typing and NDJSON deserialization for the `stream-json` protocol (`EngineEvent`, `StreamEvent`, `ToolInfo`, etc.).
+- `src/core/protocol/`: Strict typing and NDJSON deserialization for the `stream-json` protocol (`EngineEvent`, `StreamEvent`, `ToolInfo`, etc.) partitioned into `mod.rs` (canonical types), `agy.rs` (`AgyStreamParser`), and `opencode.rs` (`OpenCodeStreamParser`).
 - `src/core/security/`: Deterministic containment security guard (`DangerAssessment`, `RiskCategory`) partitioned into `mod.rs`, `shell.rs`, and `sql.rs`.
 - `src/core/config.rs`: Persistent user configuration (`~/.frontal/config.toml`, model, mode, and default effort).
 

@@ -1,8 +1,12 @@
+mod agy;
+
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
+
+pub use agy::{format_user_message, parse_stream_line, AgyStreamParser};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SessionId(pub String);
@@ -76,25 +80,6 @@ pub struct UserMessageContent {
 pub struct UserInputEvent {
     pub event: String,
     pub message: UserMessageContent,
-}
-
-pub fn format_user_message(content: &str) -> Result<String, ProtocolError> {
-    let trimmed = content.trim();
-    if trimmed.is_empty() {
-        return Err(ProtocolError::EmptyPrompt);
-    }
-    let event = UserInputEvent {
-        event: "user".to_string(),
-        message: UserMessageContent {
-            content: content.to_string(),
-        },
-    };
-    serde_json::to_string(&event)
-        .map(|mut s| {
-            s.push('\n');
-            s
-        })
-        .map_err(|e| ProtocolError::Serialization(e.to_string()))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -387,23 +372,4 @@ pub enum EngineEvent {
 pub struct SessionEnvelope {
     pub session_id: SessionId,
     pub event: EngineEvent,
-}
-
-pub fn parse_stream_line(line: &str) -> Result<Option<StreamEvent>, ProtocolError> {
-    let trimmed = line.trim();
-    if trimmed.is_empty() {
-        return Ok(None);
-    }
-    if trimmed.starts_with("error:") {
-        return Ok(Some(StreamEvent::Error(ErrorEvent {
-            error: Some(trimmed.to_string()),
-            message: None,
-        })));
-    }
-    let val: serde_json::Value =
-        serde_json::from_str(trimmed).map_err(|e| ProtocolError::Deserialization(e.to_string()))?;
-    match serde_json::from_value::<StreamEvent>(val) {
-        Ok(event) => Ok(Some(event)),
-        Err(_) => Ok(Some(StreamEvent::Unknown)),
-    }
 }

@@ -42,14 +42,17 @@ O OpenCode v2.2.5 emite uma linha NDJSON por evento no `stdout` durante o comand
 
 ### Mapeamento de Eventos para `StreamEvent`
 
+O contrato canônico é o enum existente em `src/core/protocol/mod.rs`: `Init`, `StepUpdate`, `Result`, `Error`, `Unknown`. Não existem variantes `TextDelta` ou `ToolCallStart`; todo delta textual e de ferramenta trafega em `StepUpdate`.
+
 1. **`type: "step_start"`**:
    - Extrai `sessionID` (ex: `"ses_e33f0c..."`).
-   - Mapeia para `StreamEvent::Init(InitEvent { conversation_id: Some(sessionID), init: Some(InitData::default()) })`.
+   - Mapeia para `StreamEvent::Init(InitEvent { conversation_id: Some(sessionID), init: None })`.
    - Permite ao `SessionManager` e `TabState` registrar o ID da conversa no primeiro turno.
 
 2. **`type: "text"`**:
    - Extrai `part.text`.
    - Mapeia para `StreamEvent::StepUpdate` com `step_type: Some(StepType::AgentResponse)` e `text_delta: Some(text)`.
+   - Texto vazio ou ausente produz `Ok(None)`.
 
 3. **`type: "reasoning"` (ou `"thought"`)**:
    - Extrai `part.text`.
@@ -57,20 +60,24 @@ O OpenCode v2.2.5 emite uma linha NDJSON por evento no `stdout` durante o comand
    - Renderiza no bloco colapsável de raciocínio.
 
 4. **`type: "tool_use"`**:
-   - Extrai `tool_name` e `call_id` (`part.callID` ou `part.id`).
-   - Mapeia `call_id` para um `step_index: Option<u64>` determinístico via hash FNV-1a de 64 bits (prevenindo colisões e duplicações no `RenderCache`).
-   - Extrai parâmetros e saída (`part.state.input` e `part.state.output`).
-   - Converte status (`"running"` -> `StepState::Active`, `"completed"` -> `StepState::Done`, `"error"` -> `StepState::Error`).
-   - Mapeia para `StreamEvent::StepUpdate` com `step_type: Some(StepType::Tool)` e `tool_info`.
+   - Extrai `tool_name` (`part.tool`) e `call_id` (`part.callID` ou `part.id`).
+   - Se `call_id` for não vazio, converte para `step_index: Some(u64)` determinístico via FNV-1a de 64 bits. Se ausente ou vazio, emite `step_index: None`, permitindo o fallback de correlação por `(nome, StepState::Active)` no `RenderCache`.
+   - Extrai parâmetros e saída (`part.state.input` e `part.state.output`), preservando `part.state.error` no estado de erro.
+   - Converte status (`"pending"`/`"running"` -> `StepState::Active`, `"completed"` -> `StepState::Done`, `"error"` -> `StepState::Error`).
+   - Mapeia para `StreamEvent::StepUpdate` com `step_type: Some(StepType::Tool)`, `tool_name`, `tool_info` e `state`.
 
 5. **`type: "step_finish"` (Tratamento Crítico de Loop Agêntico)**:
    - Extrai contadores de tokens (`tokens.input`, `tokens.output`, `tokens.reasoning`, `tokens.cache.read`).
-   - Extrai `part.reason`:
-     - **Se `reason == "tool-calls"` (Passo Intermediário)**: Emite `StreamEvent::StepUpdate` com telemetria parcial de `usage`, **sem encerrar o turno**. O Frontal continua em modo `waiting_for_response`.
-     - **Se `reason == "stop" | "length" | "end_turn"` (Passo Terminal)**: Emite `StreamEvent::Result(ResultEvent)` com status `Success` e o `TokenUsage` total acumulado.
+   - O parser é puro e sem estado: sempre emite `StreamEvent::StepUpdate` com `usage` do passo e `step_type: Some(StepType::AgentResponse)`.
+   - A acumulação entre passos pertence ao motor (`OpenCodeEngine`), que soma cada `usage` de passo em `turn_usage` e emite o `StreamEvent::Result` terminal com o total do turno. O parser nunca sintetiza `Result`.
+   - `part.reason` não altera o contrato do parser; a distinção `tool-calls` vs `stop|length|end_turn` é decidida pela terminação do processo no motor.
 
 6. **`type: "error"`**:
+   - Extrai a mensagem de `error.data.message`, depois `error.message`, `error.type` ou `error.name`.
    - Mapeia para `StreamEvent::Error(ErrorEvent { error: Some(msg), message: None })`.
+
+7. **`sessionID` fora de `step_start`**:
+   - O identificador de sessão é lido de qualquer evento: `sessionID` no topo ou `part.sessionID`, desde que não vazio. O motor atualiza `conversation_id` a cada evento que carregue o campo, não apenas no `step_start`.
 
 ---
 
@@ -80,49 +87,54 @@ O OpenCode v2.2.5 emite uma linha NDJSON por evento no `stdout` durante o comand
    - Não dispara processo OS na criação da aba (Lazy Spawning).
    - Emite imediatamente `StreamEvent::Init` com `conversation_id` inicial (se existente) para colocar a aba em `SessionStatus::Ready`.
 2. **Execução de Turno (`send_prompt`)**:
-   - Constrói argumentos CLI: `["run", "--format", "json", "--thinking", "--model", <model>]`.
-   - Se `conversation_id` iniciar com `ses_...`, anexa `["--session", id]`.
-   - Omitir `--session` no Turno 1; capturar `sessionID` emitido no primeiro evento e armazená-lo.
-   - Instancia processo com `process_group(0)` e `PR_SET_PDEATHSIG(libc::SIGTERM)`.
-   - Registra PGID em `ACTIVE_CHILD_PGIDS`.
+   - Constrói argumentos CLI a partir da assinatura real do binário verificado (`opencode run --help`, v2.2.7):
+     `["run", "--format", "json", "--thinking", "--auto", "--model", "<provider>/<model>#<variant>", "--", "<prompt>"]`.
+   - `--thinking` apenas solicita a emissão dos blocos de raciocínio; **não** controla esforço.
+   - O esforço é o sufixo `#<variant>` de `--model` (formato documentado pelo CLI: `provider/model#variant`). Mapeamento: `Low -> low`, `Medium -> high`, `High -> max`. Se o modelo já contiver `#`, o valor é passado verbatim.
+   - `--auto` evita bloqueio por aprovação de ferramentas em execução não interativa.
+   - Se `conversation_id` iniciar com `ses_...`, anexa `["--session", id]`. Omitir `--session` no Turno 1; capturar `sessionID` de qualquer evento subsequente e armazená-lo.
+   - Instancia processo com `process_group(0)`, `PR_SET_PDEATHSIG(libc::SIGTERM)` e `stdin` em `Stdio::null()`.
+   - Registra PGID em `ACTIVE_CHILD_PGIDS` no spawn e desregistra imediatamente no reap do processo do turno.
+   - O `Child` pertence à task supervisora do turno; o motor guarda apenas o PGID em `AtomicI32`, evitando mutex mantido através de `wait()`.
 3. **Término Normal de Turno**:
-   - Quando o processo encerra com código `0`, emite `StreamEvent::Result` sintetizado (se o stream ainda não emitiu um terminal).
+   - Quando o processo encerra com código `0`, emite `StreamEvent::Result` sintetizado com o `TokenUsage` acumulado do turno (se o stream ainda não emitiu um terminal).
    - **Não emite `EngineEvent::ProcessExited`** em encerramentos normais, mantendo a aba ativa para o próximo turno.
    - `EngineEvent::ProcessExited` é reservado para crashes reais (código não-zero sem recuperação) ou fechamento explícito da aba (`shutdown()`).
+   - Saída não-zero sem `StreamEvent::Error` prévio emite `StreamEvent::Error` com a cauda de `stderr`.
 4. **Interrupção e Encerramento**:
-   - `interrupt()`: Envia `libc::killpg(pgid, libc::SIGINT)`.
+   - `interrupt()`: Envia `libc::killpg(pgid, libc::SIGINT)` e garante um evento terminal (`StreamEvent::Result` com `is_error`) para desbloquear a aba.
    - `shutdown()`: Envia `killpg(pgid, libc::SIGTERM)` seguido de `SIGKILL`, desregistrando o PGID.
+5. **Invariante de Não-Bloqueio da Aba**:
+   - `StreamEvent::Error` transiciona `SessionStatus::RunningTurn` -> `SessionStatus::Ready` em `SessionManager::recv()` e consolida os blocos parciais ativos no `TabState`.
+   - `interrupt()` também restaura `SessionStatus::Ready`.
+   - Nenhum caminho (erro, interrupção, saída não-zero) pode deixar `is_turn_active()` verdadeiro indefinidamente.
 
 ---
 
 ## 5. UI, Modais e Modelos (DeepSeek Support)
 
-### A. Catálogo e Suporte a DeepSeek (`OpenCodeModelCatalog`)
-O catálogo padrão do OpenCode inclui modelos de alta capacidade sem consumo de cotas pessoais do Google:
-1. `opencode/deepseek-v4.1-flash-free` (DeepSeek V4.1 Flash — Gratuito / Cota OpenCode)
-2. `deepseek/deepseek-chat` (DeepSeek Chat V3)
-3. `deepseek/deepseek-reasoner` (DeepSeek R1 Reasoning)
-4. `anthropic/claude-sonnet-4-5` (Claude Sonnet 4.5 via OpenCode)
-5. `google/gemini-2.5-pro` (Gemini 2.5 Pro via OpenCode)
-6. `openai/gpt-5` (GPT-5 via OpenCode)
+### A. Catálogo de Modelos (`OpenCodeModelCatalog`)
+- O catálogo é **derivado do binário em tempo de execução** por `opencode models`, que emite uma linha `provider/model` por modelo disponível. Nenhuma lista de modelos é mantida à mão na especificação ou no código: listas estáticas defasam e geram `--model` inválido.
+- O parsing é puro (`parse_opencode_models_output`) e testável: ignora linhas vazias, códigos ANSI e entradas sem exatamente um separador `provider/model`.
+- A descoberta é cacheada por processo (`OnceLock`) e nunca executada na thread de render/input, preservando a invariante de event loop não bloqueante.
+- Falha de descoberta (binário ausente ou saída vazia) produz catálogo vazio e mensagem explícita na UI; não há substituição silenciosa por modelos inventados.
 
 ### B. Modal `/model` (`ModelEffortModal`)
-- **Seletor de Harness**: Barra visual no topo do modal:
-  `[ 1: Antigravity (Google) ]    [ 2: OpenCode (DeepSeek/Multi-Provider) ]`
-  *(Alternável via `Ctrl+H`, `F2` ou seleção numérica).*
-- **Catálogo Dinâmico**: Ao alternar o harness, a lista de modelos é atualizada instantaneamente para o catálogo do motor correspondente.
+- **Seletor de Harness**: exibido em linha de cabeçalho já existente, sem acrescentar linhas verticais ao modal (o layout de 18 linhas é encaixe exato e a linha do slider não pode ser cortada).
+- **Alternância**: exclusivamente `F2` e `Ctrl+H`. Dígitos puros (`1`, `2`) permanecem entrada de busca do filtro de modelos.
+- **Catálogo Dinâmico**: ao alternar o harness, a lista é trocada pelo catálogo do motor correspondente, preservando os modelos do outro harness para restauração imediata.
 - **Tratamento de Esforço**:
-  - Para `Agy`: Exibe os níveis de raciocínio padrão (`Low`, `Medium`, `High`, `Max`).
-  - Para `OpenCode`: Converte a etapa de esforço para controle da flag de raciocínio (`Thinking (Ativado)` vs `Padrão`).
-- **Retrocompatibilidade de Ações**: `ModalAction::SelectModelEffort { model, effort }` permanece inalterado para preservar os testes unitários existentes; o `backend` selecionado é consultado pelo `App` diretamente no estado do modal.
+  - Para `Agy`: níveis de raciocínio existentes (`Low`, `Medium`, `High`, `Max`) mapeados para `--effort`.
+  - Para `OpenCode`: o esforço vira o sufixo `#variant` de `--model` (`Low -> low`, `Medium -> high`, `High -> max`). `--thinking` é sempre habilitado para receber raciocínio.
+- **Retrocompatibilidade de Ações**: `ModalAction::SelectModelEffort { model, effort }` permanece inalterado; o `backend` selecionado é consultado pelo `App` no estado do modal.
 
 ### C. Modal `/quota` (`UsageModal`)
 - **Inferência Contextual pela Aba Ativa**:
-  - Se a aba ativa for `BackendKind::Agy`: Carrega a consulta OAuth do Google (`UsageModal::load`), exibindo cotas do Gemini.
-  - Se a aba ativa for `BackendKind::OpenCode`: Carrega `UsageModal::for_opencode`, exibindo telemetria local:
-    - *Context Window Capacity*: Percentual e tokens consumidos versus janela máxima do modelo.
-    - *Prompt Cache Efficiency*: Taxa de acerto de cache (`cache_read_tokens`).
-    - *Session Accumulated Tokens*: Total acumulado de entrada, saída e raciocínio na sessão.
+  - Se a aba ativa for `BackendKind::Agy`: carrega a consulta OAuth do Google (`UsageModal::load`), exibindo cotas do Gemini.
+  - Se a aba ativa for `BackendKind::OpenCode`: carrega `UsageModal::for_opencode`, com telemetria local:
+    - *Context Window Capacity*: `last_turn_usage.input_tokens + last_turn_usage.cache_read_tokens` sobre `context_window_for_model(model)`. Mede o turno mais recente, nunca o acumulado da sessão.
+    - *Prompt Cache Efficiency*: `accumulated_usage.cache_hit_percentage()`.
+    - *Session Accumulated Tokens*: `accumulated_usage` do `TabState`.
 
 ---
 
