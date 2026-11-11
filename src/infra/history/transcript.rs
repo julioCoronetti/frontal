@@ -1,11 +1,21 @@
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::BufRead;
 use std::path::PathBuf;
 
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::ui::cache::RenderCache;
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TranscriptBlock {
+    UserMessage(String),
+    Thought(String),
+    ToolCall {
+        step_index: Option<u64>,
+        name: String,
+        args: Option<String>,
+        output: Option<String>,
+    },
+    AssistantMessage(String),
+}
 
 #[derive(Deserialize)]
 struct TranscriptToolCall {
@@ -79,8 +89,8 @@ struct PendingHistoricalTool {
     args: Option<String>,
 }
 
-pub fn hydrate_cache_from_reader<R: BufRead>(reader: R, cache: &mut RenderCache) -> usize {
-    let initial_count = cache.block_count();
+pub fn parse_transcript_reader<R: BufRead>(reader: R) -> Vec<TranscriptBlock> {
+    let mut blocks = Vec::new();
     let mut pending_tools: Vec<PendingHistoricalTool> = Vec::new();
 
     for line in reader.lines().map_while(Result::ok) {
@@ -96,12 +106,17 @@ pub fn hydrate_cache_from_reader<R: BufRead>(reader: R, cache: &mut RenderCache)
         match entry.r#type.as_deref() {
             Some("USER_INPUT") => {
                 for p in pending_tools.drain(..) {
-                    cache.push_historical_tool_call(p.step_index, &p.name, p.args.as_deref(), None);
+                    blocks.push(TranscriptBlock::ToolCall {
+                        step_index: p.step_index,
+                        name: p.name,
+                        args: p.args,
+                        output: None,
+                    });
                 }
                 if let Some(raw) = entry.content {
                     let cleaned = clean_user_prompt(&raw);
                     if !cleaned.is_empty() {
-                        cache.push_user_message(&cleaned);
+                        blocks.push(TranscriptBlock::UserMessage(cleaned));
                     }
                 }
             }
@@ -109,15 +124,16 @@ pub fn hydrate_cache_from_reader<R: BufRead>(reader: R, cache: &mut RenderCache)
                 if let Some(thought) = entry.thinking {
                     let t_trimmed = thought.trim();
                     if !t_trimmed.is_empty() {
-                        cache.push_historical_thought(t_trimmed);
+                        blocks.push(TranscriptBlock::Thought(t_trimmed.to_string()));
                     }
                 }
                 if let Some(calls) = entry.tool_calls {
                     for call in calls {
+                        let formatted = format_tool_args(&call.args);
                         pending_tools.push(PendingHistoricalTool {
                             step_index: entry.step_index,
                             name: call.name,
-                            args: format_tool_args(&call.args),
+                            args: formatted,
                         });
                     }
                 }
@@ -125,47 +141,38 @@ pub fn hydrate_cache_from_reader<R: BufRead>(reader: R, cache: &mut RenderCache)
                     let c_trimmed = content.trim();
                     if !c_trimmed.is_empty() {
                         for p in pending_tools.drain(..) {
-                            cache.push_historical_tool_call(
-                                p.step_index,
-                                &p.name,
-                                p.args.as_deref(),
-                                None,
-                            );
+                            blocks.push(TranscriptBlock::ToolCall {
+                                step_index: p.step_index,
+                                name: p.name,
+                                args: p.args,
+                                output: None,
+                            });
                         }
-                        cache.push_historical_assistant_message(c_trimmed);
+                        blocks.push(TranscriptBlock::AssistantMessage(c_trimmed.to_string()));
                     }
                 }
             }
             Some("GENERIC") if !pending_tools.is_empty() => {
                 let p = pending_tools.remove(0);
-                cache.push_historical_tool_call(
-                    p.step_index,
-                    &p.name,
-                    p.args.as_deref(),
-                    entry.content.as_deref(),
-                );
+                blocks.push(TranscriptBlock::ToolCall {
+                    step_index: p.step_index,
+                    name: p.name,
+                    args: p.args,
+                    output: entry.content,
+                });
             }
             _ => {}
         }
     }
 
     for p in pending_tools.drain(..) {
-        cache.push_historical_tool_call(p.step_index, &p.name, p.args.as_deref(), None);
+        blocks.push(TranscriptBlock::ToolCall {
+            step_index: p.step_index,
+            name: p.name,
+            args: p.args,
+            output: None,
+        });
     }
-    cache.consolidate_active_turn(None);
-    cache.block_count().saturating_sub(initial_count)
-}
 
-pub fn hydrate_cache_from_transcript(conv_id: &str, cache: &mut RenderCache) -> bool {
-    let path = match transcript_path_for_conversation(conv_id) {
-        Some(p) => p,
-        None => return false,
-    };
-    let file = match File::open(&path) {
-        Ok(f) => f,
-        Err(_) => return false,
-    };
-    let reader = BufReader::new(file);
-    let count = hydrate_cache_from_reader(reader, cache);
-    count > 0
+    blocks
 }
