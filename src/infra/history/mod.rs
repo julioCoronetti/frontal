@@ -429,3 +429,9 @@ impl PromptHistory {
             .collect()
     }
 }
+
+impl Drop for PromptHistory {
+    fn drop(&mut self) {
+        self.flush();
+    }
+}
