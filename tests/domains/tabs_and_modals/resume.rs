@@ -8,6 +8,7 @@ use frontal::ui::history::{
     clean_user_prompt, hydrate_cache_from_reader, query_agent_conversation_timestamp,
     query_agent_conversation_title, PromptHistory, SessionRecord,
 };
+use frontal::ui::modal::{Modal, ModalAction, ModelEffortModal};
 
 use crate::common::{test_app, TempDirGuard, PGID_TEST_LOCK};
 
@@ -315,4 +316,33 @@ async fn test_switching_backend_clears_conversation_id() {
             .as_deref(),
         Some("conv-agy-2")
     );
+}
+
+#[test]
+fn test_select_model_effort_persists_modal_backend() {
+    let (mut app, _) = test_app();
+    let mut modal = ModelEffortModal::with_models(app.available_models.clone());
+    modal.set_opencode_models(vec![(
+        "opencode-go/deepseek-v4.1-flash".to_string(),
+        "deepseek-v4.1-flash".to_string(),
+    )]);
+    modal.set_backend(frontal::config::BackendKind::OpenCode);
+    app.modals.push(Modal::ModelEffort(modal));
+
+    let action = app.dispatch_modal_action(ModalAction::SelectModelEffort {
+        model: "opencode-go/deepseek-v4.1-flash".to_string(),
+        effort: "high".to_string(),
+    });
+    assert_eq!(
+        app.user_config.backend,
+        frontal::config::BackendKind::OpenCode
+    );
+    assert_eq!(
+        app.user_config.model,
+        "opencode-go/deepseek-v4.1-flash".to_string()
+    );
+    assert!(matches!(
+        action,
+        Some(Some(frontal::ui::app::AppAction::RespawnSession { .. }))
+    ));
 }
