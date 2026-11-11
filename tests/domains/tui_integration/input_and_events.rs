@@ -91,7 +91,8 @@ fn test_mouse_selection_and_scroll_events_via_app() {
     }
     app.cache.consolidate_active_turn(None);
     app.cache.ensure_visual_lines(80);
-    app.viewport.sync_dimensions(app.cache.total_lines(), 20);
+    let total_lines = app.cache.total_lines();
+    app.viewport.sync_dimensions(total_lines, 20);
 
     let scroll_up = Event::Mouse(MouseEvent {
         kind: MouseEventKind::ScrollUp,

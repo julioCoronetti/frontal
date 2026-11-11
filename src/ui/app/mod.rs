@@ -4,16 +4,15 @@ mod render;
 mod stream;
 mod tabs;
 
+use std::ops::{Deref, DerefMut};
+
 use crate::protocol::SessionId;
 use crate::session::SessionManager;
 use crate::ui::autocomplete::{AutocompletePopover, FileSearchWorker};
-use crate::ui::cache::RenderCache;
 use crate::ui::clipboard::SystemClipboard;
-use crate::ui::editor::{EditorSnapshot, PromptEditor};
 use crate::ui::history::PromptHistory;
 use crate::ui::modal::ModalStack;
 use crate::ui::tab::TabState;
-use crate::ui::viewport::ConversationViewport;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AppAction {
@@ -34,18 +33,12 @@ pub enum AppAction {
 pub struct App {
     pub session_manager: SessionManager,
     pub active_session: SessionId,
-    pub cache: RenderCache,
-    pub viewport: ConversationViewport,
-    pub editor: PromptEditor,
     pub popover: AutocompletePopover,
     pub search_worker: FileSearchWorker,
     pub history: PromptHistory,
-    pub draft_snapshot: Option<EditorSnapshot>,
     pub dirty: bool,
     pub should_quit: bool,
-    pub status_text: String,
     pub spinner_tick: u64,
-    pub waiting_for_response: bool,
     pub tabs: Vec<TabState>,
     pub active_tab_index: usize,
     pub modals: ModalStack,
@@ -54,14 +47,22 @@ pub struct App {
     pub available_models: Vec<(String, String)>,
     pub user_config: crate::config::UserConfig,
     pub viewport_bounds: (u16, u16, u16, u16),
-    pub turn_started_at: Option<std::time::Instant>,
     pub last_ctrl_c_at: Option<std::time::Instant>,
-    pub last_turn_usage: Option<crate::protocol::TokenUsage>,
-    pub accumulated_usage: crate::protocol::TokenUsage,
-    pub pending_danger: Option<crate::security::DangerAssessment>,
-    pub suspended_events: Vec<crate::protocol::StreamEvent>,
-    pub queued_prompts: std::collections::VecDeque<String>,
     pub pending_engine_prompts: std::collections::VecDeque<(crate::protocol::SessionId, String)>,
+}
+
+impl Deref for App {
+    type Target = TabState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.tabs[self.active_tab_index]
+    }
+}
+
+impl DerefMut for App {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.tabs[self.active_tab_index]
+    }
 }
 
 impl App {
@@ -97,18 +98,12 @@ impl App {
         Self {
             session_manager,
             active_session,
-            cache: RenderCache::new(),
-            viewport: ConversationViewport::new(),
-            editor: PromptEditor::new(),
             popover: AutocompletePopover::new(),
             search_worker,
             history,
-            draft_snapshot: None,
             dirty: true,
             should_quit: false,
-            status_text: String::from("Ready"),
             spinner_tick: 0,
-            waiting_for_response: false,
             tabs: vec![initial_tab],
             active_tab_index: 0,
             modals: ModalStack::new(),
@@ -117,13 +112,7 @@ impl App {
             available_models,
             user_config: crate::config::UserConfig::load(),
             viewport_bounds: (0, 0, 80, 20),
-            turn_started_at: None,
             last_ctrl_c_at: None,
-            last_turn_usage: None,
-            accumulated_usage: crate::protocol::TokenUsage::default(),
-            pending_danger: None,
-            suspended_events: Vec::new(),
-            queued_prompts: std::collections::VecDeque::new(),
             pending_engine_prompts: std::collections::VecDeque::new(),
         }
     }
@@ -138,18 +127,12 @@ impl App {
         Self {
             session_manager,
             active_session,
-            cache: RenderCache::new(),
-            viewport: ConversationViewport::new(),
-            editor: PromptEditor::new(),
             popover: AutocompletePopover::new(),
             search_worker,
             history,
-            draft_snapshot: None,
             dirty: true,
             should_quit: false,
-            status_text: String::from("Ready"),
             spinner_tick: 0,
-            waiting_for_response: false,
             tabs: vec![initial_tab],
             active_tab_index: 0,
             modals: ModalStack::new(),
@@ -158,15 +141,17 @@ impl App {
             available_models,
             user_config: crate::config::UserConfig::new_isolated(),
             viewport_bounds: (0, 0, 80, 20),
-            turn_started_at: None,
             last_ctrl_c_at: None,
-            last_turn_usage: None,
-            accumulated_usage: crate::protocol::TokenUsage::default(),
-            pending_danger: None,
-            suspended_events: Vec::new(),
-            queued_prompts: std::collections::VecDeque::new(),
             pending_engine_prompts: std::collections::VecDeque::new(),
         }
+    }
+
+    pub fn active_tab(&self) -> &TabState {
+        &self.tabs[self.active_tab_index]
+    }
+
+    pub fn active_tab_mut(&mut self) -> &mut TabState {
+        &mut self.tabs[self.active_tab_index]
     }
 
     pub fn set_available_models(&mut self, models: Vec<(String, String)>) {
