@@ -216,10 +216,6 @@ impl App {
                     self.dirty = true;
                 }
             }
-            if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
-                tab.waiting_for_response = self.waiting_for_response;
-                tab.status_text = self.status_text.clone();
-            }
         } else if self
             .tabs
             .iter()

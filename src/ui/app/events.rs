@@ -93,11 +93,7 @@ impl App {
                         self.cache.consolidate_active_turn_with_meta(None, None);
                         self.status_text = String::from("Interrupted by user");
                         self.waiting_for_response = false;
-                        if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
-                            tab.waiting_for_response = false;
-                            tab.queued_prompts.clear();
-                            tab.status_text = self.status_text.clone();
-                        }
+                        self.queued_prompts.clear();
                         self.last_ctrl_c_at = None;
                         self.dirty = true;
                         return Some(AppAction::Interrupt);
@@ -288,12 +284,7 @@ impl App {
                             self.turn_started_at = Some(std::time::Instant::now());
                             self.dirty = true;
                             self.status_text = String::from("Waiting for response...");
-                            if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
-                                tab.waiting_for_response = true;
-                                tab.turn_started_at = self.turn_started_at;
-                                tab.last_turn_usage = None;
-                                tab.status_text = self.status_text.clone();
-                            }
+                            self.last_turn_usage = None;
                             return Some(AppAction::SubmitPrompt(p));
                         }
                     }

@@ -51,10 +51,6 @@ impl App {
                 }
                 self.waiting_for_response = false;
                 self.status_text = String::from("Blocked destructive command");
-                if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
-                    tab.waiting_for_response = false;
-                    tab.status_text = self.status_text.clone();
-                }
                 self.dirty = true;
                 Some(Some(AppAction::Interrupt))
             }
@@ -156,10 +152,6 @@ impl App {
                         let _ = self.session_manager.interrupt_active();
                         self.status_text = String::from("Interrupted");
                         self.waiting_for_response = false;
-                        if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
-                            tab.waiting_for_response = false;
-                            tab.status_text = self.status_text.clone();
-                        }
                         Some(Some(AppAction::Interrupt))
                     }
                     "quit" => {
@@ -217,11 +209,6 @@ impl App {
             self.status_text = String::from("Interrupted");
             self.waiting_for_response = false;
             self.queued_prompts.clear();
-            if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
-                tab.waiting_for_response = false;
-                tab.queued_prompts.clear();
-                tab.status_text = self.status_text.clone();
-            }
             self.dirty = true;
             Some(Some(AppAction::Interrupt))
         } else if trimmed == "/model" || trimmed.starts_with("/model ") {
