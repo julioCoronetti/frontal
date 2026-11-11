@@ -2,6 +2,7 @@ mod render;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use crate::config::BackendKind;
 use crate::ui::modal::ModalAction;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -19,8 +20,11 @@ pub struct ModelItem {
 
 pub struct ModelEffortModal {
     pub step: ModelEffortStep,
+    pub backend: BackendKind,
     pub query: String,
     pub models: Vec<ModelItem>,
+    pub agy_models: Vec<ModelItem>,
+    pub opencode_models: Vec<ModelItem>,
     pub fallback_efforts: Vec<String>,
     pub selected_model_idx: usize,
     pub selected_effort_idx: usize,
@@ -54,7 +58,10 @@ impl ModelEffortModal {
             .unwrap_or(0);
         Self {
             step: ModelEffortStep::SelectModel,
+            backend: BackendKind::Agy,
             query: String::new(),
+            agy_models: items.clone(),
+            opencode_models: Vec::new(),
             models: items,
             fallback_efforts: fallback,
             selected_model_idx: 0,
@@ -161,6 +168,48 @@ impl ModelEffortModal {
                 .position(|&o| o == e.as_str())
                 .unwrap_or(order.len())
         });
+    }
+
+    pub fn backend_label(&self) -> &'static str {
+        match self.backend {
+            BackendKind::Agy => "Agy",
+            BackendKind::OpenCode => "OpenCode",
+        }
+    }
+
+    pub fn toggle_backend(&mut self) {
+        let next = match self.backend {
+            BackendKind::Agy => BackendKind::OpenCode,
+            BackendKind::OpenCode => BackendKind::Agy,
+        };
+        self.set_backend(next);
+    }
+
+    pub fn set_backend(&mut self, backend: BackendKind) {
+        if self.backend == backend {
+            return;
+        }
+        match self.backend {
+            BackendKind::Agy => self.agy_models = self.models.clone(),
+            BackendKind::OpenCode => self.opencode_models = self.models.clone(),
+        }
+        self.backend = backend;
+        self.models = match backend {
+            BackendKind::Agy => self.agy_models.clone(),
+            BackendKind::OpenCode => self.opencode_models.clone(),
+        };
+        self.query.clear();
+        self.selected_model_idx = 0;
+        let idx = Self::default_effort_for_model(self.current_supported_efforts()).0;
+        self.selected_effort_idx = idx;
+    }
+
+    pub fn set_opencode_models(&mut self, raw: Vec<(String, String)>) {
+        let normalized = Self::normalize_catalog(raw);
+        if self.backend == BackendKind::OpenCode {
+            self.models = normalized.clone();
+        }
+        self.opencode_models = normalized;
     }
 
     pub fn current_supported_efforts(&self) -> &[String] {
@@ -295,6 +344,14 @@ impl ModelEffortModal {
                 } else {
                     ModalAction::None
                 }
+            }
+            KeyCode::F(2) => {
+                self.toggle_backend();
+                ModalAction::None
+            }
+            KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.toggle_backend();
+                ModalAction::None
             }
             KeyCode::Char(c)
                 if !key.modifiers.contains(KeyModifiers::CONTROL)

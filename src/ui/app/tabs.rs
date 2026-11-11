@@ -1,3 +1,4 @@
+use crate::config::BackendKind;
 use crate::protocol::SessionId;
 use crate::ui::app::App;
 use crate::ui::tab::TabState;
@@ -98,7 +99,17 @@ impl App {
             .session_manager
             .shutdown_session(&old_id, std::time::Duration::from_millis(500))
             .await;
-        let final_conv_id = conversation_id.or(prev_conv_id.clone());
+        let prev_backend = base_engine_config
+            .as_ref()
+            .map(|config| config.backend)
+            .unwrap_or(BackendKind::Agy);
+        let target_backend = self.user_config.backend;
+        let backend_changed = target_backend != prev_backend;
+        let final_conv_id = if backend_changed {
+            None
+        } else {
+            conversation_id.or(prev_conv_id.clone())
+        };
         let final_model = model.or(prev_model);
         let final_effort = effort.or(prev_effort);
         let final_mode = mode.or(prev_mode);
@@ -127,6 +138,7 @@ impl App {
             id
         } else {
             let mut config = base_engine_config.unwrap_or_default();
+            config.backend = target_backend;
             config.conversation_id = final_conv_id.clone();
             config.model = final_model;
             config.effort = final_effort;
@@ -138,6 +150,7 @@ impl App {
         self.active_session = new_id.clone();
         self.session_manager.set_active_session(new_id.clone());
         self.tabs[self.active_tab_index].session_id = new_id.clone();
+        self.tabs[self.active_tab_index].backend = target_backend;
         self.tabs[self.active_tab_index].waiting_for_response = false;
         self.pending_danger = None;
         self.suspended_events.clear();

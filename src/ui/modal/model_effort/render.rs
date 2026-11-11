@@ -22,15 +22,15 @@ impl ModelEffortModal {
             .style(Style::default().bg(Color::Reset));
 
         let mut lines = Vec::new();
-        let title = " Select Model:";
-        let esc_pad = (area.width as usize).saturating_sub(title.chars().count() + 5);
+        let title = format!(" Select Model: [{}]", self.backend_label());
+        let esc_pad = (area.width as usize).saturating_sub(title.chars().count() + 8);
         let title_style = Style::default()
             .fg(TEXT_PRIMARY)
             .add_modifier(Modifier::BOLD);
         lines.push(Line::from(vec![
-            Span::styled(title, title_style),
+            Span::styled(title.as_str(), title_style),
             Span::styled(
-                format!("{:>esc_pad$}", "esc "),
+                format!("{:>esc_pad$}", "F2 esc "),
                 Style::default().fg(TEXT_MUTED),
             ),
         ]));
