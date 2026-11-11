@@ -346,3 +346,20 @@ fn test_select_model_effort_persists_modal_backend() {
         Some(Some(frontal::ui::app::AppAction::RespawnSession { .. }))
     ));
 }
+
+#[test]
+fn test_prompt_failure_unwedges_tab() {
+    let (mut app, session_id) = test_app();
+    app.waiting_for_response = true;
+    app.cache
+        .append_streaming_delta(BlockKind::Assistant, "partial output");
+    app.queued_prompts.push_back("queued".to_string());
+    assert!(app.cache.has_unconsolidated_blocks());
+
+    app.handle_prompt_failure(&session_id, "opencode binary not found");
+
+    assert!(!app.waiting_for_response);
+    assert!(app.queued_prompts.is_empty());
+    assert!(!app.cache.has_unconsolidated_blocks());
+    assert_eq!(app.status_text, "Error received");
+}

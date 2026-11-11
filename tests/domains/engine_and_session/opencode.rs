@@ -179,3 +179,82 @@ async fn test_opencode_interrupt_emits_terminal_result_and_releases_pgid() {
         SessionStatus::Ready
     );
 }
+
+#[tokio::test]
+async fn test_opencode_engine_emits_single_terminal_event_on_stream_error() {
+    let script = "#!/usr/bin/env bash\necho '{\"type\":\"step_start\",\"sessionID\":\"ses_err\"}'\necho '{\"type\":\"error\",\"error\":{\"type\":\"permission.rejected\",\"message\":\"denied\"}}'\n";
+    let mock = TempFileGuard::new("mock_opencode_error", "sh", script);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(mock.path()).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(mock.path(), perms).unwrap();
+    }
+
+    let (tx, mut rx) = mpsc::channel(100);
+    let mut config = EngineConfig::new_isolated();
+    config.backend = BackendKind::OpenCode;
+    config.opencode_bin = mock.path().to_path_buf();
+    let mut engine = OpenCodeEngine::new(SessionId::new(), config, tx);
+    let _ = rx.recv().await;
+    engine.send_prompt("trigger").await.unwrap();
+
+    let mut terminals = Vec::new();
+    for _ in 0..20 {
+        match timeout(Duration::from_millis(150), rx.recv()).await {
+            Ok(Some(envelope)) => {
+                if let EngineEvent::Stream(event) = envelope.event {
+                    if event.is_result() || matches!(&*event, StreamEvent::Error(_)) {
+                        terminals.push(*event);
+                    }
+                }
+            }
+            _ => break,
+        }
+    }
+    assert_eq!(terminals.len(), 1);
+    assert!(matches!(terminals[0], StreamEvent::Error(_)));
+}
+
+#[tokio::test]
+async fn test_opencode_engine_reports_non_zero_exit_as_error() {
+    let mock = TempFileGuard::new(
+        "mock_opencode_exit",
+        "sh",
+        "#!/usr/bin/env bash\necho 'boom' >&2\nexit 3\n",
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(mock.path()).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(mock.path(), perms).unwrap();
+    }
+
+    let (tx, mut rx) = mpsc::channel(100);
+    let mut config = EngineConfig::new_isolated();
+    config.backend = BackendKind::OpenCode;
+    config.opencode_bin = mock.path().to_path_buf();
+    let mut engine = OpenCodeEngine::new(SessionId::new(), config, tx);
+    let _ = rx.recv().await;
+    engine.send_prompt("fails").await.unwrap();
+
+    let mut message = None;
+    for _ in 0..20 {
+        match timeout(Duration::from_millis(150), rx.recv()).await {
+            Ok(Some(envelope)) => {
+                if let EngineEvent::Stream(event) = envelope.event {
+                    if let StreamEvent::Error(err) = *event {
+                        message = err.error;
+                        break;
+                    }
+                }
+            }
+            _ => break,
+        }
+    }
+    let message = message.expect("expected a stream error");
+    assert!(message.contains("code 3"));
+    assert!(message.contains("boom"));
+}

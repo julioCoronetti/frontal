@@ -180,8 +180,9 @@ impl OpenCodeEngine {
                 }),
                 Ok(exit) => StreamEvent::Error(ErrorEvent {
                     error: Some(format!(
-                        "opencode exited with code {:?}: {}",
-                        exit.code(),
+                        "opencode exited with code {}: {}",
+                        exit.code()
+                            .map_or_else(|| String::from("unknown"), |code| code.to_string()),
                         stderr_tail.trim()
                     )),
                     message: None,
