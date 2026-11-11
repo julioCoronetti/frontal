@@ -10,7 +10,7 @@ use tokio_util::codec::{FramedRead, LinesCodec};
 
 use super::{register_child_pgid, unregister_child_pgid};
 use crate::protocol::{
-    parse_engine_line, EngineEvent, InitEvent, ResultData, ResultEvent, ResultStatus,
+    parse_engine_line, EngineEvent, ErrorEvent, InitEvent, ResultData, ResultEvent, ResultStatus,
     SessionEnvelope, SessionId, StreamEvent, TokenUsage,
 };
 use crate::transport::{build_opencode_args, EngineConfig, EngineError};
@@ -111,6 +111,7 @@ impl OpenCodeEngine {
         tokio::spawn(async move {
             let stderr_task = tokio::spawn(read_stderr_tail(stderr));
             let mut usage = TokenUsage::default();
+            let mut saw_terminal = false;
             if let Some(stream) = stdout {
                 let codec = LinesCodec::new_with_max_length(16 * 1024 * 1024);
                 let mut reader = FramedRead::new(stream, codec);
@@ -120,6 +121,9 @@ impl OpenCodeEngine {
                     };
                     match parse_engine_line(&line) {
                         Ok(Some(mut event)) => {
+                            if matches!(event, StreamEvent::Error(_) | StreamEvent::Result(_)) {
+                                saw_terminal = true;
+                            }
                             if let Some(conv) = event.conversation_id().map(str::to_string) {
                                 if !conv.is_empty() {
                                     *conversation_id.write().await = Some(conv);
@@ -161,32 +165,36 @@ impl OpenCodeEngine {
             unregister_child_pgid(pgid);
             active_pgid.store(0, Ordering::Relaxed);
 
-            let (status, error) = match &exit_status {
-                Ok(exit) if exit.success() => (ResultStatus::Success, None),
-                Ok(exit) => (
-                    ResultStatus::Error,
-                    Some(format!(
+            if saw_terminal {
+                return;
+            }
+
+            let event = match &exit_status {
+                Ok(exit) if exit.success() => StreamEvent::Result(ResultEvent {
+                    conversation_id: conversation_id.read().await.clone(),
+                    result: Some(ResultData {
+                        status: Some(ResultStatus::Success),
+                        usage: Some(usage),
+                        ..Default::default()
+                    }),
+                }),
+                Ok(exit) => StreamEvent::Error(ErrorEvent {
+                    error: Some(format!(
                         "opencode exited with code {:?}: {}",
                         exit.code(),
                         stderr_tail.trim()
                     )),
-                ),
-                Err(err) => (ResultStatus::Error, Some(err.to_string())),
-            };
-
-            let result_event = StreamEvent::Result(ResultEvent {
-                conversation_id: conversation_id.read().await.clone(),
-                result: Some(ResultData {
-                    status: Some(status),
-                    error,
-                    usage: Some(usage),
-                    ..Default::default()
+                    message: None,
                 }),
-            });
+                Err(err) => StreamEvent::Error(ErrorEvent {
+                    error: Some(err.to_string()),
+                    message: None,
+                }),
+            };
             let _ = sender
                 .send(SessionEnvelope {
                     session_id,
-                    event: EngineEvent::Stream(Box::new(result_event)),
+                    event: EngineEvent::Stream(Box::new(event)),
                 })
                 .await;
         });

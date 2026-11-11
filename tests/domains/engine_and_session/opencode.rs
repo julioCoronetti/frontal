@@ -167,7 +167,7 @@ async fn test_opencode_interrupt_emits_terminal_result_and_releases_pgid() {
             continue;
         };
         if let EngineEvent::Stream(event) = envelope.event {
-            if matches!(*event, StreamEvent::Result(_)) {
+            if event.is_result() || matches!(&*event, StreamEvent::Error(_)) {
                 terminal = true;
                 break;
             }

@@ -238,6 +238,11 @@ pub async fn run_from_env() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                     StreamEvent::Result(res) => {
                                         if let Some(data) = res.result {
+                                            if data.status == Some(crate::protocol::ResultStatus::Error) {
+                                                if let Some(err) = data.error {
+                                                    eprintln!("Error: {}", err);
+                                                }
+                                            }
                                             if let Some(resp) = data.response {
                                                 if !resp.ends_with('\n') {
                                                     println!();

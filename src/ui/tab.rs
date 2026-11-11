@@ -1,5 +1,5 @@
 use crate::config::BackendKind;
-use crate::protocol::{SessionId, StepState, StreamEvent, TokenUsage};
+use crate::protocol::{ResultStatus, SessionId, StepState, StreamEvent, TokenUsage};
 use crate::ui::cache::{BlockKind, RenderCache};
 use crate::ui::editor::{EditorSnapshot, PromptEditor};
 use crate::ui::viewport::ConversationViewport;
@@ -164,7 +164,15 @@ impl TabState {
                 };
                 self.cache
                     .consolidate_active_turn_with_meta(fallback, Some(meta));
-                self.status_text = String::from("Ready");
+                if res.result.as_ref().and_then(|r| r.status.as_ref()) == Some(&ResultStatus::Error)
+                {
+                    if let Some(err) = res.result.as_ref().and_then(|r| r.error.as_deref()) {
+                        self.cache.push_error(err);
+                    }
+                    self.status_text = String::from("Error received");
+                } else {
+                    self.status_text = String::from("Ready");
+                }
                 if !is_active {
                     self.has_unread = true;
                 }
