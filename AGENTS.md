@@ -17,7 +17,7 @@
 ### Architectural Invariants
 1. 2-Level Render Cache ($O(1)$ during active turns): Level 1 stores immutable AST (`MessageBlock` with styled spans). Level 2 caches formatted visual lines indexed by `(width, revision)`. Resizes or block toggles invalidate Level 2 only. Active streaming emits deltas at 60 FPS without re-parsing history.
 2. Non-blocking TUI Event Loop (60 FPS): Async `tokio::select!` in `src/ui/mod.rs` must never execute synchronous disk I/O, persistence, or process scans on the render thread.
-3. Multi-Session Synchronization (`App` <-> `TabState` via `std::mem::swap`): Active tab state resides in `App` and swaps via `std::mem::swap`. Every tab-specific field added to `App` must be mirrored in `TabState` and handled in background stream processing.
+3. Multi-Session Single Source of Truth (`TabState` with O(1) Switching): Every session encapsulates its own state in `TabState`. `App` references the active tab via O(1) indexing and a `Deref`/`DerefMut` bridge without memory swaps. Stream events are processed uniformly via `TabState::apply_stream_event`.
 4. POSIX Process Isolation: Subprocesses (`agy`) must run in a dedicated process group (`setpgid(0, 0)`) with `PR_SET_PDEATHSIG(libc::SIGTERM)`. Teardown must issue ordered `killpg` escalation (`SIGINT` -> `SIGTERM` -> `SIGKILL`).
 5. Side-Effect Isolation in Tests: Use `PromptHistory::open_in_memory()` for database fixtures and `SystemClipboard::new_isolated()` for clipboard tests.
 
