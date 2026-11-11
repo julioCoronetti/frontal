@@ -10,6 +10,12 @@ use tokio_util::codec::{FramedRead, LinesCodec, LinesCodecError};
 
 use futures_util::StreamExt;
 
+mod opencode;
+
+pub use opencode::OpenCodeEngine;
+
+pub type SubprocessEngine = AgyEngine;
+
 use crate::protocol::{
     format_user_message, parse_stream_line, EngineEvent, SessionEnvelope, SessionId, StreamEvent,
 };
@@ -49,7 +55,7 @@ pub fn kill_registered_subprocesses() {
     }
 }
 
-pub struct SubprocessEngine {
+pub struct AgyEngine {
     session_id: SessionId,
     conversation_id: Arc<RwLock<String>>,
     config: EngineConfig,
@@ -59,7 +65,7 @@ pub struct SubprocessEngine {
     stderr_tail: Arc<Mutex<VecDeque<String>>>,
 }
 
-impl SubprocessEngine {
+impl AgyEngine {
     pub async fn spawn(
         session_id: SessionId,
         config: EngineConfig,
@@ -324,7 +330,7 @@ impl SubprocessEngine {
     }
 }
 
-impl Drop for SubprocessEngine {
+impl Drop for AgyEngine {
     fn drop(&mut self) {
         if let Some(pid) = self.child.id() {
             let pgid = pid as i32;
