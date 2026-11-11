@@ -13,7 +13,7 @@ O Frontal foi concebido originalmente como uma TUI desacoplada para o Antigravit
 1. **Isolamento Estrito do Agy**: O motor padrão do Google (`AgyEngine`) permanece 100% intacto em seu caminho de execução, com default `BackendKind::Agy` em todas as configurações e testes. Zero risco de regressão ou detecção.
 2. **Desacoplamento Visual pela Fronteira de Mensagens**: O núcleo da TUI (`TabState`, `RenderCache`, `MessageBlock`, `pulldown-cmark`, `Viewport`) consome exclusivamente a tipagem canônica `StreamEvent` via canal assíncrono `mpsc::Sender<SessionEnvelope>`. Nenhum componente de tela acessa binários ou protocolos externos diretamente.
 3. **Semântica Adaptada por Motor**: O `AgyEngine` é um daemon persistente interativo via pipe `stdin`/`stdout`. O `OpenCodeEngine` é um supervisor de processos efêmeros **por turno** (`opencode run --format json --thinking`), cuja terminação normal de processo encerra o turno e mantém a sessão ativa.
-4. **Governança Mecânica**: Limite estrito de 500 linhas por arquivo `.rs`, zero comentários no código-fonte, zero warnings no Clippy (`-D warnings`) e 150 testes de integração preservados.
+4. **Governança Mecânica**: Limite estrito de 500 linhas por arquivo `.rs`, zero comentários no código-fonte, zero warnings no Clippy (`-D warnings`) e 167 testes de integração preservados.
 
 ---
 
@@ -31,8 +31,8 @@ A nomenclatura interna é padronizada para distinguir claramente entre abstraç�
 | **Genérico** | *(Novo)* | `BackendKind` | `pub enum BackendKind { Agy, OpenCode }` (default `Agy`) em `src/core/config.rs`. |
 | **Agy** | `parse_stream_line` | `AgyStreamParser` | Decodificador do Agy em `src/core/protocol/agy.rs` (re-exportado na raiz de `protocol`). |
 | **OpenCode** | *(Novo)* | `OpenCodeStreamParser` | Tradutor de NDJSON do OpenCode em `src/core/protocol/opencode.rs`. |
-| **Agy** | `default_fallback_models` | `AgyModelCatalog` | Catálogo de modelos do Agy/Gemini em `src/infra/transport.rs`. |
-| **OpenCode** | *(Novo)* | `OpenCodeModelCatalog` | Catálogo dinâmico e fallback de modelos do OpenCode (DeepSeek, Claude, GPT) em `src/infra/transport.rs`. |
+| **Agy** | `EngineConfig::default_fallback_models` | *(inalterado)* | Fallback estático de modelos Gemini do Agy em `src/infra/transport/mod.rs`. |
+| **OpenCode** | *(Novo)* | `parse_opencode_models_output` / `fetch_opencode_models` | Descoberta via `opencode models` e parser ANSI em `src/infra/transport/opencode.rs`, sem lista estática. |
 
 ---
 
@@ -113,10 +113,10 @@ O contrato canônico é o enum existente em `src/core/protocol/mod.rs`: `Init`, 
 
 ## 5. UI, Modais e Modelos (DeepSeek Support)
 
-### A. Catálogo de Modelos (`OpenCodeModelCatalog`)
+### A. Catálogo de Modelos (descoberta em `opencode models`)
 - O catálogo é **derivado do binário em tempo de execução** por `opencode models`, que emite uma linha `provider/model` por modelo disponível. Nenhuma lista de modelos é mantida à mão na especificação ou no código: listas estáticas defasam e geram `--model` inválido.
 - O parsing é puro (`parse_opencode_models_output`) e testável: ignora linhas vazias, códigos ANSI e entradas sem exatamente um separador `provider/model`.
-- A descoberta é cacheada por processo (`OnceLock`) e nunca executada na thread de render/input, preservando a invariante de event loop não bloqueante.
+- A descoberta roda uma única vez por sessão de TUI, em task assíncrona dedicada, e é armazenada no `App`; nunca executa na thread de render/input, preservando a invariante de event loop não bloqueante.
 - Falha de descoberta (binário ausente ou saída vazia) produz catálogo vazio e mensagem explícita na UI; não há substituição silenciosa por modelos inventados.
 
 ### B. Modal `/model` (`ModelEffortModal`)
@@ -153,7 +153,7 @@ Cada fatia altera no máximo 5 arquivos e é validada via `quality_gate.sh`:
 ### Fatia 2: Configuração, Transporte & Catálogos Duplos
 - **Arquivos**:
   - `src/core/config.rs` (`BackendKind`)
-  - `src/infra/transport.rs` (`opencode_bin`, `build_opencode_args`, `OpenCodeModelCatalog`)
+  - `src/infra/transport/{mod.rs, opencode.rs}` (`opencode_bin`, `build_opencode_args`, descoberta de modelos)
   - `src/cli.rs` (argumento opcional `--opencode-bin`)
   - `tests/domains/protocol_and_cli.rs` (testes de parsing de CLI e catálogo)
 - **Critério de Aceite**: Validação de binários via variáveis de ambiente e fallback para DeepSeek.
@@ -163,7 +163,7 @@ Cada fatia altera no máximo 5 arquivos e é validada via `quality_gate.sh`:
   - `src/infra/engine/mod.rs` (`AgyEngine` e aliases)
   - `src/infra/engine/opencode.rs` (`OpenCodeEngine`)
   - `src/infra/session.rs` (`FrontalEngine`, despacho em `create_subprocess_session`)
-  - `tests/domains/engine_and_session.rs` (testes de mock de subprocesso por turno e killpg)
+  - `tests/domains/engine_and_session/` (testes de mock de subprocesso por turno e killpg)
 - **Critério de Aceite**: `OpenCodeEngine` executa turnos subsequentes reaproveitando `ses_...` sem fechar a sessão na saída do processo.
 
 ### Fatia 4: Integração de UI & Modais
