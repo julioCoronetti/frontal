@@ -100,6 +100,61 @@ impl UsageModal {
         }
     }
 
+    pub fn for_opencode(
+        model: &str,
+        last_turn: Option<crate::protocol::TokenUsage>,
+        accumulated: crate::protocol::TokenUsage,
+    ) -> Self {
+        let window = crate::protocol::context_window_for_model(model).max(1);
+        let used = last_turn
+            .map(|usage| usage.input_tokens.saturating_add(usage.cache_read_tokens))
+            .unwrap_or(0);
+        let remaining_pct = (100.0 - (used as f64 / window as f64) * 100.0).clamp(0.0, 100.0);
+        let cache_pct = accumulated.cache_hit_percentage();
+        let total_tokens = accumulated.effective_total();
+        let summary = UsageSummary {
+            plan: UsagePlanInfo {
+                tier_name: format!("OpenCode · {}", model),
+                account_email: None,
+                upgrade_url: None,
+                manage_url: None,
+            },
+            groups: vec![
+                QuotaGroup {
+                    name: "Context Window".to_string(),
+                    description: Some(format!("{} / {} tokens", used, window)),
+                    buckets: vec![QuotaBucket {
+                        name: "Context capacity".to_string(),
+                        remaining_pct,
+                        reset_label: "latest turn".to_string(),
+                        exhausted: remaining_pct <= 0.0,
+                    }],
+                },
+                QuotaGroup {
+                    name: "Prompt Cache".to_string(),
+                    description: None,
+                    buckets: vec![QuotaBucket {
+                        name: "Cache hit rate".to_string(),
+                        remaining_pct: cache_pct,
+                        reset_label: format!("{:.1}%", cache_pct),
+                        exhausted: false,
+                    }],
+                },
+                QuotaGroup {
+                    name: "Session Tokens".to_string(),
+                    description: None,
+                    buckets: vec![QuotaBucket {
+                        name: "Accumulated".to_string(),
+                        remaining_pct: 100.0,
+                        reset_label: format!("{} tokens", total_tokens),
+                        exhausted: false,
+                    }],
+                },
+            ],
+        };
+        Self::with_data(summary)
+    }
+
     pub fn offline_fallback() -> Self {
         let summary = UsageSummary {
             plan: UsagePlanInfo {

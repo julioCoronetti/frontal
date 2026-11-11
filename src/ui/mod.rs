@@ -36,12 +36,23 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
         let _ = models_tx.send(models).await;
     });
 
+    let (opencode_tx, mut opencode_rx) = tokio::sync::mpsc::channel(1);
+    tokio::spawn(async move {
+        let models =
+            crate::transport::fetch_opencode_models(&crate::transport::resolve_opencode_binary())
+                .await;
+        let _ = opencode_tx.send(models).await;
+    });
+
     guard.terminal_mut().draw(|f| app.render(f))?;
 
     while !app.should_quit {
         tokio::select! {
             Some(models) = models_rx.recv() => {
                 app.set_available_models(models);
+            }
+            Some(models) = opencode_rx.recv() => {
+                app.set_opencode_models(models);
             }
             maybe_event = event_stream.next() => {
                 if let Some(Ok(event)) = maybe_event {

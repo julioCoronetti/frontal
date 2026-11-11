@@ -45,6 +45,7 @@ pub struct App {
     pub clipboard: SystemClipboard,
     pub cwd_display: String,
     pub available_models: Vec<(String, String)>,
+    pub opencode_models: Vec<(String, String)>,
     pub user_config: crate::config::UserConfig,
     pub viewport_bounds: (u16, u16, u16, u16),
     pub last_ctrl_c_at: Option<std::time::Instant>,
@@ -110,6 +111,7 @@ impl App {
             clipboard: SystemClipboard::new(),
             cwd_display,
             available_models,
+            opencode_models: Vec::new(),
             user_config: crate::config::UserConfig::load(),
             viewport_bounds: (0, 0, 80, 20),
             last_ctrl_c_at: None,
@@ -139,6 +141,7 @@ impl App {
             clipboard: SystemClipboard::new_isolated(),
             cwd_display,
             available_models,
+            opencode_models: Vec::new(),
             user_config: crate::config::UserConfig::new_isolated(),
             viewport_bounds: (0, 0, 80, 20),
             last_ctrl_c_at: None,
@@ -156,6 +159,10 @@ impl App {
 
     pub fn set_available_models(&mut self, models: Vec<(String, String)>) {
         self.available_models = models;
+    }
+
+    pub fn set_opencode_models(&mut self, models: Vec<(String, String)>) {
+        self.opencode_models = models;
     }
 
     pub fn active_model_name(&self) -> String {

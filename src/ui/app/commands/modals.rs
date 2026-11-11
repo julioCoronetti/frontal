@@ -44,8 +44,13 @@ impl App {
                 Some(Some(AppAction::Interrupt))
             }
             ModalAction::SelectModelEffort { model, effort } => {
+                let backend = match self.modals.top() {
+                    Some(Modal::ModelEffort(modal)) => modal.backend,
+                    _ => self.user_config.backend,
+                };
                 self.modals.pop();
-                self.status_text = format!("Model: {} ({})", model, effort);
+                self.status_text = format!("Model: {} ({}) · {}", model, effort, backend.as_str());
+                self.user_config.backend = backend;
                 self.user_config.model = model.clone();
                 self.user_config.effort = effort.clone();
                 let _ = self.user_config.save();
@@ -83,11 +88,14 @@ impl App {
                     "new_tab" => Some(Some(AppAction::NewTab)),
                     "close_tab" => Some(Some(AppAction::CloseTab(self.active_tab_index))),
                     "select_model" => {
-                        let modal = ModelEffortModal::with_models(self.available_models.clone())
-                            .with_initial_selection(
-                                Some(self.active_model_name()),
-                                Some(self.active_effort_name()),
-                            );
+                        let mut modal =
+                            ModelEffortModal::with_models(self.available_models.clone())
+                                .with_initial_selection(
+                                    Some(self.active_model_name()),
+                                    Some(self.active_effort_name()),
+                                );
+                        modal.set_opencode_models(self.opencode_models.clone());
+                        modal.set_backend(self.backend);
                         self.modals.push(Modal::ModelEffort(modal));
                         Some(None)
                     }
@@ -119,8 +127,15 @@ impl App {
                         Some(None)
                     }
                     "view_usage" => {
-                        let modal =
-                            crate::ui::modal::UsageModal::load(!self.history.is_in_memory());
+                        let modal = if self.backend == crate::config::BackendKind::OpenCode {
+                            crate::ui::modal::UsageModal::for_opencode(
+                                &self.active_model_name(),
+                                self.last_turn_usage,
+                                self.accumulated_usage,
+                            )
+                        } else {
+                            crate::ui::modal::UsageModal::load(!self.history.is_in_memory())
+                        };
                         self.modals.push(Modal::Usage(modal));
                         Some(None)
                     }

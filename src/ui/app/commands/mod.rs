@@ -36,7 +36,15 @@ impl App {
             self.dirty = true;
             Some(Some(AppAction::NewTab))
         } else if trimmed == "/quota" {
-            let modal = crate::ui::modal::UsageModal::load(!self.history.is_in_memory());
+            let modal = if self.backend == crate::config::BackendKind::OpenCode {
+                crate::ui::modal::UsageModal::for_opencode(
+                    &self.active_model_name(),
+                    self.last_turn_usage,
+                    self.accumulated_usage,
+                )
+            } else {
+                crate::ui::modal::UsageModal::load(!self.history.is_in_memory())
+            };
             self.modals.push(Modal::Usage(modal));
             self.dirty = true;
             Some(None)
@@ -53,6 +61,8 @@ impl App {
                     Some(self.active_model_name()),
                     Some(self.active_effort_name()),
                 );
+            modal.set_opencode_models(self.opencode_models.clone());
+            modal.set_backend(self.backend);
             if let Some(query) = trimmed.strip_prefix("/model ") {
                 modal.set_query(query.trim());
             }
