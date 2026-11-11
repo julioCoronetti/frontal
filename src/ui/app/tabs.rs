@@ -32,7 +32,13 @@ impl App {
         self.popover.close();
         self.modals.remove_danger_modal();
         let title = title.unwrap_or_else(|| format!("Session {}", self.tabs.len() + 1));
-        let new_tab = TabState::new(session_id, title);
+        let backend = self
+            .session_manager
+            .get_engine_config(&session_id)
+            .map(|config| config.backend)
+            .unwrap_or(self.user_config.backend);
+        let mut new_tab = TabState::new(session_id, title);
+        new_tab.backend = backend;
         self.tabs.push(new_tab);
         self.active_tab_index = self.tabs.len() - 1;
         self.active_session = self.tabs[self.active_tab_index].session_id.clone();

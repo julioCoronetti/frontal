@@ -82,7 +82,12 @@ impl App {
             search_worker.start_background_scan(cwd, 500);
         }
 
-        let initial_tab = TabState::new(active_session.clone(), String::from("Session 1"));
+        let backend = session_manager
+            .get_engine_config(&active_session)
+            .map(|config| config.backend)
+            .unwrap_or(crate::config::BackendKind::Agy);
+        let mut initial_tab = TabState::new(active_session.clone(), String::from("Session 1"));
+        initial_tab.backend = backend;
         let cwd_path = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
         let cwd_display = if let Ok(home) = std::env::var("HOME") {
             let home_path = std::path::PathBuf::from(&home);
@@ -122,7 +127,12 @@ impl App {
     pub fn new_isolated(session_manager: SessionManager, active_session: SessionId) -> Self {
         let history = PromptHistory::open_in_memory().unwrap();
         let search_worker = FileSearchWorker::new();
-        let initial_tab = TabState::new(active_session.clone(), String::from("Session 1"));
+        let backend = session_manager
+            .get_engine_config(&active_session)
+            .map(|config| config.backend)
+            .unwrap_or(crate::config::BackendKind::Agy);
+        let mut initial_tab = TabState::new(active_session.clone(), String::from("Session 1"));
+        initial_tab.backend = backend;
         let cwd_display = String::from("~/test");
         let available_models = crate::transport::EngineConfig::default_fallback_models();
 
