@@ -450,3 +450,16 @@ fn test_parse_opencode_models_output_and_no_static_fallback() {
     assert!(frontal::transport::parse_opencode_models_output("").is_empty());
     assert!(frontal::transport::parse_opencode_models_output("bogus\n").is_empty());
 }
+
+#[test]
+fn test_build_opencode_args_requires_session_prefix() {
+    let mut config = frontal::transport::EngineConfig::new_isolated();
+    config.model = Some("opencode-go/deepseek-v4.1-flash".to_string());
+
+    let agy_uuid = "43781261-122a-4f9b-a4b6-a8070c820530";
+    let foreign = frontal::transport::build_opencode_args(&config, Some(agy_uuid), "hi");
+    assert!(!foreign.iter().any(|arg| arg == "--session"));
+
+    let native = frontal::transport::build_opencode_args(&config, Some("ses_abc"), "hi");
+    assert!(native.iter().any(|arg| arg == "--session"));
+}

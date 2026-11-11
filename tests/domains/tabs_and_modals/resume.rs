@@ -316,6 +316,19 @@ async fn test_switching_backend_clears_conversation_id() {
             .as_deref(),
         Some("conv-agy-2")
     );
+
+    let (mut agy_app, _) = test_app();
+    agy_app.user_config.backend = frontal::config::BackendKind::Agy;
+    let rejected = agy_app
+        .respawn_active_session(Some("ses_foreign".to_string()), None, None, None)
+        .await
+        .unwrap();
+    assert!(agy_app
+        .session_manager
+        .get_metadata(&rejected)
+        .unwrap()
+        .conversation_id
+        .is_none());
 }
 
 #[test]

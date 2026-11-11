@@ -17,9 +17,10 @@ use crate::common::{TempFileGuard, PGID_TEST_LOCK};
 
 #[tokio::test]
 async fn test_opencode_engine_multi_turn_session_persistence() {
+    let _lock = PGID_TEST_LOCK.lock().await;
     let marker = TempFileGuard::new("opencode_session_marker", "txt", "");
     let script = format!(
-        "#!/usr/bin/env bash\nfor arg in \"$@\"; do\n  if [ \"$arg\" = \"--session\" ]; then echo seen > {}; fi\ndone\necho '{{\"type\":\"step_start\",\"sessionID\":\"ses_mock\"}}'\necho '{{\"type\":\"text\",\"sessionID\":\"ses_mock\",\"part\":{{\"text\":\"hi\"}}}}'\necho '{{\"type\":\"step_finish\",\"sessionID\":\"ses_mock\",\"part\":{{\"tokens\":{{\"input\":10,\"output\":5}}}}}}'\n",
+        "#!/usr/bin/env bash\nfor arg in \"$@\"; do\n  if [ \"$arg\" = \"--session\" ]; then echo seen > {}; fi\ndone\necho '{{\"type\":\"step_start\",\"sessionID\":\"ses_mock\"}}'\necho '{{\"type\":\"text\",\"sessionID\":\"ses_mock\",\"part\":{{\"text\":\"hi\"}}}}'\necho '{{\"type\":\"step_finish\",\"sessionID\":\"ses_mock\",\"part\":{{\"tokens\":{{\"input\":10,\"output\":5}}}}}}'\necho '{{\"type\":\"step_finish\",\"sessionID\":\"ses_mock\",\"part\":{{\"tokens\":{{\"input\":10,\"output\":5}}}}}}'\n",
         marker.path().display()
     );
     let mock = TempFileGuard::new("mock_opencode_test", "sh", &script);
@@ -45,24 +46,38 @@ async fn test_opencode_engine_multi_turn_session_persistence() {
 
     engine.send_prompt("first turn").await.unwrap();
     let mut first_usage = None;
-    for _ in 0..50 {
+    let mut last_step_usage = None;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline {
         let Ok(Some(env)) = timeout(Duration::from_millis(200), rx.recv()).await else {
             continue;
         };
         if let EngineEvent::Stream(event) = env.event {
-            if let StreamEvent::Result(result) = *event {
-                assert_eq!(
-                    result.result.as_ref().unwrap().status,
-                    Some(ResultStatus::Success)
-                );
-                first_usage = result.result.unwrap().usage;
-                break;
+            match *event {
+                StreamEvent::StepUpdate(update) => {
+                    if let Some(usage) = update.step_update.and_then(|step| step.usage) {
+                        last_step_usage = Some(usage);
+                    }
+                }
+                StreamEvent::Result(result) => {
+                    assert_eq!(
+                        result.result.as_ref().unwrap().status,
+                        Some(ResultStatus::Success)
+                    );
+                    first_usage = result.result.unwrap().usage;
+                    break;
+                }
+                _ => {}
             }
         }
     }
     let usage = first_usage.expect("terminal Result expected");
-    assert_eq!(usage.input_tokens, 10);
-    assert_eq!(usage.output_tokens, 5);
+    assert_eq!(usage.input_tokens, 20);
+    assert_eq!(usage.output_tokens, 10);
+    assert_eq!(
+        last_step_usage.expect("step usage expected").input_tokens,
+        10
+    );
     assert!(std::fs::read_to_string(marker.path())
         .unwrap()
         .trim()
@@ -159,6 +174,16 @@ async fn test_opencode_interrupt_emits_terminal_result_and_releases_pgid() {
         manager.get_metadata(&session_id).unwrap().status,
         SessionStatus::RunningTurn
     );
+    for _ in 0..50 {
+        let Ok(Some(envelope)) = timeout(Duration::from_millis(100), manager.recv()).await else {
+            continue;
+        };
+        if let EngineEvent::Stream(event) = &envelope.event {
+            if matches!(&**event, StreamEvent::Init(_)) {
+                break;
+            }
+        }
+    }
     manager.interrupt(&session_id).unwrap();
 
     let mut terminal = false;
@@ -178,6 +203,9 @@ async fn test_opencode_interrupt_emits_terminal_result_and_releases_pgid() {
         manager.get_metadata(&session_id).unwrap().status,
         SessionStatus::Ready
     );
+    let _ = manager
+        .shutdown_session(&session_id, Duration::from_millis(200))
+        .await;
 }
 
 #[tokio::test]
@@ -210,7 +238,8 @@ async fn test_opencode_engine_emits_single_terminal_event_on_stream_error() {
                     }
                 }
             }
-            _ => break,
+            Err(_) => continue,
+            Ok(None) => break,
         }
     }
     assert_eq!(terminals.len(), 1);
@@ -251,7 +280,8 @@ async fn test_opencode_engine_reports_non_zero_exit_as_error() {
                     }
                 }
             }
-            _ => break,
+            Err(_) => continue,
+            Ok(None) => break,
         }
     }
     let message = message.expect("expected a stream error");
