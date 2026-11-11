@@ -39,16 +39,28 @@ Frontal's architecture delivers deterministic 60 FPS execution with minimal reso
    - Consolidated turn messages are preserved as immutable semantic ASTs (`MessageBlock` with style spans) in Level 1.
    - Level 2 maintains pre-formatted visual lines indexed by `(width, revision)`, lazily invalidated on terminal resizes (`SIGWINCH`) or block expand/collapse.
    - Only the active streaming block computes deltas, keeping frame generation at $O(1)$ and locking display refresh to 60 FPS regardless of conversation history size.
-2. **Deterministic Sticky Scroll**:
-   - Viewport remains locked to the bottom edge during token streaming, immediately unanchors on user scroll-up, and re-anchors upon returning to the footer.
-3. **Large Paste Folding**:
-   - Clipboard insertions exceeding 5 lines collapse into interactive visual pills in the prompt, preventing layout disruption.
+2. **Non-blocking TUI Event Loop (60 FPS)**:
+   - Asynchronous `tokio::select!` in `src/ui/mod.rs` never executes synchronous disk I/O, persistence, or process scans on the render thread.
+3. **Multi-Session Single Source of Truth (`TabState` with $O(1)$ Switching)**:
+   - Every session encapsulates its own state in `TabState`. `App` references the active tab via $O(1)$ indexing and a `Deref`/`DerefMut` bridge without memory swaps (`std::mem::swap`). Stream events are processed uniformly via `TabState::apply_stream_event`.
 4. **POSIX Process Isolation & Cleanup**:
-   - Subprocesses are spawned in dedicated process groups via `setpgid(0, 0)` with `PR_SET_PDEATHSIG(libc::SIGTERM)` to guarantee that terminating Frontal never leaves orphaned `agy` processes running.
+   - Subprocesses are spawned in dedicated process groups via `setpgid(0, 0)` with `PR_SET_PDEATHSIG(libc::SIGTERM)`. Teardown issues ordered `killpg` escalation (`SIGINT` -> `SIGTERM` -> `SIGKILL`) preventing orphaned child processes.
+5. **Deterministic Sticky Scroll & Large Paste Folding**:
+   - Viewport remains locked to the bottom edge during token streaming, immediately unanchors on user scroll-up, and re-anchors upon returning to the footer. Clipboard insertions exceeding 5 lines collapse into interactive visual pills in the prompt.
 
 ---
 
-## 4. Consolidated Capabilities and Continuous Evolution
+## 4. Modular Repository Architecture
+
+The codebase enforces strict decoupling into three cohesive architectural layers with a strict 500-line ceiling per `.rs` file and zero comments:
+
+- **Core (`src/core/`)**: Domain logic and protocol (`protocol.rs`), deterministic risk evaluation matrix partitioned into shell and SQL components (`security/`), and persistent user configuration (`config.rs`).
+- **Infra (`src/infra/`)**: Asynchronous IPC transport (`transport.rs`), subprocess lifecycle and POSIX groups (`engine.rs`), session multiplexing (`session.rs`), system clipboard driver (`clipboard.rs`), and SQLite WAL history persistence with RAII flush (`history/`).
+- **UI (`src/ui/`)**: 60 FPS non-blocking render loop (`mod.rs`), modular application state and commands (`app/` partitioned into `render/`, `commands/`, and `events/`), unified tab state (`tab.rs`), 2-level render cache (`cache/`), incremental markdown parser (`markdown/`), syntax highlighter (`highlight.rs`), rope editor (`editor/`), and modal stack (`modal/`).
+
+---
+
+## 5. Consolidated Capabilities and Continuous Evolution
 
 Frontal is operational in production (version `0.9.0`), fully verified by **150 tests across 8 domains**. Development progresses continuously via GitHub Project Board #8 cards across these consolidated domains:
 
@@ -67,7 +79,7 @@ Frontal is operational in production (version `0.9.0`), fully verified by **150 
 
 ---
 
-## 5. Build, Test, and Run
+## 6. Build, Test, and Run
 
 ### Prerequisites
 - Stable Rust toolchain (`cargo`, `rustc` 2021 edition).
@@ -99,7 +111,7 @@ cargo run --release -- --headless -p "Describe the project architecture"
 
 ---
 
-## 6. Technical Documentation and Specifications
+## 7. Technical Documentation and Specifications
 
 Detailed technical documentation is available on the [GitHub Wiki](https://github.com/julioCoronetti/frontal/wiki):
 

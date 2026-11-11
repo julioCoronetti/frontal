@@ -5,7 +5,7 @@ Reference documentation for on-demand inspection of repository modules.
 ## Core Domain (`src/core/`)
 - `src/core/mod.rs`: Domain module declarations and public exports.
 - `src/core/protocol.rs`: Strict typing and NDJSON deserialization for the `stream-json` protocol (`EngineEvent`, `StreamEvent`, `ToolInfo`, etc.).
-- `src/core/security.rs`: Deterministic containment security guard (`DangerAssessment`, `RiskCategory`) for inspecting destructive tool calls.
+- `src/core/security/`: Deterministic containment security guard (`DangerAssessment`, `RiskCategory`) partitioned into `mod.rs`, `shell.rs`, and `sql.rs`.
 - `src/core/config.rs`: Persistent user configuration (`~/.frontal/config.toml`, model, mode, and default effort).
 
 ## Infrastructure & IPC (`src/infra/`)
@@ -14,17 +14,17 @@ Reference documentation for on-demand inspection of repository modules.
 - `src/infra/transport.rs`: `EngineTransport` implementations (`SubprocessEngine` with 16 MB `LinesCodec` buffer and `FixtureReplayEngine`).
 - `src/infra/session.rs`: Session multiplexing and management via `SessionId` and `SessionManager`.
 - `src/infra/clipboard.rs`: System clipboard integration via `arboard` with isolated in-memory buffer and OSC 52 fallback.
-- `src/infra/history/`: Command history persistence in SQLite WAL (`PromptHistory`) and JSONL transcript parser (`TranscriptBlock`).
+- `src/infra/history/`: Command history persistence in SQLite WAL (`PromptHistory`) with RAII `Drop` flush and JSONL transcript parser (`TranscriptBlock`).
 
 ## Terminal Interface (`src/ui/`)
 - `src/ui/mod.rs`: Asynchronous 60 FPS TUI event loop (crossterm `EventStream`, cancellation, render ticks).
-- `src/ui/app/`: Central application module partitioned into modular files (500-line ceiling):
+- `src/ui/app/`: Central application module partitioned into modular submodules (500-line ceiling):
   - `src/ui/app/mod.rs`: `App` struct with `Deref`/`DerefMut` to active `TabState`, `AppAction` enum, and constructors.
   - `src/ui/app/tabs.rs`: Multi-session management with O(1) tab switching and `TabState` single source of truth.
-  - `src/ui/app/events.rs`: Non-blocking terminal event routing (keyboard, mouse, paste, autocompletion).
-  - `src/ui/app/commands.rs`: Local command dispatch (`/quit`, `/clear`, `/interrupt`, etc.), modal actions, and git diff extraction.
+  - `src/ui/app/events/`: Non-blocking terminal event routing partitioned into `mod.rs`, `keyboard.rs`, and `mouse.rs`.
+  - `src/ui/app/commands/`: Command dispatch, modal actions, session resume, and git diff partitioned into `mod.rs`, `modals.rs`, `resume.rs`, and `git_diff.rs`.
   - `src/ui/app/stream.rs`: Streamlined asynchronous IPC engine envelope dispatch.
-  - `src/ui/app/render.rs`: 60 FPS drawing methods, layout calculation, and TUI widgets.
+  - `src/ui/app/render/`: 60 FPS drawing methods, layout calculation, and TUI widgets partitioned into `mod.rs`, `chrome.rs`, and `panes.rs`.
 - `src/ui/tab.rs`: Tab state management (`TabState`) and unified stream event handling (`apply_stream_event`).
 - `src/ui/history.rs`: Visual cache hydration bridge (`hydrate_cache_from_reader`).
 - `src/ui/cache/`: Partitioned 2-level render cache (`mod.rs`, `format.rs`, `slice.rs`).
@@ -33,7 +33,7 @@ Reference documentation for on-demand inspection of repository modules.
 - `src/ui/highlight.rs`: Incremental line-by-line syntax highlighting via `syntect` with state checkpoints.
 - `src/ui/editor/`: Multi-line prompt editor backed by B-Tree (`ropey`), atomic extmarks (`@`, `/`), and paste pills (`mod.rs`, `mutations.rs`, `navigation.rs`).
 - `src/ui/autocomplete.rs`: Floating popover autocompletion for commands and files (`FileSearchWorker`).
-- `src/ui/modal/`: Partitioned floating modal stack (`mod.rs`, `danger.rs`, `diff.rs`, `model_effort.rs`, `palette.rs`, `respawn.rs`, `select.rs`, `usage/`).
+- `src/ui/modal/`: Partitioned floating modal stack (`mod.rs`, `danger.rs`, `diff.rs`, `model_effort/`, `palette.rs`, `respawn.rs`, `select.rs`, `usage/`).
 - `src/ui/diff.rs`: Integrated unified diff viewer.
 - `src/ui/notify.rs`: Terminal sensory notifications (audio bell and visual flash).
 - `src/ui/terminal.rs`: Raw mode bootstrap, bracketed paste, and TTY recovery panic hook.
