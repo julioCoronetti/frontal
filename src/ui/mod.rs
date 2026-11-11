@@ -1,7 +1,6 @@
 pub mod app;
 pub mod autocomplete;
 pub mod cache;
-pub mod clipboard;
 pub mod diff;
 pub mod editor;
 pub mod highlight;
@@ -13,6 +12,8 @@ pub mod tab;
 pub mod terminal;
 pub mod theme;
 pub mod viewport;
+
+pub use crate::infra::clipboard;
 
 use crossterm::event::EventStream;
 use futures_util::StreamExt;
