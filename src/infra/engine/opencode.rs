@@ -61,6 +61,14 @@ impl OpenCodeEngine {
 
     pub async fn send_prompt(&mut self, prompt: &str) -> Result<(), EngineError> {
         if self.active_pgid.load(Ordering::Relaxed) > 0 {
+            for _ in 0..50 {
+                if self.active_pgid.load(Ordering::Relaxed) == 0 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }
+        if self.active_pgid.load(Ordering::Relaxed) > 0 {
             return Err(EngineError::Io("turn already running".to_string()));
         }
         let current_conversation = self.conversation_id.read().await.clone();
@@ -120,7 +128,7 @@ impl OpenCodeEngine {
                         break;
                     };
                     match parse_engine_line(&line) {
-                        Ok(Some(mut event)) => {
+                        Ok(Some(event)) => {
                             if matches!(event, StreamEvent::Error(_) | StreamEvent::Result(_)) {
                                 saw_terminal = true;
                             }
@@ -129,12 +137,11 @@ impl OpenCodeEngine {
                                     *conversation_id.write().await = Some(conv);
                                 }
                             }
-                            if let StreamEvent::StepUpdate(update) = &mut event {
-                                if let Some(step) = update.step_update.as_mut() {
-                                    if let Some(step_usage) = step.usage {
-                                        usage.accumulate(&step_usage);
-                                        step.usage = Some(usage);
-                                    }
+                            if let StreamEvent::StepUpdate(update) = &event {
+                                if let Some(step_usage) =
+                                    update.step_update.as_ref().and_then(|step| step.usage)
+                                {
+                                    usage.accumulate(&step_usage);
                                 }
                             }
                             let envelope = SessionEnvelope {
@@ -161,9 +168,9 @@ impl OpenCodeEngine {
             }
 
             let exit_status = child.wait().await;
-            let stderr_tail = stderr_task.await.unwrap_or_default();
             unregister_child_pgid(pgid);
-            active_pgid.store(0, Ordering::Relaxed);
+            let _ = active_pgid.compare_exchange(pgid, 0, Ordering::Relaxed, Ordering::Relaxed);
+            let stderr_tail = stderr_task.await.unwrap_or_default();
 
             if saw_terminal {
                 return;
@@ -231,9 +238,17 @@ impl OpenCodeEngine {
                 unsafe {
                     libc::killpg(pgid, libc::SIGKILL);
                 }
+                let reap_deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+                while self.active_pgid.load(Ordering::Relaxed) > 0
+                    && tokio::time::Instant::now() < reap_deadline
+                {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
             }
             unregister_child_pgid(pgid);
-            self.active_pgid.store(0, Ordering::Relaxed);
+            let _ =
+                self.active_pgid
+                    .compare_exchange(pgid, 0, Ordering::Relaxed, Ordering::Relaxed);
         }
         let _ = self
             .sender
