@@ -205,7 +205,18 @@ impl ModelEffortModal {
     }
 
     pub fn set_opencode_models(&mut self, raw: Vec<(String, String)>) {
-        let normalized = Self::normalize_catalog(raw);
+        let efforts: Vec<String> = ["low", "medium", "high", "xhigh", "max"]
+            .iter()
+            .map(|effort| effort.to_string())
+            .collect();
+        let normalized: Vec<ModelItem> = raw
+            .into_iter()
+            .map(|(id, name)| ModelItem {
+                id,
+                name,
+                supported_efforts: efforts.clone(),
+            })
+            .collect();
         if self.backend == BackendKind::OpenCode {
             self.models = normalized.clone();
         }

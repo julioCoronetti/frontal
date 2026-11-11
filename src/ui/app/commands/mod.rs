@@ -56,13 +56,13 @@ impl App {
             self.dirty = true;
             Some(Some(AppAction::Interrupt))
         } else if trimmed == "/model" || trimmed.starts_with("/model ") {
-            let mut modal = ModelEffortModal::with_models(self.available_models.clone())
-                .with_initial_selection(
-                    Some(self.active_model_name()),
-                    Some(self.active_effort_name()),
-                );
+            let mut modal = ModelEffortModal::with_models(self.available_models.clone());
             modal.set_opencode_models(self.opencode_models.clone());
             modal.set_backend(self.backend);
+            let mut modal = modal.with_initial_selection(
+                Some(self.active_model_name()),
+                Some(self.active_effort_name()),
+            );
             if let Some(query) = trimmed.strip_prefix("/model ") {
                 modal.set_query(query.trim());
             }

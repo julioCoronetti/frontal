@@ -89,13 +89,13 @@ impl App {
                     "close_tab" => Some(Some(AppAction::CloseTab(self.active_tab_index))),
                     "select_model" => {
                         let mut modal =
-                            ModelEffortModal::with_models(self.available_models.clone())
-                                .with_initial_selection(
-                                    Some(self.active_model_name()),
-                                    Some(self.active_effort_name()),
-                                );
+                            ModelEffortModal::with_models(self.available_models.clone());
                         modal.set_opencode_models(self.opencode_models.clone());
                         modal.set_backend(self.backend);
+                        let modal = modal.with_initial_selection(
+                            Some(self.active_model_name()),
+                            Some(self.active_effort_name()),
+                        );
                         self.modals.push(Modal::ModelEffort(modal));
                         Some(None)
                     }
