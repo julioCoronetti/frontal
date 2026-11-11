@@ -8,6 +8,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 
+mod opencode;
+
 use crate::protocol::{
     format_user_message, parse_stream_line, EngineEvent, ProtocolError, SessionEnvelope, SessionId,
     StreamEvent,

@@ -11,7 +11,7 @@ Reference documentation for on-demand inspection of repository modules.
 ## Infrastructure & IPC (`src/infra/`)
 - `src/infra/mod.rs`: Infrastructure module declarations.
 - `src/infra/engine.rs`: High-level agentic engine abstraction, subprocess spawning, POSIX pgid, and streaming channels.
-- `src/infra/transport.rs`: `EngineTransport` implementations (`SubprocessEngine` with 16 MB `LinesCodec` buffer and `FixtureReplayEngine`).
+- `src/infra/transport/`: `EngineTransport` implementations (`AgyEngine` config with 16 MB `LinesCodec` buffer and `FixtureReplayEngine`) partitioned into `mod.rs` and `opencode.rs`.
 - `src/infra/session.rs`: Session multiplexing and management via `SessionId` and `SessionManager`.
 - `src/infra/clipboard.rs`: System clipboard integration via `arboard` with isolated in-memory buffer and OSC 52 fallback.
 - `src/infra/history/`: Command history persistence in SQLite WAL (`PromptHistory`) with RAII `Drop` flush and JSONL transcript parser (`TranscriptBlock`).
