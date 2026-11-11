@@ -49,7 +49,7 @@ pub fn build_opencode_args(
         args.push("--model".to_string());
         args.push(model_with_variant(model, config.effort.as_deref()));
     }
-    if let Some(sid) = session_id.filter(|s| !s.is_empty()) {
+    if let Some(sid) = session_id.filter(|s| s.starts_with("ses_")) {
         args.push("--session".to_string());
         args.push(sid.to_string());
     }

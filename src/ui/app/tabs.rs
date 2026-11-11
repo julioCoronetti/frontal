@@ -108,13 +108,18 @@ impl App {
         let prev_backend = base_engine_config
             .as_ref()
             .map(|config| config.backend)
-            .unwrap_or(BackendKind::Agy);
+            .unwrap_or(self.tabs[self.active_tab_index].backend);
         let target_backend = self.user_config.backend;
         let backend_changed = target_backend != prev_backend;
         let final_conv_id = if backend_changed {
             None
         } else {
-            conversation_id.or(prev_conv_id.clone())
+            conversation_id
+                .or(prev_conv_id.clone())
+                .filter(|id| match target_backend {
+                    BackendKind::OpenCode => id.starts_with("ses_"),
+                    BackendKind::Agy => !id.starts_with("ses_"),
+                })
         };
         let final_model = model.or(prev_model);
         let final_effort = effort.or(prev_effort);
