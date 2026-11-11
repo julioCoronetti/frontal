@@ -146,16 +146,17 @@ impl TabState {
                             .take()
                             .map(|t| t.elapsed().as_secs_f64())
                     });
-                let usage = res
-                    .result
-                    .as_ref()
-                    .and_then(|r| r.usage)
-                    .or(self.last_turn_usage);
+                let turn_usage = res.result.as_ref().and_then(|r| r.usage);
+                let usage = turn_usage.or(self.last_turn_usage);
                 let tokens = usage.as_ref().map(|u| u.output_tokens);
                 if let Some(ref u) = usage {
                     self.accumulated_usage.accumulate(u);
                 }
-                self.last_turn_usage = usage;
+                self.last_turn_usage = if self.backend == BackendKind::OpenCode {
+                    self.last_turn_usage.or(turn_usage)
+                } else {
+                    usage
+                };
                 let meta = crate::ui::cache::TurnMeta {
                     mode: mode.to_string(),
                     model: model.to_string(),

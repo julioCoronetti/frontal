@@ -44,6 +44,9 @@ async fn test_opencode_engine_multi_turn_session_persistence() {
     let init_env = rx.recv().await.unwrap();
     assert_eq!(init_env.session_id, session_id);
 
+    let mut tab = TabState::new(session_id.clone(), String::from("tab"));
+    tab.backend = BackendKind::OpenCode;
+
     engine.send_prompt("first turn").await.unwrap();
     let mut first_usage = None;
     let mut last_step_usage = None;
@@ -53,7 +56,9 @@ async fn test_opencode_engine_multi_turn_session_persistence() {
             continue;
         };
         if let EngineEvent::Stream(event) = env.event {
-            match *event {
+            let event = *event;
+            tab.apply_stream_event(&event, "auto", "model", true);
+            match event {
                 StreamEvent::StepUpdate(update) => {
                     if let Some(usage) = update.step_update.and_then(|step| step.usage) {
                         last_step_usage = Some(usage);
@@ -78,6 +83,8 @@ async fn test_opencode_engine_multi_turn_session_persistence() {
         last_step_usage.expect("step usage expected").input_tokens,
         10
     );
+    assert_eq!(tab.last_turn_usage.unwrap().input_tokens, 10);
+    assert_eq!(tab.accumulated_usage.input_tokens, 20);
     assert!(std::fs::read_to_string(marker.path())
         .unwrap()
         .trim()
@@ -210,6 +217,7 @@ async fn test_opencode_interrupt_emits_terminal_result_and_releases_pgid() {
 
 #[tokio::test]
 async fn test_opencode_engine_emits_single_terminal_event_on_stream_error() {
+    let _lock = PGID_TEST_LOCK.lock().await;
     let script = "#!/usr/bin/env bash\necho '{\"type\":\"step_start\",\"sessionID\":\"ses_err\"}'\necho '{\"type\":\"error\",\"error\":{\"type\":\"permission.rejected\",\"message\":\"denied\"}}'\n";
     let mock = TempFileGuard::new("mock_opencode_error", "sh", script);
     #[cfg(unix)]
@@ -248,6 +256,7 @@ async fn test_opencode_engine_emits_single_terminal_event_on_stream_error() {
 
 #[tokio::test]
 async fn test_opencode_engine_reports_non_zero_exit_as_error() {
+    let _lock = PGID_TEST_LOCK.lock().await;
     let mock = TempFileGuard::new(
         "mock_opencode_exit",
         "sh",

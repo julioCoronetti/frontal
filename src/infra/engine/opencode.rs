@@ -119,6 +119,7 @@ impl OpenCodeEngine {
         tokio::spawn(async move {
             let stderr_task = tokio::spawn(read_stderr_tail(stderr));
             let mut usage = TokenUsage::default();
+            let mut saw_usage = false;
             let mut saw_terminal = false;
             if let Some(stream) = stdout {
                 let codec = LinesCodec::new_with_max_length(16 * 1024 * 1024);
@@ -142,6 +143,7 @@ impl OpenCodeEngine {
                                     update.step_update.as_ref().and_then(|step| step.usage)
                                 {
                                     usage.accumulate(&step_usage);
+                                    saw_usage = true;
                                 }
                             }
                             let envelope = SessionEnvelope {
@@ -181,7 +183,7 @@ impl OpenCodeEngine {
                     conversation_id: conversation_id.read().await.clone(),
                     result: Some(ResultData {
                         status: Some(ResultStatus::Success),
-                        usage: Some(usage),
+                        usage: saw_usage.then_some(usage),
                         ..Default::default()
                     }),
                 }),

@@ -13,7 +13,7 @@ O Frontal foi concebido originalmente como uma TUI desacoplada para o Antigravit
 1. **Isolamento Estrito do Agy**: O motor padrão do Google (`AgyEngine`) permanece 100% intacto em seu caminho de execução, com default `BackendKind::Agy` em todas as configurações e testes. Zero risco de regressão ou detecção.
 2. **Desacoplamento Visual pela Fronteira de Mensagens**: O núcleo da TUI (`TabState`, `RenderCache`, `MessageBlock`, `pulldown-cmark`, `Viewport`) consome exclusivamente a tipagem canônica `StreamEvent` via canal assíncrono `mpsc::Sender<SessionEnvelope>`. Nenhum componente de tela acessa binários ou protocolos externos diretamente.
 3. **Semântica Adaptada por Motor**: O `AgyEngine` é um daemon persistente interativo via pipe `stdin`/`stdout`. O `OpenCodeEngine` é um supervisor de processos efêmeros **por turno** (`opencode run --format json --thinking`), cuja terminação normal de processo encerra o turno e mantém a sessão ativa.
-4. **Governança Mecânica**: Limite estrito de 500 linhas por arquivo `.rs`, zero comentários no código-fonte, zero warnings no Clippy (`-D warnings`) e 167 testes de integração preservados.
+4. **Governança Mecânica**: Limite estrito de 500 linhas por arquivo `.rs`, zero comentários no código-fonte, zero warnings no Clippy (`-D warnings`) e 168 testes de integração preservados.
 
 ---
 
