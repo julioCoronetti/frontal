@@ -1,33 +1,5 @@
-use serde_json::Value;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RiskCategory {
-    RecursiveDeletion,
-    DestructiveVcs,
-    DiskManipulation,
-    DestructiveSql,
-}
-
-impl RiskCategory {
-    pub fn title(&self) -> &'static str {
-        match self {
-            Self::RecursiveDeletion => "Recursive Deletion",
-            Self::DestructiveVcs => "Destructive VCS Action",
-            Self::DiskManipulation => "Disk Manipulation",
-            Self::DestructiveSql => "Destructive SQL Operation",
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DangerAssessment {
-    pub category: RiskCategory,
-    pub command: String,
-    pub target: String,
-    pub warning: String,
-    pub tool_name: String,
-    pub step_index: Option<u64>,
-}
+use super::sql::{check_sql_statement, is_likely_sql};
+use super::{danger_assessment, DangerAssessment, RiskCategory};
 
 pub fn evaluate_command(raw: &str) -> Option<DangerAssessment> {
     let trimmed = raw.trim();
@@ -44,58 +16,7 @@ pub fn evaluate_command(raw: &str) -> Option<DangerAssessment> {
         .find_map(|seg| evaluate_shell_segment(seg, trimmed))
 }
 
-fn is_likely_sql(raw: &str) -> bool {
-    let mut s = raw.trim();
-    while s.starts_with("--") || s.starts_with("/*") {
-        s = if s.starts_with("--") {
-            s.find('\n').map(|p| &s[p + 1..]).unwrap_or("").trim()
-        } else {
-            s.find("*/").map(|p| &s[p + 2..]).unwrap_or("").trim()
-        };
-    }
-    let first = s.split_whitespace().next().unwrap_or("");
-    matches!(
-        first.to_ascii_uppercase().as_str(),
-        "SELECT" | "INSERT" | "UPDATE" | "DELETE" | "DROP" | "TRUNCATE" | "ALTER" | "CREATE"
-    )
-}
-
-pub fn evaluate_tool_call(
-    tool_name: &str,
-    step_index: Option<u64>,
-    params: Option<&Value>,
-    fallback_args: Option<&str>,
-) -> Option<DangerAssessment> {
-    if is_non_execution_tool(tool_name) {
-        return None;
-    }
-    extract_candidate_commands(params, fallback_args)
-        .into_iter()
-        .find_map(|cmd| {
-            evaluate_command(&cmd).map(|mut d| {
-                d.tool_name = tool_name.to_string();
-                d.step_index = step_index;
-                d
-            })
-        })
-}
-
-fn is_non_execution_tool(tool_name: &str) -> bool {
-    matches!(
-        tool_name,
-        "read_file"
-            | "write_file"
-            | "edit_file"
-            | "view_file"
-            | "list_dir"
-            | "grep_search"
-            | "find_by_name"
-            | "search_web"
-            | "ask_question"
-    )
-}
-
-fn split_shell_segments(cmd: &str) -> Vec<&str> {
+pub fn split_shell_segments(cmd: &str) -> Vec<&str> {
     let mut segments = Vec::new();
     let (mut in_single, mut in_double, mut escaped) = (false, false, false);
     let mut start = 0;
@@ -142,7 +63,7 @@ fn split_shell_segments(cmd: &str) -> Vec<&str> {
     segments
 }
 
-fn tokenize_words(segment: &str) -> Vec<String> {
+pub fn tokenize_words(segment: &str) -> Vec<String> {
     let mut words = Vec::new();
     let mut current = String::new();
     let (mut in_single, mut in_double, mut escaped) = (false, false, false);
@@ -170,7 +91,7 @@ fn tokenize_words(segment: &str) -> Vec<String> {
     words
 }
 
-fn evaluate_shell_segment(seg: &str, full_cmd: &str) -> Option<DangerAssessment> {
+pub fn evaluate_shell_segment(seg: &str, full_cmd: &str) -> Option<DangerAssessment> {
     let raw_words = tokenize_words(seg);
     if raw_words.is_empty() {
         return None;
@@ -339,98 +260,6 @@ fn first_positional_arg(args: &[String], default: &'static str) -> String {
         .unwrap_or_else(|| default.to_string())
 }
 
-fn check_sql_statement(raw: &str) -> Option<DangerAssessment> {
-    let tokens = tokenize_sql(raw);
-    let n = tokens.len();
-    if n < 2 {
-        return None;
-    }
-    for i in 0..n {
-        let t1 = tokens[i].to_ascii_uppercase();
-        if t1 == "DROP" && i + 1 < n {
-            let t2 = tokens[i + 1].to_ascii_uppercase();
-            if matches!(t2.as_str(), "DATABASE" | "SCHEMA" | "TABLE" | "VIEW") {
-                let is_if_exists = tokens
-                    .get(i + 2)
-                    .is_some_and(|s| s.eq_ignore_ascii_case("IF"))
-                    && tokens
-                        .get(i + 3)
-                        .is_some_and(|s| s.eq_ignore_ascii_case("EXISTS"));
-                let target = if is_if_exists {
-                    tokens.get(i + 4)
-                } else {
-                    tokens.get(i + 2)
-                }
-                .cloned()
-                .unwrap_or_else(|| String::from("database entity"));
-                return Some(danger_assessment(
-                    RiskCategory::DestructiveSql,
-                    raw,
-                    target,
-                    "Permanent drop of database schema or table",
-                ));
-            }
-        }
-        if t1 == "TRUNCATE" && i + 1 < n {
-            let next = tokens[i + 1].to_ascii_uppercase();
-            let target = if next == "TABLE" && i + 2 < n {
-                tokens[i + 2].clone()
-            } else {
-                tokens[i + 1].clone()
-            };
-            return Some(danger_assessment(
-                RiskCategory::DestructiveSql,
-                raw,
-                target,
-                "Truncate operation erases all rows irreversibly",
-            ));
-        }
-    }
-    None
-}
-
-fn tokenize_sql(raw: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    let (mut in_single, mut in_comment) = (false, false);
-    let chars: Vec<char> = raw.chars().collect();
-    let len = chars.len();
-    let mut i = 0;
-
-    while i < len {
-        let ch = chars[i];
-        if in_comment {
-            if ch == '\n' {
-                in_comment = false;
-            }
-            i += 1;
-            continue;
-        }
-        if !in_single && ((ch == '-' && i + 1 < len && chars[i + 1] == '-') || ch == '#') {
-            in_comment = true;
-            i += 1;
-            continue;
-        }
-        if ch == '\'' {
-            in_single = !in_single;
-            i += 1;
-            continue;
-        }
-        if !in_single {
-            if ch.is_alphanumeric() || ch == '_' || ch == '.' {
-                current.push(ch);
-            } else if !current.is_empty() {
-                tokens.push(std::mem::take(&mut current));
-            }
-        }
-        i += 1;
-    }
-    if !current.is_empty() {
-        tokens.push(current);
-    }
-    tokens
-}
-
 fn extract_basename(path_str: &str) -> String {
     let trimmed = path_str.trim_matches('\'').trim_matches('"');
     trimmed.rsplit('/').next().unwrap_or(trimmed).to_string()
@@ -453,40 +282,4 @@ fn is_safe_read_command(exe: &str) -> bool {
             | "stat"
             | "find"
     )
-}
-
-fn danger_assessment(
-    category: RiskCategory,
-    command: &str,
-    target: String,
-    warning: &'static str,
-) -> DangerAssessment {
-    DangerAssessment {
-        category,
-        command: command.to_string(),
-        target,
-        warning: warning.to_string(),
-        tool_name: String::new(),
-        step_index: None,
-    }
-}
-
-fn extract_candidate_commands(params: Option<&Value>, fallback: Option<&str>) -> Vec<String> {
-    let mut out = Vec::new();
-    if let Some(val) = params {
-        match val {
-            Value::String(s) => out.push(s.clone()),
-            Value::Object(map) => {
-                for key in ["CommandLine", "command", "cmd", "script", "query", "sql"] {
-                    if let Some(s) = map.get(key).and_then(|v| v.as_str()) {
-                        out.push(s.to_string());
-                    }
-                }
-            }
-            _ => {}
-        }
-    } else if let Some(fb) = fallback {
-        out.push(fb.to_string());
-    }
-    out
 }
