@@ -1,6 +1,6 @@
 # Frontal
 
-Decoupled, asynchronous, high-performance Terminal User Interface (TUI) harness developed in **Rust** (version `0.9.0`) for the Antigravity CLI (`agy`) and agentic engines compatible with the `stream-json` protocol.
+Decoupled, asynchronous, high-performance Terminal User Interface (TUI) harness developed in **Rust** (version `0.9.1`) for the Antigravity CLI (`agy`) and agentic engines compatible with the `stream-json` protocol.
 
 ---
 
@@ -62,7 +62,7 @@ The codebase enforces strict decoupling into three cohesive architectural layers
 
 ## 5. Consolidated Capabilities and Continuous Evolution
 
-Frontal is operational in production (version `0.9.0`), fully verified by **150 tests across 8 domains**. Development progresses continuously via GitHub Project Board #8 cards across these consolidated domains:
+Frontal is operational in production (version `0.9.1`), fully verified by **150 tests across 8 domains**. Development progresses continuously via GitHub Project Board #8 cards across these consolidated domains:
 
 - **Foundation, `stream-json` Protocol, and Headless IPC:**
   - Single Cargo workspace, session multiplexing via `SessionId`, typed `stream-json` protocol, dual `EngineTransport` implementations (`SubprocessEngine` and `FixtureReplayEngine`), async line decoding via `LinesCodec` (16 MB buffer), and POSIX process isolation (`setpgid`/`killpg`/`PR_SET_PDEATHSIG`).
@@ -116,7 +116,7 @@ cargo run --release -- --headless -p "Describe the project architecture"
 Detailed technical documentation is available on the [GitHub Wiki](https://github.com/julioCoronetti/frontal/wiki):
 
 - **[Home](https://github.com/julioCoronetti/frontal/wiki/Home)**: Central documentation index.
-- **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: Official Rust implementation architecture (v0.9.0), modules, Atlas Crimson theme, and 150 tests suite.
+- **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: Official Rust implementation architecture (v0.9.1), modules, Atlas Crimson theme, and 150 tests suite.
 - **[Board-Roadmap](https://github.com/julioCoronetti/frontal/wiki/Board-Roadmap)**: Architecture specification, Rust tech stack, decision matrix, consolidated capabilities, and Project Board evolution.
 - **Antigravity CLI (`agy`) Dossier**:
   - [Agy](https://github.com/julioCoronetti/frontal/wiki/Agy): Official CLI overview.
