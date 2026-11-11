@@ -2,8 +2,8 @@ use tokio_util::codec::{Decoder, LinesCodec, LinesCodecError};
 
 use frontal::cli::CliArgs;
 use frontal::protocol::{
-    format_user_message, parse_stream_line, ProtocolError, ResultStatus, SessionId, StepState,
-    StepType, StreamEvent,
+    fnv1a_64, format_user_message, parse_engine_line, parse_stream_line, OpenCodeStreamParser,
+    ProtocolError, ResultStatus, SessionId, StepState, StepType, StreamEvent,
 };
 
 #[test]
@@ -237,4 +237,148 @@ fn test_cli_args_show_version() {
 
     let none_flag = CliArgs::parse_from(["frontal"].into_iter().map(String::from));
     assert!(!none_flag.show_version);
+}
+
+#[test]
+fn test_opencode_step_start_and_deltas() {
+    let init = r#"{"type":"step_start","sessionID":"ses_e33f0c","part":{"type":"step-start"}}"#;
+    let parsed = OpenCodeStreamParser::parse_line(init).unwrap().unwrap();
+    if let StreamEvent::Init(ev) = parsed {
+        assert_eq!(ev.conversation_id.as_deref(), Some("ses_e33f0c"));
+        assert!(ev.init.is_none());
+    } else {
+        panic!("Expected StreamEvent::Init");
+    }
+
+    let text = r#"{"type":"text","sessionID":"ses_e33f0c","part":{"text":"hello"}}"#;
+    let parsed = OpenCodeStreamParser::parse_line(text).unwrap().unwrap();
+    assert_eq!(parsed.text_delta(), Some("hello"));
+    assert_eq!(parsed.conversation_id(), Some("ses_e33f0c"));
+    if let StreamEvent::StepUpdate(ev) = &parsed {
+        let data = ev.step_update.as_ref().unwrap();
+        assert_eq!(data.step_type, Some(StepType::AgentResponse));
+    } else {
+        panic!("Expected StreamEvent::StepUpdate");
+    }
+
+    let reasoning = r#"{"type":"reasoning","part":{"text":"thinking deep"}}"#;
+    let parsed = OpenCodeStreamParser::parse_line(reasoning)
+        .unwrap()
+        .unwrap();
+    assert_eq!(parsed.thought_delta(), Some("thinking deep"));
+
+    let empty = r#"{"type":"text","part":{"text":""}}"#;
+    assert!(OpenCodeStreamParser::parse_line(empty).unwrap().is_none());
+}
+
+#[test]
+fn test_opencode_tool_use_lifecycle_and_empty_call_id() {
+    let active = r#"{"type":"tool_use","part":{"tool":"bash","callID":"call_1","state":{"status":"running","input":{"command":"ls"}}}}"#;
+    let parsed = OpenCodeStreamParser::parse_line(active).unwrap().unwrap();
+    if let StreamEvent::StepUpdate(ev) = &parsed {
+        let data = ev.step_update.as_ref().unwrap();
+        assert_eq!(data.step_type, Some(StepType::Tool));
+        assert_eq!(data.state, Some(StepState::Active));
+        assert_eq!(data.step_index, Some(fnv1a_64("call_1")));
+        assert_eq!(data.tool_name.as_deref(), Some("bash"));
+        assert!(data.tool_info.as_ref().unwrap().parameters.is_some());
+    } else {
+        panic!("Expected StreamEvent::StepUpdate");
+    }
+
+    let done = r#"{"type":"tool_use","part":{"tool":"bash","callID":"call_1","state":{"status":"completed","output":"ok"}}}"#;
+    let parsed_done = OpenCodeStreamParser::parse_line(done).unwrap().unwrap();
+    if let StreamEvent::StepUpdate(ev) = &parsed_done {
+        let data = ev.step_update.as_ref().unwrap();
+        assert_eq!(data.state, Some(StepState::Done));
+        assert_eq!(data.step_index, Some(fnv1a_64("call_1")));
+        assert_eq!(
+            data.tool_info.as_ref().unwrap().output_text().as_deref(),
+            Some("ok")
+        );
+    } else {
+        panic!("Expected StreamEvent::StepUpdate");
+    }
+
+    let failed = r#"{"type":"tool_use","part":{"tool":"bash","callID":"call_2","state":{"status":"error","error":"boom"}}}"#;
+    let parsed_failed = OpenCodeStreamParser::parse_line(failed).unwrap().unwrap();
+    if let StreamEvent::StepUpdate(ev) = &parsed_failed {
+        let data = ev.step_update.as_ref().unwrap();
+        assert_eq!(data.state, Some(StepState::Error));
+        assert_eq!(
+            data.tool_info.as_ref().unwrap().output_text().as_deref(),
+            Some("boom")
+        );
+    } else {
+        panic!("Expected StreamEvent::StepUpdate");
+    }
+
+    let anonymous =
+        r#"{"type":"tool_use","part":{"tool":"bash","callID":"","state":{"status":"running"}}}"#;
+    let parsed_anonymous = OpenCodeStreamParser::parse_line(anonymous)
+        .unwrap()
+        .unwrap();
+    if let StreamEvent::StepUpdate(ev) = &parsed_anonymous {
+        assert_eq!(ev.step_update.as_ref().unwrap().step_index, None);
+    } else {
+        panic!("Expected StreamEvent::StepUpdate");
+    }
+}
+
+#[test]
+fn test_opencode_step_finish_and_error_envelopes() {
+    let finish = r#"{"type":"step_finish","sessionID":"ses_1","part":{"tokens":{"input":1200,"output":300,"reasoning":50,"cache":{"read":900,"write":0}}}}"#;
+    let parsed = OpenCodeStreamParser::parse_line(finish).unwrap().unwrap();
+    if let StreamEvent::StepUpdate(ev) = &parsed {
+        let usage = ev.step_update.as_ref().unwrap().usage.unwrap();
+        assert_eq!(usage.input_tokens, 1200);
+        assert_eq!(usage.output_tokens, 300);
+        assert_eq!(usage.thinking_tokens, 50);
+        assert_eq!(usage.cache_read_tokens, 900);
+        assert_eq!(usage.total_tokens, 0);
+    } else {
+        panic!("Expected StreamEvent::StepUpdate");
+    }
+
+    let rejected = r#"{"type":"error","error":{"type":"permission.rejected","message":"Permission denied: external_directory"}}"#;
+    let parsed_rejected = OpenCodeStreamParser::parse_line(rejected).unwrap().unwrap();
+    if let StreamEvent::Error(ev) = parsed_rejected {
+        assert_eq!(
+            ev.error.as_deref(),
+            Some("Permission denied: external_directory")
+        );
+        assert!(ev.message.is_none());
+    } else {
+        panic!("Expected StreamEvent::Error");
+    }
+
+    let named =
+        r#"{"type":"error","error":{"name":"ProviderAuthError","data":{"message":"invalid key"}}}"#;
+    let parsed_named = OpenCodeStreamParser::parse_line(named).unwrap().unwrap();
+    if let StreamEvent::Error(ev) = parsed_named {
+        assert_eq!(ev.error.as_deref(), Some("invalid key"));
+    } else {
+        panic!("Expected StreamEvent::Error");
+    }
+}
+
+#[test]
+fn test_parse_engine_line_dispatches_by_harness() {
+    let agy_line = r#"{"event":"init","conversation_id":"c1"}"#;
+    assert!(!OpenCodeStreamParser::matches(agy_line));
+    assert!(OpenCodeStreamParser::matches(
+        r#"{"type":"text","part":{"text":"x"}}"#
+    ));
+
+    let agy = parse_engine_line(agy_line).unwrap().unwrap();
+    if let StreamEvent::Init(ev) = agy {
+        assert_eq!(ev.conversation_id.as_deref(), Some("c1"));
+    } else {
+        panic!("Expected StreamEvent::Init");
+    }
+
+    let opencode = parse_engine_line(r#"{"type":"text","part":{"text":"hi"}}"#)
+        .unwrap()
+        .unwrap();
+    assert_eq!(opencode.text_delta(), Some("hi"));
 }

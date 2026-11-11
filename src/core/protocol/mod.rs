@@ -1,4 +1,5 @@
 mod agy;
+pub mod opencode;
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -7,6 +8,15 @@ use std::io::Read;
 use std::path::Path;
 
 pub use agy::{format_user_message, parse_stream_line, AgyStreamParser};
+pub use opencode::{extract_opencode_session_id, fnv1a_64, OpenCodeStreamParser};
+
+pub fn parse_engine_line(line: &str) -> Result<Option<StreamEvent>, ProtocolError> {
+    if OpenCodeStreamParser::matches(line) {
+        OpenCodeStreamParser::parse_line(line)
+    } else {
+        parse_stream_line(line)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SessionId(pub String);
