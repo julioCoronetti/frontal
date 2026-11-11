@@ -10,6 +10,12 @@ use tokio::time::sleep;
 
 mod opencode;
 
+pub use opencode::{
+    build_opencode_args, fetch_opencode_models, model_with_variant, opencode_variant,
+    parse_opencode_models_output, resolve_opencode_binary,
+};
+
+use crate::config::BackendKind;
 use crate::protocol::{
     format_user_message, parse_stream_line, EngineEvent, ProtocolError, SessionEnvelope, SessionId,
     StreamEvent,
@@ -53,6 +59,8 @@ impl From<std::io::Error> for EngineError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EngineConfig {
     pub agy_bin: PathBuf,
+    pub opencode_bin: PathBuf,
+    pub backend: BackendKind,
     pub conversation_id: Option<String>,
     pub project: Option<String>,
     pub model: Option<String>,
@@ -69,6 +77,8 @@ impl EngineConfig {
         let user_config = crate::config::UserConfig::load();
         Self {
             agy_bin: bin,
+            opencode_bin: resolve_opencode_binary(),
+            backend: user_config.backend,
             conversation_id: None,
             project: None,
             model: Some(user_config.model),
@@ -85,6 +95,8 @@ impl EngineConfig {
         let user_config = crate::config::UserConfig::new_isolated();
         Self {
             agy_bin: bin,
+            opencode_bin: resolve_opencode_binary(),
+            backend: user_config.backend,
             conversation_id: None,
             project: None,
             model: Some(user_config.model),

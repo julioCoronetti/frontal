@@ -3,6 +3,29 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BackendKind {
+    #[default]
+    Agy,
+    OpenCode,
+}
+
+impl BackendKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Agy => "agy",
+            Self::OpenCode => "opencode",
+        }
+    }
+
+    pub fn parse(value: &str) -> Self {
+        match value.trim().to_lowercase().as_str() {
+            "opencode" | "open-code" => Self::OpenCode,
+            _ => Self::Agy,
+        }
+    }
+}
+
 pub const DEFAULT_MODEL: &str = "gemini-3.8-flash-high";
 pub const DEFAULT_EFFORT: &str = "high";
 pub const DEFAULT_MODE: &str = "auto";
@@ -12,6 +35,7 @@ pub struct UserConfig {
     pub model: String,
     pub effort: String,
     pub mode: String,
+    pub backend: BackendKind,
     pub isolated: bool,
 }
 
@@ -27,6 +51,7 @@ impl UserConfig {
             model: DEFAULT_MODEL.to_string(),
             effort: DEFAULT_EFFORT.to_string(),
             mode: DEFAULT_MODE.to_string(),
+            backend: BackendKind::Agy,
             isolated: true,
         }
     }
@@ -36,6 +61,7 @@ impl UserConfig {
             model: DEFAULT_MODEL.to_string(),
             effort: DEFAULT_EFFORT.to_string(),
             mode: DEFAULT_MODE.to_string(),
+            backend: BackendKind::Agy,
             isolated: false,
         }
     }
@@ -75,6 +101,9 @@ impl UserConfig {
                     "mode" if !v.is_empty() => {
                         self.mode = v.to_string();
                     }
+                    "backend" if !v.is_empty() => {
+                        self.backend = BackendKind::parse(v);
+                    }
                     _ => {}
                 }
             }
@@ -90,8 +119,11 @@ impl UserConfig {
                 fs::create_dir_all(parent)?;
             }
             let payload = format!(
-                "model = \"{}\"\neffort = \"{}\"\nmode = \"{}\"\n",
-                self.model, self.effort, self.mode
+                "model = \"{}\"\neffort = \"{}\"\nmode = \"{}\"\nbackend = \"{}\"\n",
+                self.model,
+                self.effort,
+                self.mode,
+                self.backend.as_str()
             );
             fs::write(path, payload)?;
         }

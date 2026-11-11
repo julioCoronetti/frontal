@@ -13,6 +13,7 @@ pub struct CliArgs {
     pub prompts: Vec<String>,
     pub replay_file: Option<PathBuf>,
     pub agy_bin: Option<PathBuf>,
+    pub opencode_bin: Option<PathBuf>,
     pub conversation_id: Option<String>,
     pub project: Option<String>,
     pub model: Option<String>,
@@ -31,6 +32,7 @@ impl CliArgs {
             prompts: Vec::new(),
             replay_file: None,
             agy_bin: None,
+            opencode_bin: None,
             conversation_id: None,
             project: None,
             model: None,
@@ -59,6 +61,11 @@ impl CliArgs {
                 "--agy-bin" => {
                     if let Some(val) = iter.next() {
                         cli.agy_bin = Some(PathBuf::from(val));
+                    }
+                }
+                "--opencode-bin" => {
+                    if let Some(val) = iter.next() {
+                        cli.opencode_bin = Some(PathBuf::from(val));
                     }
                 }
                 "--conversation" | "-c" => {
@@ -118,6 +125,7 @@ impl CliArgs {
             "  --replay-file <PATH>           Path to fixture .ndjson for deterministic testing"
         );
         println!("  --agy-bin <PATH>               Custom path to agy binary");
+        println!("  --opencode-bin <PATH>          Custom path to opencode binary");
         println!("  --conversation, -c <UUID>      Resume conversation ID");
         println!("  --project <ID>                 Project ID for the session");
         println!("  --model <MODEL>                Model ID (e.g. gemini-3.8-flash-high)");
@@ -133,6 +141,9 @@ impl CliArgs {
     pub fn apply_to_config(&self, config: &mut EngineConfig) {
         if let Some(bin) = &self.agy_bin {
             config.agy_bin = bin.clone();
+        }
+        if let Some(bin) = &self.opencode_bin {
+            config.opencode_bin = bin.clone();
         }
         if self.conversation_id.is_some() {
             config.conversation_id = self.conversation_id.clone();
