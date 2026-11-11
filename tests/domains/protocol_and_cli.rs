@@ -382,3 +382,71 @@ fn test_parse_engine_line_dispatches_by_harness() {
         .unwrap();
     assert_eq!(opencode.text_delta(), Some("hi"));
 }
+
+#[test]
+fn test_build_opencode_args_turn_1_vs_turn_n() {
+    let mut config = frontal::transport::EngineConfig::new_isolated();
+    config.model = Some("opencode-go/deepseek-v4.1-flash".to_string());
+    config.effort = Some("medium".to_string());
+
+    let turn1 = frontal::transport::build_opencode_args(&config, None, "hello");
+    let expected: Vec<String> = [
+        "run",
+        "--format",
+        "json",
+        "--thinking",
+        "--auto",
+        "--model",
+        "opencode-go/deepseek-v4.1-flash#high",
+        "--",
+        "hello",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+    assert_eq!(turn1, expected);
+    assert!(!turn1.iter().any(|arg| arg == "--session"));
+
+    let turn_n = frontal::transport::build_opencode_args(&config, Some("ses_42"), "again");
+    let session_idx = turn_n.iter().position(|arg| arg == "--session").unwrap();
+    assert_eq!(turn_n[session_idx + 1], "ses_42");
+    assert_eq!(turn_n.last().map(String::as_str), Some("again"));
+}
+
+#[test]
+fn test_opencode_effort_variant_mapping() {
+    assert_eq!(frontal::transport::opencode_variant("low"), Some("low"));
+    assert_eq!(frontal::transport::opencode_variant("medium"), Some("high"));
+    assert_eq!(frontal::transport::opencode_variant("high"), Some("max"));
+    assert_eq!(frontal::transport::opencode_variant("xhigh"), Some("max"));
+    assert_eq!(frontal::transport::opencode_variant("max"), Some("max"));
+    assert_eq!(frontal::transport::opencode_variant("bogus"), None);
+
+    assert_eq!(
+        frontal::transport::model_with_variant("provider/model", Some("high")),
+        "provider/model#max"
+    );
+    assert_eq!(
+        frontal::transport::model_with_variant("provider/model#low", Some("high")),
+        "provider/model#low"
+    );
+    assert_eq!(
+        frontal::transport::model_with_variant("provider/model", None),
+        "provider/model"
+    );
+}
+
+#[test]
+fn test_parse_opencode_models_output_and_no_static_fallback() {
+    let raw = "\u{1b}[32mopencode-go/deepseek-v4.1-flash\u{1b}[0m\nopencode / gpt\n\nno-slash-line\nprovider/model/extra\n";
+    let parsed = frontal::transport::parse_opencode_models_output(raw);
+    assert_eq!(
+        parsed,
+        vec![(
+            "opencode-go/deepseek-v4.1-flash".to_string(),
+            "deepseek-v4.1-flash".to_string()
+        )]
+    );
+    assert!(frontal::transport::parse_opencode_models_output("").is_empty());
+    assert!(frontal::transport::parse_opencode_models_output("bogus\n").is_empty());
+}
