@@ -38,6 +38,7 @@ Reference documentation for on-demand inspection of repository modules.
 - `src/ui/notify.rs`: Terminal sensory notifications (audio bell and visual flash).
 - `src/ui/terminal.rs`: Raw mode bootstrap, bracketed paste, and TTY recovery panic hook.
 - `src/ui/theme.rs`: Visual theme definitions and color palette inspired by OpenCode.
+- `src/ui/labels.rs`: Display-name formatting for providers and models (slug to human label), keeping engine identifiers untouched.
 
 ## Entrypoints & Facade (`src/`)
 - `src/main.rs`: Application entry point (`tokio::main`).

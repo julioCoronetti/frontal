@@ -124,6 +124,7 @@ O contrato canônico é o enum existente em `src/core/protocol/mod.rs`: `Init`, 
 - **Navegação**: `Enter` no provedor define o backend e o escopo; `Esc` no nível de modelos retorna à lista de provedores; `Esc` nos provedores fecha o modal.
 - **Busca global**: qualquer texto digitado pesquisa simultaneamente nos catálogos Agy e OpenCode, e cada resultado exibe o provedor alinhado à direita. No nível de modelos do provedor, a coluna de provedor é omitida.
 - **Layout**: modal ampliado (56% x 62%, limites 48×16 a 72×26) para acomodar a lista e a coluna de provedor; o slider de esforço continua oculto no nível de provedores.
+- **Nomes de exibição**: provedores e modelos são formatados para leitura (`Antigravity`, `OpenCode Go`, `DeepSeek V4.1 Flash`), enquanto ids permanecem em slug minúsculo (`agy`, `opencode-go`, `opencode-go/deepseek-v4.1-flash`).
 - **Tratamento de Esforço**:
   - Para `Agy`: níveis de raciocínio existentes (`Low`, `Medium`, `High`, `Max`) mapeados para `--effort`.
   - Para `OpenCode`: o esforço vira o sufixo `#variant` de `--model` (`Low -> low`, `Medium -> high`, `High -> max`). `--thinking` é sempre habilitado para receber raciocínio.

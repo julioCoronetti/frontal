@@ -350,11 +350,19 @@ impl ModelEffortModal {
                 }
                 match self.selected_entry() {
                     Some(ListEntry::Model { backend, index }) => {
-                        let (model_id, provider_label, effort) = {
+                        let (model_id, provider_id, effort) = {
                             let model = &self.model_pool(backend)[index];
+                            let provider_id = match backend {
+                                BackendKind::Agy => AGY_PROVIDER_ID.to_string(),
+                                BackendKind::OpenCode => model
+                                    .id
+                                    .split_once('/')
+                                    .map(|(provider, _)| provider.to_string())
+                                    .unwrap_or_default(),
+                            };
                             (
                                 model.id.clone(),
-                                self.provider_label(backend, &model.id),
+                                provider_id,
                                 model
                                     .supported_efforts
                                     .get(self.selected_effort_idx)
@@ -363,7 +371,7 @@ impl ModelEffortModal {
                             )
                         };
                         self.backend = backend;
-                        self.provider = Some(provider_label);
+                        self.provider = Some(provider_id);
                         ModalAction::SelectModelEffort {
                             model: model_id,
                             effort,
