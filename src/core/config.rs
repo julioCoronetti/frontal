@@ -37,6 +37,7 @@ pub struct UserConfig {
     pub mode: String,
     pub backend: BackendKind,
     pub isolated: bool,
+    pub context_windows: Vec<(String, u64)>,
 }
 
 impl Default for UserConfig {
@@ -53,6 +54,7 @@ impl UserConfig {
             mode: DEFAULT_MODE.to_string(),
             backend: BackendKind::Agy,
             isolated: true,
+            context_windows: Vec::new(),
         }
     }
 
@@ -63,6 +65,7 @@ impl UserConfig {
             mode: DEFAULT_MODE.to_string(),
             backend: BackendKind::Agy,
             isolated: false,
+            context_windows: Vec::new(),
         }
     }
 
@@ -83,31 +86,79 @@ impl UserConfig {
     }
 
     pub fn parse_content(&mut self, content: &str) {
+        let mut section: Option<String> = None;
         for line in content.lines() {
             let trimmed = line.trim();
             if trimmed.is_empty() || trimmed.starts_with('#') {
                 continue;
             }
-            if let Some((key, val)) = trimmed.split_once('=') {
-                let k = key.trim();
-                let v = val.trim().trim_matches('"').trim_matches('\'').trim();
-                match k {
-                    "model" if !v.is_empty() => {
-                        self.model = v.to_string();
-                    }
-                    "effort" if !v.is_empty() => {
-                        self.effort = v.to_string();
-                    }
-                    "mode" if !v.is_empty() => {
-                        self.mode = v.to_string();
-                    }
-                    "backend" if !v.is_empty() => {
-                        self.backend = BackendKind::parse(v);
-                    }
-                    _ => {}
+            if trimmed.starts_with('[') && trimmed.ends_with(']') {
+                section = Some(trimmed[1..trimmed.len() - 1].trim().to_lowercase());
+                continue;
+            }
+            let Some((key, val)) = trimmed.split_once('=') else {
+                continue;
+            };
+            let k = key.trim().trim_matches('"').trim_matches('\'');
+            let v = val.trim().trim_matches('"').trim_matches('\'');
+            if section.as_deref() == Some("context_windows") {
+                if let Some(tokens) = parse_token_count(v) {
+                    self.set_context_window(k, tokens);
                 }
+                continue;
+            }
+            if section.is_some() {
+                continue;
+            }
+            match k {
+                "model" if !v.is_empty() => {
+                    self.model = v.to_string();
+                }
+                "effort" if !v.is_empty() => {
+                    self.effort = v.to_string();
+                }
+                "mode" if !v.is_empty() => {
+                    self.mode = v.to_string();
+                }
+                "backend" if !v.is_empty() => {
+                    self.backend = BackendKind::parse(v);
+                }
+                _ => {}
             }
         }
+    }
+
+    pub fn set_context_window(&mut self, model: &str, tokens: u64) {
+        let key = model.trim();
+        if key.is_empty() || tokens == 0 {
+            return;
+        }
+        if let Some(entry) = self
+            .context_windows
+            .iter_mut()
+            .find(|(existing, _)| existing.eq_ignore_ascii_case(key))
+        {
+            entry.1 = tokens;
+        } else {
+            self.context_windows.push((key.to_string(), tokens));
+        }
+    }
+
+    pub fn to_toml(&self) -> String {
+        let mut payload = format!(
+            "model = \"{}\"\neffort = \"{}\"\nmode = \"{}\"\nbackend = \"{}\"\n",
+            self.model,
+            self.effort,
+            self.mode,
+            self.backend.as_str()
+        );
+        if !self.context_windows.is_empty() {
+            payload.push_str("\n[context_windows]\n");
+            for (model, tokens) in &self.context_windows {
+                payload.push_str(&format!("\"{}\" = {}\n", model, tokens));
+            }
+        }
+        payload
     }
 
     pub fn save(&self) -> io::Result<()> {
@@ -118,15 +169,16 @@ impl UserConfig {
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent)?;
             }
-            let payload = format!(
-                "model = \"{}\"\neffort = \"{}\"\nmode = \"{}\"\nbackend = \"{}\"\n",
-                self.model,
-                self.effort,
-                self.mode,
-                self.backend.as_str()
-            );
-            fs::write(path, payload)?;
+            fs::write(path, self.to_toml())?;
         }
         Ok(())
     }
+}
+
+fn parse_token_count(value: &str) -> Option<u64> {
+    let cleaned: String = value
+        .chars()
+        .filter(|ch| *ch != '_' && *ch != ',')
+        .collect();
+    cleaned.parse::<u64>().ok().filter(|tokens| *tokens > 0)
 }
