@@ -422,12 +422,12 @@ fn test_user_message_accent_bar_styling() {
 
     let slice = cache.visible_slice(0, 10);
     assert!(slice.len() >= 3);
-    assert_eq!(slice[0].spans[0].content.as_ref(), " ┃ ");
+    assert_eq!(slice[0].spans[0].content.as_ref(), "▌ ");
     let text_line = &slice[1];
     let spans = &text_line.spans;
-    assert_eq!(spans[0].content.as_ref(), " ┃ ");
+    assert_eq!(spans[0].content.as_ref(), "▌ ");
     assert_eq!(spans[1].content.as_ref(), "test message");
-    assert_eq!(slice[2].spans[0].content.as_ref(), " ┃ ");
+    assert_eq!(slice[2].spans[0].content.as_ref(), "▌ ");
 }
 
 #[test]

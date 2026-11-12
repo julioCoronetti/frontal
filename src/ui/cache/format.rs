@@ -108,14 +108,14 @@ impl RenderCache {
         let mut result = Vec::new();
         match &block.kind {
             BlockKind::User => {
-                let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(6) as usize);
-                let pad_empty = (width as usize).saturating_sub(3);
+                let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
+                let pad_empty = (width as usize).saturating_sub(2);
                 let bar_style = Style::default()
                     .fg(ACCENT_PRIMARY)
                     .bg(BG_USER_CONTAINER)
                     .add_modifier(Modifier::BOLD);
                 let top_line = Line::from(vec![
-                    Span::styled(" ┃ ", bar_style),
+                    Span::styled("▌ ", bar_style),
                     Span::styled(
                         " ".repeat(pad_empty),
                         Style::default().bg(BG_USER_CONTAINER),
@@ -125,9 +125,9 @@ impl RenderCache {
 
                 for row in wrapped.into_iter() {
                     let row_len = row.chars().count();
-                    let pad_len = (width as usize).saturating_sub(3 + row_len);
+                    let pad_len = (width as usize).saturating_sub(2 + row_len);
                     let line = Line::from(vec![
-                        Span::styled(" ┃ ", bar_style),
+                        Span::styled("▌ ", bar_style),
                         Span::styled(row, Style::default().fg(TEXT_PRIMARY).bg(BG_USER_CONTAINER)),
                         Span::styled(" ".repeat(pad_len), Style::default().bg(BG_USER_CONTAINER)),
                     ]);
@@ -135,7 +135,7 @@ impl RenderCache {
                 }
 
                 let bottom_line = Line::from(vec![
-                    Span::styled(" ┃ ", bar_style),
+                    Span::styled("▌ ", bar_style),
                     Span::styled(
                         " ".repeat(pad_empty),
                         Style::default().bg(BG_USER_CONTAINER),

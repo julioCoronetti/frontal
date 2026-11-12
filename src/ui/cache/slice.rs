@@ -88,10 +88,10 @@ impl RenderCache {
                 let (stripped, prefix_len) = match kind {
                     crate::ui::cache::BlockKind::Assistant => (trimmed.to_string(), 0),
                     crate::ui::cache::BlockKind::User => {
-                        if trimmed.starts_with(" ┃ ") {
-                            (trimmed.replacen(" ┃ ", "", 1), 3)
-                        } else if trimmed.starts_with(" ┃") {
-                            (trimmed.replacen(" ┃", "", 1), 2)
+                        if trimmed.starts_with("▌ ") {
+                            (trimmed.replacen("▌ ", "", 1), 2)
+                        } else if trimmed.starts_with('▌') {
+                            (trimmed.replacen('▌', "", 1), 1)
                         } else {
                             (trimmed.to_string(), 0)
                         }

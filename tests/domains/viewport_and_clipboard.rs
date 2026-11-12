@@ -79,11 +79,11 @@ fn test_clipboard_selection_no_padding_or_indent_pollution() {
     let mut viewport = ConversationViewport::new();
     viewport.sync_dimensions(cache.total_lines(), 20);
 
-    viewport.start_selection(1, 3);
-    viewport.update_selection(1, 19);
+    viewport.start_selection(1, 2);
+    viewport.update_selection(1, 18);
     let user_selected = viewport.selected_text(&cache).unwrap();
     assert_eq!(user_selected, "user prompt text");
-    assert!(!user_selected.starts_with(" ┃ "));
+    assert!(!user_selected.starts_with("▌ "));
     assert!(!user_selected.ends_with(' '));
 
     viewport.start_selection(4, 0);
