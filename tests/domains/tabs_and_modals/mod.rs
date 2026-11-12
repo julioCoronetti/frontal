@@ -1,3 +1,4 @@
+mod history_resume;
 mod modals;
 mod model_effort;
 mod resume;

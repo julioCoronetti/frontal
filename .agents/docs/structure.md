@@ -14,7 +14,7 @@ Reference documentation for on-demand inspection of repository modules.
 - `src/infra/transport/`: `EngineTransport` implementations (`AgyEngine` config with 16 MB `LinesCodec` buffer and `FixtureReplayEngine`) partitioned into `mod.rs` and `opencode.rs`.
 - `src/infra/session.rs`: Session multiplexing and management via `SessionId` and `SessionManager`.
 - `src/infra/clipboard.rs`: System clipboard integration via `arboard` with isolated in-memory buffer and OSC 52 fallback.
-- `src/infra/history/`: Command history persistence in SQLite WAL (`PromptHistory`) with RAII `Drop` flush and JSONL transcript parser (`TranscriptBlock`).
+- `src/infra/history/`: Command history persistence in SQLite WAL (`PromptHistory`) with RAII `Drop` flush, JSONL transcript parser (`TranscriptBlock`), and per-conversation message storage (`messages.rs`) for cross-engine resume.
 
 ## Terminal Interface (`src/ui/`)
 - `src/ui/mod.rs`: Asynchronous 60 FPS TUI event loop (crossterm `EventStream`, cancellation, render ticks).
