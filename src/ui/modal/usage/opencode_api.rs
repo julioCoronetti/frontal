@@ -108,9 +108,7 @@ pub fn summary_from_go(usage: &GoUsage) -> UsageSummary {
         },
         groups: vec![QuotaGroup {
             name: "GO USAGE WINDOWS".to_string(),
-            description: Some(
-                "5-hour 20% · weekly 50% · monthly 100% of each model allowance".to_string(),
-            ),
+            description: None,
             buckets: vec![
                 bucket("5-hour window", &usage.rolling),
                 bucket("Weekly window", &usage.weekly),
