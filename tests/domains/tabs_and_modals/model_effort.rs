@@ -3,6 +3,7 @@ use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
 use frontal::ui::modal::{ModalAction, ModelEffortModal};
+use frontal::ui::theme::{ACCENT_PRIMARY, TEXT_MUTED};
 
 use crate::common::{press_key, test_app};
 
@@ -173,6 +174,31 @@ fn test_model_effort_modal_rendering_layout_and_slider() {
     }
 
     assert!(content2.contains("medium"));
+
+    let segment_colors = |buffer: &ratatui::buffer::Buffer| {
+        let mut red = false;
+        let mut gray = false;
+        for y in 0..buffer.area.height {
+            for x in 0..buffer.area.width {
+                let cell = buffer.cell((x, y)).unwrap();
+                if cell.symbol() == "─" {
+                    red |= cell.fg == ACCENT_PRIMARY;
+                    gray |= cell.fg == TEXT_MUTED;
+                }
+            }
+        }
+        (red, gray)
+    };
+
+    let (red, gray) = segment_colors(&buffer2);
+    assert!(red && gray);
+
+    modal.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+    terminal.draw(|f| modal.render(f, f.area())).unwrap();
+    let buffer3 = terminal.backend().buffer().clone();
+    let (red_low, gray_low) = segment_colors(&buffer3);
+    assert!(!red_low);
+    assert!(gray_low);
 }
 
 #[test]

@@ -5,9 +5,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use super::ModelEffortModal;
-use crate::ui::theme::{
-    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY,
-};
+use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY};
 
 impl ModelEffortModal {
     pub fn render(&self, frame: &mut Frame, area: Rect) {
@@ -131,9 +129,9 @@ impl ModelEffortModal {
             for (i, _) in efforts.iter().enumerate() {
                 if i > 0 {
                     let seg_color = if i <= self.selected_effort_idx {
-                        ACCENT_RUBY
+                        ACCENT_PRIMARY
                     } else {
-                        BORDER_SUBTLE
+                        TEXT_MUTED
                     };
                     track_spans.push(Span::styled(
                         seg_str.clone(),
