@@ -1,13 +1,17 @@
 use rusqlite::{params, Connection};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Sender};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod agent;
+pub mod messages;
 pub mod transcript;
 
 pub use agent::*;
+pub use messages::{
+    conversation_messages_at, conversation_title_at, default_history_path, StoredMessage,
+};
 pub use transcript::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,8 +54,18 @@ impl SessionRecord {
 pub enum HistoryCommand {
     Record(String),
     RecordSession(SessionRecord),
-    TouchSession { id: String, timestamp: i64 },
-    RenameSession { id: String, title: String },
+    TouchSession {
+        id: String,
+        timestamp: i64,
+    },
+    RenameSession {
+        id: String,
+        title: String,
+    },
+    AppendMessages {
+        conversation_id: String,
+        messages: Vec<StoredMessage>,
+    },
     Flush(Sender<()>),
 }
 
@@ -60,6 +74,7 @@ pub struct PromptHistory {
     sessions: Vec<SessionRecord>,
     history_idx: Option<usize>,
     draft_backup: Option<String>,
+    db_path: Option<PathBuf>,
     write_tx: Option<Sender<HistoryCommand>>,
 }
 
@@ -136,6 +151,12 @@ impl PromptHistory {
                                 params![title, id],
                             );
                         }
+                        HistoryCommand::AppendMessages {
+                            conversation_id,
+                            messages,
+                        } => {
+                            messages::insert_messages(&bg_conn, &conversation_id, &messages);
+                        }
                         HistoryCommand::Flush(done_tx) => {
                             let _ = done_tx.send(());
                         }
@@ -149,6 +170,7 @@ impl PromptHistory {
             sessions,
             history_idx: None,
             draft_backup: None,
+            db_path: Some(db_path.to_path_buf()),
             write_tx: Some(tx),
         })
     }
@@ -164,6 +186,7 @@ impl PromptHistory {
             sessions,
             history_idx: None,
             draft_backup: None,
+            db_path: None,
             write_tx: None,
         })
     }
@@ -186,7 +209,19 @@ impl PromptHistory {
                  effort TEXT,
                  title TEXT,
                  created_at INTEGER NOT NULL
-             );",
+             );
+             CREATE TABLE IF NOT EXISTS messages (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 conversation_id TEXT NOT NULL,
+                 role TEXT NOT NULL,
+                 content TEXT NOT NULL,
+                 tool_name TEXT,
+                 tool_args TEXT,
+                 step_index INTEGER,
+                 created_at INTEGER NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_messages_conversation
+                 ON messages(conversation_id, id);",
         )?;
         let _ = conn.execute("ALTER TABLE sessions ADD COLUMN effort TEXT", []);
         let _ = conn.execute("ALTER TABLE sessions ADD COLUMN title TEXT", []);
@@ -261,6 +296,19 @@ impl PromptHistory {
             if tx.send(HistoryCommand::Flush(done_tx)).is_ok() {
                 let _ = done_rx.recv();
             }
+        }
+    }
+
+    pub fn path(&self) -> Option<&Path> {
+        self.db_path.as_deref()
+    }
+
+    pub fn append_messages(&self, conversation_id: String, messages: Vec<StoredMessage>) {
+        if let Some(ref tx) = self.write_tx {
+            let _ = tx.send(HistoryCommand::AppendMessages {
+                conversation_id,
+                messages,
+            });
         }
     }
 
