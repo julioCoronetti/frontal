@@ -1,7 +1,7 @@
 ## Project Overview & Core Constraints
 - Project: Frontal.
 - Purpose: High-performance, asynchronous, decoupled Terminal User Interface (TUI) harness for Antigravity CLI (`agy`) and `stream-json` compatible engines.
-- Status: Production architecture in Rust (version `0.9.1`), verified by 175 tests across 8 hermetic domains on branch `main`. Continuous flow driven by GitHub Project Board #8.
+- Status: Production architecture in Rust (version `0.10.0`), verified by 175 tests across 8 hermetic domains on branch `main`. Continuous flow driven by GitHub Project Board #8.
 - Stack: `tokio`, `tokio-util`, `bytes`, `futures-util`, `serde`, `serde_json`, `libc`, `ratatui` (0.29), `crossterm` (0.28), `pulldown-cmark` (0.12), `syntect` (5.2), `ropey` (1.6), `rusqlite` (0.32), `arboard` (3.4). Single-crate repository; no external dependencies allowed without explicit operator authorization.
 - Branches: `main` (active) and `origin/legacy` (Python/Textual prototype).
 
@@ -67,10 +67,10 @@ Commit messages and trailers are validated via `.agents/skills/frontal-card-life
 - `Card-Status: In Review` and `Done` require a clean `.wiki/` documentation mirror.
 
 ### SemVer Policy
-- Version Series `0.y.z`: Maturing software following SemVer. Version `0.9.1` represents production consolidation.
+- Version Series `0.y.z`: Maturing software following SemVer. Version `0.10.0` represents production consolidation.
 - Golden Rule: Never modify `version` in `Cargo.toml` during intermediate commits (`Card-Status: In Progress`).
 - Done Commit Bump: Version bump occurs exclusively in the closing commit (`Card-Status: Done`) authorized by the Senhor:
-  - Patch (`0.9.x`): Bug fixes (`fix(...)`) or pure refactorings (`refactor(...)`).
+  - Patch (`0.10.x`): Bug fixes (`fix(...)`) or pure refactorings (`refactor(...)`).
   - Minor (`0.x.0`): Structural features closing Project Board cards.
   - Every closing commit requires an annotated Git tag (`git tag -a vX.Y.Z -m "Release vX.Y.Z"`).
 - Symmetry: CLI (`frontal --version` / `frontal -V`) and TUI (`/help`) versions must match identically.
