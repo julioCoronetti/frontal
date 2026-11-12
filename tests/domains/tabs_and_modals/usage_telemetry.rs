@@ -60,3 +60,22 @@ fn test_parse_iso_ms_and_invalid_payloads() {
     );
     assert!(frontal::ui::modal::usage::opencode_api::parse_go_usage("{}").is_none());
 }
+
+#[test]
+fn test_parse_opencode_credential_value() {
+    assert_eq!(
+        frontal::ui::modal::usage::opencode_api::parse_credential_value(
+            r#"{"type":"key","key":"oc_test_value"}"#
+        )
+        .as_deref(),
+        Some("oc_test_value")
+    );
+    assert_eq!(
+        frontal::ui::modal::usage::opencode_api::parse_credential_value("{}"),
+        None
+    );
+    assert_eq!(
+        frontal::ui::modal::usage::opencode_api::parse_credential_value("not json"),
+        None
+    );
+}
