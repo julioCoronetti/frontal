@@ -13,7 +13,7 @@ O Frontal foi concebido originalmente como uma TUI desacoplada para o Antigravit
 1. **Isolamento Estrito do Agy**: O motor padrão do Google (`AgyEngine`) permanece 100% intacto em seu caminho de execução, com default `BackendKind::Agy` em todas as configurações e testes. Zero risco de regressão ou detecção.
 2. **Desacoplamento Visual pela Fronteira de Mensagens**: O núcleo da TUI (`TabState`, `RenderCache`, `MessageBlock`, `pulldown-cmark`, `Viewport`) consome exclusivamente a tipagem canônica `StreamEvent` via canal assíncrono `mpsc::Sender<SessionEnvelope>`. Nenhum componente de tela acessa binários ou protocolos externos diretamente.
 3. **Semântica Adaptada por Motor**: O `AgyEngine` é um daemon persistente interativo via pipe `stdin`/`stdout`. O `OpenCodeEngine` é um supervisor de processos efêmeros **por turno** (`opencode run --format json --thinking`), cuja terminação normal de processo encerra o turno e mantém a sessão ativa.
-4. **Governança Mecânica**: Limite estrito de 500 linhas por arquivo `.rs`, zero comentários no código-fonte, zero warnings no Clippy (`-D warnings`) e 168 testes de integração preservados.
+4. **Governança Mecânica**: Limite estrito de 500 linhas por arquivo `.rs`, zero comentários no código-fonte, zero warnings no Clippy (`-D warnings`) e 170 testes de integração preservados.
 
 ---
 
@@ -173,4 +173,14 @@ Cada fatia altera no máximo 5 arquivos e é validada via `quality_gate.sh`:
   - `src/ui/modal/usage/mod.rs` (inferência contextual de `/quota`)
   - `src/ui/app/commands/modals.rs` (despacho contextual no App)
   - `tests/domains/tabs_and_modals/` (testes de alternância de backend)
-- **Critério de Aceite**: Execução do quality gate completo (150+ testes, zero warnings, zero comentários, limite de 500 linhas).
+- **Critério de Aceite**: Execução do quality gate completo (170 testes, zero warnings, zero comentários, limite de 500 linhas).
+
+---
+
+## 7. Histórico e Retomada (`/resume`)
+
+- **Persistência**: ao fim de cada turno, os blocos consolidados (`user`, `assistant`, `thought`, `tool`) são gravados na tabela `messages` do `history.db`, com watermark por aba para evitar duplicação.
+- **Hidratação**: `hydrate_conversation` tenta primeiro o transcript do Agy (`~/.gemini/antigravity-cli/brain/<id>/...`) e, na ausência, reconstrói o `RenderCache` a partir do store do Frontal. Isso cobre sessões `ses_...` do OpenCode sem depender do formato privado de terceiros.
+- **Backend na retomada**: o `conversation_id` define o motor (`ses_` → OpenCode, UUID → Agy). A sessão estrangeira troca o backend em vez de ser descartada; trocas de modelo sem conversa continuam limpando ids incompatíveis.
+- **Título**: consulta o resumo do Agy e, como fallback, a tabela `sessions` do Frontal.
+- **Limite**: conversas iniciadas antes da persistência existir não têm transcript local e só reabrem quando houver transcript do Agy.

@@ -65,7 +65,7 @@ The codebase enforces strict decoupling into three cohesive architectural layers
 Frontal is operational in production (version `0.9.1`), fully verified by **170 tests across 8 domains**. Development progresses continuously via GitHub Project Board #8 cards across these consolidated domains:
 
 - **Foundation, `stream-json` Protocol, and Headless IPC:**
-  - Single Cargo workspace, session multiplexing via `SessionId`, typed `stream-json` protocol, dual `EngineTransport` implementations (`SubprocessEngine` and `FixtureReplayEngine`), async line decoding via `LinesCodec` (16 MB buffer), and POSIX process isolation (`setpgid`/`killpg`/`PR_SET_PDEATHSIG`).
+  - Single Cargo workspace, session multiplexing via `SessionId`, typed `stream-json` protocol, dual engines (`AgyEngine`/`SubprocessEngine` and `FixtureReplayEngine`), async line decoding via `LinesCodec` (16 MB buffer), and POSIX process isolation (`setpgid`/`killpg`/`PR_SET_PDEATHSIG`).
 - **Core TUI (60 FPS), Sticky Scroll Viewport, and 2-Level Cache:**
   - Non-blocking Ratatui event loop at 60 FPS, bracketed paste, TTY restore panic hook, deterministic sticky scroll, and 2-level render cache (L1 immutable AST, L2 width/revision indexed visual lines).
 - **Incremental Markdown Streaming, `syntect` Highlighting, and Tool Cards:**
@@ -74,6 +74,8 @@ Frontal is operational in production (version `0.9.1`), fully verified by **170 
   - Multiline B-Tree buffer, priority popover overlay, atomic mention tags (`@`, `/`), collapsed paste pills, async file searching worker, and persistent SQLite WAL command history.
 - **Multi-Session (`TabState`), Modal Stack (`DialogSelect`), Safety Guardian, and Hot-Respawn:**
   - Multi-tab management (`Alt+1..9`) via `SessionManager`, staged prompt barrier, local command dispatch, floating modal dialog stack with backdrop dimming, deterministic Safety Guardian (`DangerAssessment`) with confirmation containment modal for destructive actions, unified `DialogSelect` component (keyboard and mouse navigation), hot-respawn model switching, command palette (`Ctrl+P`), and integrated git diff viewer.
+- **Multi-Backend Harness (`FrontalEngine`), OpenCode Integration, and Resume Parity:**
+  - Decoupled `AgyEngine` (persistent pipe daemon, default) and `OpenCodeEngine` (per-turn `opencode run` supervisor) behind `FrontalEngine`, runtime model discovery via `opencode models`, dual catalogs in `/model`, contextual `/quota`, cross-backend `conversation_id` isolation, and per-conversation message persistence so `/resume` hydrates history on both engines.
 - **OpenCode Visual Ergonomics, Atlas Crimson Theme, and Clipboard Fidelity:**
   - Centered welcome state, fluid transition to 2-column layout (conversation + Context Sidebar), 2-column aligned autocomplete popover, scroll indicator, **Atlas Crimson** theme, normalized `/model` selector with reasoning effort slider (`◀ ●──◎──● ▶`), clean column 0 margin alignment, granular text selection in viewport, and faithful clipboard copying.
 

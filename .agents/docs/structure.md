@@ -23,10 +23,10 @@ Reference documentation for on-demand inspection of repository modules.
   - `src/ui/app/tabs.rs`: Multi-session management with O(1) tab switching and `TabState` single source of truth.
   - `src/ui/app/events/`: Non-blocking terminal event routing partitioned into `mod.rs`, `keyboard.rs`, and `mouse.rs`.
   - `src/ui/app/commands/`: Command dispatch, modal actions, session resume, and git diff partitioned into `mod.rs`, `modals.rs`, `resume.rs`, and `git_diff.rs`.
-  - `src/ui/app/stream.rs`: Streamlined asynchronous IPC engine envelope dispatch.
+  - `src/ui/app/stream.rs`: Streamlined asynchronous IPC engine envelope dispatch and per-turn conversation persistence.
   - `src/ui/app/render/`: 60 FPS drawing methods, layout calculation, and TUI widgets partitioned into `mod.rs`, `chrome.rs`, and `panes.rs`.
 - `src/ui/tab.rs`: Tab state management (`TabState`) and unified stream event handling (`apply_stream_event`).
-- `src/ui/history.rs`: Visual cache hydration bridge (`hydrate_cache_from_reader`).
+- `src/ui/history.rs`: Visual cache hydration bridge (`hydrate_cache_from_reader`, `hydrate_conversation`) with Agy transcript preference and Frontal store fallback.
 - `src/ui/cache/`: Partitioned 2-level render cache (`mod.rs`, `format.rs`, `slice.rs`).
 - `src/ui/viewport.rs`: Conversation viewport with state machine for sticky scroll and clean text selection.
 - `src/ui/markdown/`: Partitioned incremental `pulldown-cmark` parser (`mod.rs`, `normalize.rs`, `parse.rs`, `render.rs`).
