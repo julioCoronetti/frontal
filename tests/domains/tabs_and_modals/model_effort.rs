@@ -289,8 +289,8 @@ fn test_model_provider_list_selects_backend_and_shows_provider_in_search() {
         .iter()
         .map(|c| c.symbol())
         .collect::<String>();
-    assert!(rendered.contains("deepseek-v4.1-flash"));
-    assert!(rendered.contains("opencode-go"));
+    assert!(rendered.contains("DeepSeek V4.1 Flash"));
+    assert!(rendered.contains("OpenCode Go"));
 }
 
 #[test]
@@ -361,4 +361,28 @@ fn test_opencode_provider_drilldown_and_global_search() {
     );
     assert_eq!(positioned.provider.as_deref(), Some("opencode-go"));
     assert!(!positioned.showing_providers());
+}
+
+#[test]
+fn test_display_names_pretty_print_slugs() {
+    use frontal::ui::labels::{model_display_name, prettify_slug, provider_display_name};
+
+    assert_eq!(provider_display_name("agy"), "Antigravity");
+    assert_eq!(provider_display_name("opencode"), "OpenCode");
+    assert_eq!(provider_display_name("opencode-go"), "OpenCode Go");
+    assert_eq!(
+        prettify_slug("deepseek-v4.1-flash-free"),
+        "DeepSeek V4.1 Flash Free"
+    );
+    assert_eq!(prettify_slug("gemini-4-argon"), "Gemini 4 Argon");
+    assert_eq!(prettify_slug("claude-haiku-5-5"), "Claude Haiku 5.5");
+    assert_eq!(prettify_slug("gpt-5.6-luna"), "GPT 5.6 Luna");
+    assert_eq!(
+        model_display_name("opencode-go/deepseek-v4.1-flash"),
+        "DeepSeek V4.1 Flash"
+    );
+    assert_eq!(
+        model_display_name("gemini-3.8-flash-high"),
+        "Gemini 3.8 Flash"
+    );
 }

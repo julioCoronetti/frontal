@@ -49,7 +49,12 @@ impl App {
                     _ => self.user_config.backend,
                 };
                 self.modals.pop();
-                self.status_text = format!("Model: {} ({}) · {}", model, effort, backend.as_str());
+                self.status_text = format!(
+                    "Model: {} ({}) · {}",
+                    crate::ui::labels::model_display_name(&model),
+                    effort,
+                    backend.as_str()
+                );
                 self.user_config.backend = backend;
                 self.user_config.model = model.clone();
                 self.user_config.effort = effort.clone();

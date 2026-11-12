@@ -22,7 +22,7 @@ impl super::ModelEffortModal {
     pub(crate) fn rebuild_providers(&mut self) {
         let mut providers = vec![ProviderItem {
             id: AGY_PROVIDER_ID.to_string(),
-            name: "antigravity".to_string(),
+            name: crate::ui::labels::provider_display_name(AGY_PROVIDER_ID),
             count: self.agy_models.len(),
             backend: BackendKind::Agy,
         }];
@@ -36,7 +36,7 @@ impl super::ModelEffortModal {
                 existing.count += 1;
             } else {
                 providers.push(ProviderItem {
-                    name: id.clone(),
+                    name: crate::ui::labels::provider_display_name(&id),
                     id,
                     count: 1,
                     backend: BackendKind::OpenCode,
@@ -135,13 +135,18 @@ impl super::ModelEffortModal {
     }
 
     pub(crate) fn provider_label(&self, backend: BackendKind, model_id: &str) -> String {
-        match backend {
-            BackendKind::Agy => "antigravity".to_string(),
+        let id = match backend {
+            BackendKind::Agy => AGY_PROVIDER_ID.to_string(),
             BackendKind::OpenCode => model_id
                 .split_once('/')
                 .map(|(provider, _)| provider.to_string())
                 .unwrap_or_default(),
-        }
+        };
+        self.providers
+            .iter()
+            .find(|provider| provider.id == id)
+            .map(|provider| provider.name.clone())
+            .unwrap_or_else(|| crate::ui::labels::provider_display_name(&id))
     }
 
     pub(crate) fn activate_provider(&mut self, index: usize) {
@@ -199,9 +204,9 @@ impl super::ModelEffortModal {
             .collect();
         self.opencode_models = raw
             .into_iter()
-            .map(|(id, name)| ModelItem {
+            .map(|(id, _name)| ModelItem {
+                name: crate::ui::labels::model_display_name(&id),
                 id,
-                name,
                 supported_efforts: efforts.clone(),
             })
             .collect();

@@ -151,7 +151,10 @@ impl UsageModal {
         let total_tokens = accumulated.effective_total();
         let summary = UsageSummary {
             plan: UsagePlanInfo {
-                tier_name: format!("OpenCode · {}", model),
+                tier_name: format!(
+                    "OpenCode · {}",
+                    crate::ui::labels::model_display_name(model)
+                ),
                 account_email: None,
                 upgrade_url: None,
                 manage_url: None,

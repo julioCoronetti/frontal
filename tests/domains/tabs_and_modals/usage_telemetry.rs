@@ -19,10 +19,7 @@ fn test_usage_modal_for_opencode_context_and_cache_telemetry() {
     let UsageState::Ready(summary) = &*state else {
         panic!("expected ready telemetry")
     };
-    assert_eq!(
-        summary.plan.tier_name,
-        "OpenCode · opencode-go/deepseek-v4.1-flash"
-    );
+    assert_eq!(summary.plan.tier_name, "OpenCode · DeepSeek V4.1 Flash");
     assert_eq!(summary.groups[0].name, "Context Window");
     assert_eq!(summary.groups[0].buckets[0].remaining_pct, 50.0);
     assert_eq!(summary.groups[1].buckets[0].remaining_pct, 50.0);

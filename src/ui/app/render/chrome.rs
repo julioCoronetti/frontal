@@ -65,10 +65,10 @@ impl App {
     }
 
     pub(crate) fn render_input(&self, frame: &mut Frame, input_area: Rect) -> Option<(u16, u16)> {
-        let model_name = self.active_model_name();
+        let model_name = crate::ui::labels::model_display_name(&self.active_model_name());
         let effort_name = self.active_effort_name();
-        let input_title = if model_name.ends_with(&format!("-{}", effort_name)) {
-            format!(" Input · {} ", model_name)
+        let input_title = if model_name.is_empty() {
+            format!(" Input · {} ", effort_name)
         } else {
             format!(" Input · {} ({}) ", model_name, effort_name)
         };
