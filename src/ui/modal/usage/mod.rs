@@ -107,10 +107,7 @@ impl UsageModal {
         last_turn: Option<crate::protocol::TokenUsage>,
         accumulated: crate::protocol::TokenUsage,
     ) -> Self {
-        let token = std::env::var("OPENCODE_GO_API_KEY")
-            .ok()
-            .filter(|value| !value.trim().is_empty());
-        let Some(token) = token else {
+        let Some(token) = opencode_api::resolve_go_token() else {
             return Self::for_opencode(model, last_turn, accumulated);
         };
         if let Ok(guard) = OPENCODE_USAGE_CACHE.lock() {

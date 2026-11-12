@@ -1,7 +1,10 @@
 use std::io::Write;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::Sender;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use rusqlite::{Connection, OpenFlags};
 
 use super::fetch::civil_to_days;
 use super::{QuotaBucket, QuotaGroup, UsagePlanInfo, UsageState, UsageSummary};
@@ -115,6 +118,48 @@ pub fn summary_from_go(usage: &GoUsage) -> UsageSummary {
             ],
         }],
     }
+}
+
+pub fn resolve_go_token() -> Option<String> {
+    if let Ok(value) = std::env::var("OPENCODE_GO_API_KEY") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+    let data_dir = std::env::var("XDG_DATA_HOME")
+        .ok()
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var("HOME")
+                .ok()
+                .map(|home| PathBuf::from(home).join(".local/share"))
+        })?;
+    let db_path = data_dir.join("opencode").join("opencode.db");
+    if !db_path.is_file() {
+        return None;
+    }
+    let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+    let _ = conn.busy_timeout(Duration::from_millis(200));
+    let mut stmt = conn
+        .prepare(
+            "SELECT value FROM credential
+             WHERE integration_id = 'opencode-go' AND active = 1 LIMIT 1",
+        )
+        .ok()?;
+    let mut rows = stmt.query([]).ok()?;
+    let row = rows.next().ok()??;
+    let value: String = row.get(0).ok()?;
+    parse_credential_value(&value)
+}
+
+pub fn parse_credential_value(value: &str) -> Option<String> {
+    let parsed: serde_json::Value = serde_json::from_str(value).ok()?;
+    parsed
+        .get("key")
+        .and_then(|key| key.as_str())
+        .map(|key| key.trim().to_string())
+        .filter(|key| !key.is_empty())
 }
 
 pub fn fetch_go_usage(token: &str) -> Result<GoUsage, String> {
