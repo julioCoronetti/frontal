@@ -71,8 +71,9 @@ fn test_clipboard_selection_no_padding_or_indent_pollution() {
     cache.push_user_message("user prompt text");
     cache.append_streaming_delta(BlockKind::Assistant, "assistant markdown text");
     cache.consolidate_active_turn(None);
-    cache.append_streaming_delta(BlockKind::Thought, "internal thought reasoning");
+    let thought_id = cache.append_streaming_delta(BlockKind::Thought, "internal thought reasoning");
     cache.consolidate_active_turn(None);
+    cache.toggle_block_collapsed(thought_id);
     cache.ensure_visual_lines(80);
 
     let mut viewport = ConversationViewport::new();

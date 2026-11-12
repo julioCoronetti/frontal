@@ -177,13 +177,14 @@ impl RenderCache {
         }
         let id = self.next_block_id;
         self.next_block_id += 1;
+        let collapsed = matches!(kind, BlockKind::Thought);
         self.blocks.push(MessageBlock {
             id,
             kind,
             content: delta.to_string(),
             revision: 1,
             consolidated: false,
-            collapsed: false,
+            collapsed,
             tool_args: None,
             step_index: None,
             code_highlighters: Vec::new(),

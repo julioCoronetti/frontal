@@ -258,18 +258,18 @@ fn test_thought_block_selective_l2_invalidation_and_collapse() {
     cache.consolidate_active_turn(None);
 
     let initial_lines = cache.ensure_visual_lines(80);
-    assert!(initial_lines > 5);
+    assert!(initial_lines >= 3);
 
     let hits_1 = cache.cache_hits();
     let misses_1 = cache.cache_misses();
     assert_eq!(misses_1, 3);
     assert_eq!(hits_1, 0);
 
-    let collapsed = cache.toggle_block_collapsed(thought_id);
-    assert!(collapsed);
+    let expanded = cache.toggle_block_collapsed(thought_id);
+    assert!(!expanded);
 
-    let collapsed_lines = cache.ensure_visual_lines(80);
-    assert!(collapsed_lines < initial_lines);
+    let expanded_lines = cache.ensure_visual_lines(80);
+    assert!(expanded_lines > initial_lines);
 
     let hits_2 = cache.cache_hits();
     let misses_2 = cache.cache_misses();
@@ -277,8 +277,8 @@ fn test_thought_block_selective_l2_invalidation_and_collapse() {
     assert_eq!(misses_2 - misses_1, 1);
     assert_eq!(hits_2 - hits_1, 2);
 
-    let uncollapsed = cache.toggle_block_collapsed(thought_id);
-    assert!(!uncollapsed);
+    let collapsed = cache.toggle_block_collapsed(thought_id);
+    assert!(collapsed);
 
     let restored_lines = cache.ensure_visual_lines(80);
     assert_eq!(restored_lines, initial_lines);

@@ -197,6 +197,7 @@ impl RenderCache {
                         "- Thought",
                         Style::default().fg(Color::Yellow),
                     )]));
+                    result.push(Line::from(""));
                     let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
                     for row in wrapped {
                         result.push(Line::from(vec![
