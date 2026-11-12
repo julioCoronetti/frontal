@@ -20,7 +20,11 @@ impl ModelEffortModal {
             .style(Style::default().bg(Color::Reset));
 
         let mut lines = Vec::new();
-        let title = format!(" Select Model: [{}]", self.backend_label());
+        let title = if self.showing_providers() {
+            format!(" Select Provider: [{}]", self.backend_label())
+        } else {
+            format!(" Select Model: [{}]", self.backend_label())
+        };
         let esc_pad = (area.width as usize).saturating_sub(title.chars().count() + 8);
         let title_style = Style::default()
             .fg(TEXT_PRIMARY)
@@ -65,7 +69,47 @@ impl ModelEffortModal {
             0
         };
 
-        if filtered.is_empty() {
+        if self.showing_providers() {
+            if self.providers.is_empty() {
+                lines.push(Line::from(vec![Span::styled(
+                    "   No providers available",
+                    Style::default().fg(TEXT_MUTED),
+                )]));
+            } else {
+                let provider_offset = if self.selected_provider_idx >= visible_count {
+                    self.selected_provider_idx + 1 - visible_count
+                } else {
+                    0
+                };
+                for (display_idx, provider) in self
+                    .providers
+                    .iter()
+                    .enumerate()
+                    .skip(provider_offset)
+                    .take(visible_count)
+                {
+                    let is_sel = display_idx == self.selected_provider_idx;
+                    let style = if is_sel {
+                        Style::default()
+                            .fg(ACCENT_PRIMARY)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(TEXT_PRIMARY)
+                    };
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            if is_sel { " ● " } else { "   " },
+                            Style::default().fg(if is_sel { ACCENT_PRIMARY } else { TEXT_MUTED }),
+                        ),
+                        Span::styled(&provider.name, style),
+                        Span::styled(
+                            format!("  ({} models)", provider.count),
+                            Style::default().fg(TEXT_MUTED),
+                        ),
+                    ]));
+                }
+            }
+        } else if filtered.is_empty() {
             lines.push(Line::from(vec![Span::styled(
                 "   No models matching query",
                 Style::default().fg(TEXT_MUTED),
@@ -78,7 +122,7 @@ impl ModelEffortModal {
                 .take(visible_count)
             {
                 let is_sel = display_idx == self.selected_model_idx;
-                let m = &self.models[real_idx];
+                let m = &self.active_pool()[real_idx];
                 let is_current = self
                     .current_model
                     .as_ref()
@@ -110,7 +154,7 @@ impl ModelEffortModal {
         lines.push(Line::raw(""));
 
         let efforts = self.current_supported_efforts();
-        if !efforts.is_empty() {
+        if !efforts.is_empty() && !self.showing_providers() {
             let seg_len = if efforts.len() <= 3 { 7 } else { 5 };
             let seg_str = "─".repeat(seg_len);
             let track_nodes_len = efforts.len().saturating_sub(1) * (seg_len + 1) + 1;

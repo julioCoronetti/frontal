@@ -7,9 +7,13 @@ use crate::ui::modal::ModalAction;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModelEffortStep {
+    SelectProvider,
     SelectModel,
     SelectEffort,
 }
+
+mod providers;
+pub use providers::ProviderItem;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModelItem {
@@ -23,6 +27,9 @@ pub struct ModelEffortModal {
     pub backend: BackendKind,
     pub query: String,
     pub models: Vec<ModelItem>,
+    pub providers: Vec<ProviderItem>,
+    pub provider: Option<String>,
+    pub selected_provider_idx: usize,
     pub agy_models: Vec<ModelItem>,
     pub opencode_models: Vec<ModelItem>,
     pub fallback_efforts: Vec<String>,
@@ -63,6 +70,9 @@ impl ModelEffortModal {
             agy_models: items.clone(),
             opencode_models: Vec::new(),
             models: items,
+            providers: Vec::new(),
+            provider: None,
+            selected_provider_idx: 0,
             fallback_efforts: fallback,
             selected_model_idx: 0,
             selected_effort_idx: initial_effort_idx,
@@ -77,8 +87,17 @@ impl ModelEffortModal {
         current_effort: Option<String>,
     ) -> Self {
         if let Some(ref cur_m) = current_model {
+            if self.backend == BackendKind::OpenCode {
+                if let Some(provider) = cur_m.split_once('/').map(|(p, _)| p.to_string()) {
+                    if self.providers.iter().any(|item| item.id == provider) {
+                        self.provider = Some(provider);
+                        self.step = ModelEffortStep::SelectModel;
+                        self.scope_models_to_provider();
+                    }
+                }
+            }
             if let Some(pos) = self
-                .models
+                .active_pool()
                 .iter()
                 .position(|m| &m.id == cur_m || cur_m.starts_with(&format!("{}-", m.id)))
             {
@@ -189,44 +208,30 @@ impl ModelEffortModal {
         if self.backend == backend {
             return;
         }
-        match self.backend {
-            BackendKind::Agy => self.agy_models = self.models.clone(),
-            BackendKind::OpenCode => self.opencode_models = self.models.clone(),
-        }
         self.backend = backend;
-        self.models = match backend {
-            BackendKind::Agy => self.agy_models.clone(),
-            BackendKind::OpenCode => self.opencode_models.clone(),
-        };
+        self.provider = None;
+        self.selected_provider_idx = 0;
         self.query.clear();
+        match backend {
+            BackendKind::Agy => {
+                self.step = ModelEffortStep::SelectModel;
+                self.models = self.agy_models.clone();
+            }
+            BackendKind::OpenCode => {
+                self.step = ModelEffortStep::SelectProvider;
+                self.rebuild_providers();
+                self.models = self.opencode_models.clone();
+            }
+        }
         self.selected_model_idx = 0;
         let idx = Self::default_effort_for_model(self.current_supported_efforts()).0;
         self.selected_effort_idx = idx;
     }
 
-    pub fn set_opencode_models(&mut self, raw: Vec<(String, String)>) {
-        let efforts: Vec<String> = ["low", "medium", "high", "xhigh", "max"]
-            .iter()
-            .map(|effort| effort.to_string())
-            .collect();
-        let normalized: Vec<ModelItem> = raw
-            .into_iter()
-            .map(|(id, name)| ModelItem {
-                id,
-                name,
-                supported_efforts: efforts.clone(),
-            })
-            .collect();
-        if self.backend == BackendKind::OpenCode {
-            self.models = normalized.clone();
-        }
-        self.opencode_models = normalized;
-    }
-
     pub fn current_supported_efforts(&self) -> &[String] {
         let filtered = self.filtered_indices();
         if let Some(&idx) = filtered.get(self.selected_model_idx) {
-            return &self.models[idx].supported_efforts;
+            return &self.active_pool()[idx].supported_efforts;
         }
         &self.fallback_efforts
     }
@@ -245,7 +250,7 @@ impl ModelEffortModal {
 
     pub fn filtered_indices(&self) -> Vec<usize> {
         let q = self.query.trim().to_lowercase();
-        self.models
+        self.active_pool()
             .iter()
             .enumerate()
             .filter(|(_, m)| {
@@ -297,9 +302,27 @@ impl ModelEffortModal {
         let max_model = self.filtered_indices().len().saturating_sub(1);
         let max_eff = self.current_supported_efforts().len().saturating_sub(1);
 
+        let showing_providers = self.showing_providers();
+        let max_provider = self.providers.len().saturating_sub(1);
+
         match key.code {
-            KeyCode::Esc => ModalAction::Close,
+            KeyCode::Esc => {
+                if self.backend == BackendKind::OpenCode
+                    && self.step == ModelEffortStep::SelectModel
+                {
+                    self.step = ModelEffortStep::SelectProvider;
+                    self.provider = None;
+                    self.models = self.opencode_models.clone();
+                    self.selected_model_idx = 0;
+                    return ModalAction::None;
+                }
+                ModalAction::Close
+            }
             KeyCode::Up => {
+                if showing_providers {
+                    self.selected_provider_idx = self.selected_provider_idx.saturating_sub(1);
+                    return ModalAction::None;
+                }
                 let prev_eff = self
                     .current_supported_efforts()
                     .get(self.selected_effort_idx)
@@ -309,6 +332,12 @@ impl ModelEffortModal {
                 ModalAction::None
             }
             KeyCode::Down => {
+                if showing_providers {
+                    if self.selected_provider_idx < max_provider {
+                        self.selected_provider_idx += 1;
+                    }
+                    return ModalAction::None;
+                }
                 if self.selected_model_idx < max_model {
                     let prev_eff = self
                         .current_supported_efforts()
@@ -320,14 +349,23 @@ impl ModelEffortModal {
                 ModalAction::None
             }
             KeyCode::Left => {
+                if showing_providers {
+                    return ModalAction::None;
+                }
                 self.selected_effort_idx = self.selected_effort_idx.saturating_sub(1);
                 ModalAction::None
             }
             KeyCode::Right => {
+                if showing_providers {
+                    return ModalAction::None;
+                }
                 self.selected_effort_idx = (self.selected_effort_idx + 1).min(max_eff);
                 ModalAction::None
             }
             KeyCode::Tab => {
+                if showing_providers {
+                    return ModalAction::None;
+                }
                 let effs = self.current_supported_efforts();
                 if !effs.is_empty() {
                     self.selected_effort_idx = (self.selected_effort_idx + 1) % effs.len();
@@ -335,6 +373,9 @@ impl ModelEffortModal {
                 ModalAction::None
             }
             KeyCode::BackTab => {
+                if showing_providers {
+                    return ModalAction::None;
+                }
                 let effs = self.current_supported_efforts();
                 if !effs.is_empty() {
                     self.selected_effort_idx =
@@ -343,9 +384,17 @@ impl ModelEffortModal {
                 ModalAction::None
             }
             KeyCode::Enter => {
+                if showing_providers {
+                    if let Some(provider) = self.providers.get(self.selected_provider_idx) {
+                        self.provider = Some(provider.id.clone());
+                        self.step = ModelEffortStep::SelectModel;
+                        self.scope_models_to_provider();
+                    }
+                    return ModalAction::None;
+                }
                 let filtered = self.filtered_indices();
                 if let Some(&real_idx) = filtered.get(self.selected_model_idx) {
-                    let model = self.models[real_idx].id.clone();
+                    let model = self.active_pool()[real_idx].id.clone();
                     let efforts = self.current_supported_efforts();
                     let effort = efforts
                         .get(self.selected_effort_idx)
