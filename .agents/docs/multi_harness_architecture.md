@@ -120,9 +120,10 @@ O contrato canônico é o enum existente em `src/core/protocol/mod.rs`: `Init`, 
 - Falha de descoberta (binário ausente ou saída vazia) produz catálogo vazio e mensagem explícita na UI; não há substituição silenciosa por modelos inventados.
 
 ### B. Modal `/model` (`ModelEffortModal`)
-- **Seletor de Harness**: exibido em linha de cabeçalho já existente, sem acrescentar linhas verticais ao modal (o layout de 18 linhas é encaixe exato e a linha do slider não pode ser cortada).
-- **Alternância**: exclusivamente `F2` e `Ctrl+H`. Dígitos puros (`1`, `2`) permanecem entrada de busca do filtro de modelos.
-- **Catálogo Dinâmico**: ao alternar o harness, a lista é trocada pelo catálogo do motor correspondente, preservando os modelos do outro harness para restauração imediata.
+- **Seleção unificada por provedor**: o modal abre na lista de provedores, com `antigravity` (Agy) e cada provedor do OpenCode derivado do catálogo, exibindo a contagem de modelos.
+- **Navegação**: `Enter` no provedor define o backend e o escopo; `Esc` no nível de modelos retorna à lista de provedores; `Esc` nos provedores fecha o modal.
+- **Busca global**: qualquer texto digitado pesquisa simultaneamente nos catálogos Agy e OpenCode, e cada resultado exibe o provedor alinhado à direita. No nível de modelos do provedor, a coluna de provedor é omitida.
+- **Layout**: modal ampliado (56% x 62%, limites 48×16 a 72×26) para acomodar a lista e a coluna de provedor; o slider de esforço continua oculto no nível de provedores.
 - **Tratamento de Esforço**:
   - Para `Agy`: níveis de raciocínio existentes (`Low`, `Medium`, `High`, `Max`) mapeados para `--effort`.
   - Para `OpenCode`: o esforço vira o sufixo `#variant` de `--model` (`Low -> low`, `Medium -> high`, `High -> max`). `--thinking` é sempre habilitado para receber raciocínio.
