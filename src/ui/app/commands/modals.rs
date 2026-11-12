@@ -128,7 +128,7 @@ impl App {
                     }
                     "view_usage" => {
                         let modal = if self.backend == crate::config::BackendKind::OpenCode {
-                            crate::ui::modal::UsageModal::for_opencode(
+                            crate::ui::modal::UsageModal::load_opencode(
                                 &self.active_model_name(),
                                 self.last_turn_usage,
                                 self.accumulated_usage,

@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{QuotaBucket, QuotaGroup, UsagePlanInfo, UsageState, UsageSummary};
 
-fn civil_to_days(mut y: i64, m: u64, d: u64) -> i64 {
+pub(crate) fn civil_to_days(mut y: i64, m: u64, d: u64) -> i64 {
     y -= (m <= 2) as i64;
     let era = if y >= 0 { y } else { y - 399 } / 400;
     let yoe = (y - era * 400) as u64;

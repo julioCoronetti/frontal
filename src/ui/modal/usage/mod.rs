@@ -1,5 +1,6 @@
 pub mod cli;
 pub mod fetch;
+pub mod opencode_api;
 pub mod render;
 
 use std::cell::Cell;
@@ -17,6 +18,7 @@ pub use fetch::format_reset_time;
 use crate::ui::modal::ModalAction;
 
 pub static USAGE_CACHE: Mutex<Option<(Instant, UsageSummary)>> = Mutex::new(None);
+pub static OPENCODE_USAGE_CACHE: Mutex<Option<(Instant, UsageSummary)>> = Mutex::new(None);
 pub static FETCH_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Debug, PartialEq)]
@@ -100,11 +102,49 @@ impl UsageModal {
         }
     }
 
+    pub fn load_opencode(
+        model: &str,
+        last_turn: Option<crate::protocol::TokenUsage>,
+        accumulated: crate::protocol::TokenUsage,
+    ) -> Self {
+        let token = std::env::var("OPENCODE_GO_API_KEY")
+            .ok()
+            .filter(|value| !value.trim().is_empty());
+        let Some(token) = token else {
+            return Self::for_opencode(model, last_turn, accumulated);
+        };
+        if let Ok(guard) = OPENCODE_USAGE_CACHE.lock() {
+            if let Some((instant, ref summary)) = *guard {
+                if instant.elapsed() < Duration::from_secs(60) {
+                    return Self::with_data(summary.clone());
+                }
+            }
+        }
+        let fallback = Self::local_opencode_summary(model, last_turn, accumulated);
+        let (tx, rx) = channel();
+        opencode_api::fetch_async(token, fallback, tx);
+        Self {
+            state: Arc::new(Mutex::new(UsageState::Loading)),
+            scroll_offset: 0,
+            max_scroll: Cell::new(0),
+            allow_network: true,
+            rx: Some(Arc::new(Mutex::new(rx))),
+        }
+    }
+
     pub fn for_opencode(
         model: &str,
         last_turn: Option<crate::protocol::TokenUsage>,
         accumulated: crate::protocol::TokenUsage,
     ) -> Self {
+        Self::with_data(Self::local_opencode_summary(model, last_turn, accumulated))
+    }
+
+    pub(crate) fn local_opencode_summary(
+        model: &str,
+        last_turn: Option<crate::protocol::TokenUsage>,
+        accumulated: crate::protocol::TokenUsage,
+    ) -> UsageSummary {
         let window = crate::protocol::context_window_for_model(model).max(1);
         let used = last_turn
             .map(|usage| usage.input_tokens.saturating_add(usage.cache_read_tokens))
@@ -152,7 +192,7 @@ impl UsageModal {
                 },
             ],
         };
-        Self::with_data(summary)
+        summary
     }
 
     pub fn offline_fallback() -> Self {
