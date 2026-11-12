@@ -7,7 +7,8 @@ use ratatui::Frame;
 use crate::ui::app::App;
 use crate::ui::editor::TriggerKind;
 use crate::ui::theme::{
-    ACCENT_HIGHLIGHT, ACCENT_RUBY, BORDER_SUBTLE, TAB_ACTIVE_DOT, TEXT_MUTED, TEXT_PRIMARY,
+    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BORDER_SUBTLE, TAB_ACTIVE_DOT, TEXT_MUTED,
+    TEXT_PRIMARY,
 };
 
 impl App {
@@ -126,8 +127,11 @@ impl App {
         let mut input_widget = Paragraph::new(input_text).block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(input_title)
-                .border_style(Style::default().fg(BORDER_SUBTLE))
+                .title(Line::from(Span::styled(
+                    input_title,
+                    Style::default().fg(ACCENT_PRIMARY),
+                )))
+                .border_style(Style::default().fg(ACCENT_PRIMARY))
                 .padding(ratatui::widgets::Padding::horizontal(1)),
         );
         if scroll_y > 0 {
