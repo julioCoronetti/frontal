@@ -282,3 +282,74 @@ fn test_model_effort_modal_backend_toggle_preserves_catalogs_and_query() {
     assert!(rendered.contains("[Agy]"));
     assert!(rendered.contains('◎'));
 }
+
+#[test]
+fn test_opencode_provider_drilldown_and_global_search() {
+    let mut modal = ModelEffortModal::with_models(vec![(
+        "gemini-3.8-flash-high".to_string(),
+        "Gemini".to_string(),
+    )]);
+    modal.set_opencode_models(vec![
+        (
+            "opencode-go/deepseek-v4.1-flash".to_string(),
+            "deepseek-v4.1-flash".to_string(),
+        ),
+        (
+            "opencode-go/gemini-4-argon".to_string(),
+            "gemini-4-argon".to_string(),
+        ),
+        (
+            "opencode/deepseek-v4.1-flash-free".to_string(),
+            "deepseek-v4.1-flash-free".to_string(),
+        ),
+    ]);
+    modal.set_backend(frontal::config::BackendKind::OpenCode);
+
+    assert!(modal.showing_providers());
+    assert_eq!(modal.providers.len(), 2);
+    assert_eq!(modal.providers[0].id, "opencode");
+    assert_eq!(modal.providers[0].count, 1);
+    assert_eq!(modal.providers[1].id, "opencode-go");
+    assert_eq!(modal.providers[1].count, 2);
+
+    modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(!modal.showing_providers());
+    assert_eq!(modal.models.len(), 2);
+    assert!(modal
+        .models
+        .iter()
+        .all(|model| model.id.starts_with("opencode-go/")));
+
+    modal.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(modal.showing_providers());
+
+    modal.set_query("free");
+    assert!(!modal.showing_providers());
+    let action = modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        action,
+        ModalAction::SelectModelEffort {
+            model: "opencode/deepseek-v4.1-flash-free".to_string(),
+            effort: "high".to_string(),
+        }
+    );
+
+    let mut positioned = ModelEffortModal::with_models(vec![(
+        "gemini-3.8-flash-high".to_string(),
+        "Gemini".to_string(),
+    )]);
+    let raw: Vec<(String, String)> = modal
+        .opencode_models
+        .iter()
+        .map(|model| (model.id.clone(), model.name.clone()))
+        .collect();
+    positioned.set_opencode_models(raw);
+    positioned.set_backend(frontal::config::BackendKind::OpenCode);
+    let positioned = positioned.with_initial_selection(
+        Some("opencode-go/gemini-4-argon".to_string()),
+        Some("high".to_string()),
+    );
+    assert_eq!(positioned.provider.as_deref(), Some("opencode-go"));
+    assert!(!positioned.showing_providers());
+}

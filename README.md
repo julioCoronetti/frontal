@@ -6,7 +6,7 @@ Decoupled, asynchronous, high-performance Terminal User Interface (TUI) harness 
 
 ## 1. Overview
 
-Frontal provides a high-performance terminal presentation layer designed for the stable, responsive rendering of continuous LLM token streams. The harness consumes structured events (NDJSON) over process pipes (`stdin`/`stdout`), fully decoupling the AI engine lifecycle from the visual interface. Architectural stability is verified by a unified suite of **173 tests across 8 domains**.
+Frontal provides a high-performance terminal presentation layer designed for the stable, responsive rendering of continuous LLM token streams. The harness consumes structured events (NDJSON) over process pipes (`stdin`/`stdout`), fully decoupling the AI engine lifecycle from the visual interface. Architectural stability is verified by a unified suite of **174 tests across 8 domains**.
 
 The design is informed by comparative analysis of two reference harnesses:
 - **Antigravity CLI (`agy`)**: Benchmark for operational simplicity, process stability, and a streamlined `stream-json` protocol.
@@ -62,7 +62,7 @@ The codebase enforces strict decoupling into three cohesive architectural layers
 
 ## 5. Consolidated Capabilities and Continuous Evolution
 
-Frontal is operational in production (version `0.9.1`), fully verified by **173 tests across 8 domains**. Development progresses continuously via GitHub Project Board #8 cards across these consolidated domains:
+Frontal is operational in production (version `0.9.1`), fully verified by **174 tests across 8 domains**. Development progresses continuously via GitHub Project Board #8 cards across these consolidated domains:
 
 - **Foundation, `stream-json` Protocol, and Headless IPC:**
   - Single Cargo workspace, session multiplexing via `SessionId`, typed `stream-json` protocol, dual engines (`AgyEngine`/`SubprocessEngine` and `FixtureReplayEngine`), async line decoding via `LinesCodec` (16 MB buffer), and POSIX process isolation (`setpgid`/`killpg`/`PR_SET_PDEATHSIG`).
@@ -75,7 +75,7 @@ Frontal is operational in production (version `0.9.1`), fully verified by **173 
 - **Multi-Session (`TabState`), Modal Stack (`DialogSelect`), Safety Guardian, and Hot-Respawn:**
   - Multi-tab management (`Alt+1..9`) via `SessionManager`, staged prompt barrier, local command dispatch, floating modal dialog stack with backdrop dimming, deterministic Safety Guardian (`DangerAssessment`) with confirmation containment modal for destructive actions, unified `DialogSelect` component (keyboard and mouse navigation), hot-respawn model switching, command palette (`Ctrl+P`), and integrated git diff viewer.
 - **Multi-Backend Harness (`FrontalEngine`), OpenCode Integration, and Resume Parity:**
-  - Decoupled `AgyEngine` (persistent pipe daemon, default) and `OpenCodeEngine` (per-turn `opencode run` supervisor) behind `FrontalEngine`, runtime model discovery via `opencode models`, dual catalogs in `/model`, contextual `/quota` with Go usage windows read from the stored OpenCode credential (`OPENCODE_GO_API_KEY` or the local OpenCode database), cross-backend `conversation_id` isolation, and per-conversation message persistence so `/resume` hydrates history on both engines.
+  - Decoupled `AgyEngine` (persistent pipe daemon, default) and `OpenCodeEngine` (per-turn `opencode run` supervisor) behind `FrontalEngine`, runtime model discovery via `opencode models`, dual catalogs in `/model` with provider drill-down and global model search, contextual `/quota` with Go usage windows read from the stored OpenCode credential (`OPENCODE_GO_API_KEY` or the local OpenCode database), cross-backend `conversation_id` isolation, and per-conversation message persistence so `/resume` hydrates history on both engines.
 - **OpenCode Visual Ergonomics, Atlas Crimson Theme, and Clipboard Fidelity:**
   - Centered welcome state, fluid transition to 2-column layout (conversation + Context Sidebar), 2-column aligned autocomplete popover, scroll indicator, **Atlas Crimson** theme, normalized `/model` selector with reasoning effort slider (`◀ ●──◎──● ▶`), clean column 0 margin alignment, granular text selection in viewport, and faithful clipboard copying.
 
@@ -92,7 +92,7 @@ Frontal is operational in production (version `0.9.1`), fully verified by **173 
 # Optimized release build
 cargo build --release
 
-# Execute full 173 tests across 8 domains
+# Execute full 174 tests across 8 domains
 cargo test --quiet
 ```
 
@@ -118,7 +118,7 @@ cargo run --release -- --headless -p "Describe the project architecture"
 Detailed technical documentation is available on the [GitHub Wiki](https://github.com/julioCoronetti/frontal/wiki):
 
 - **[Home](https://github.com/julioCoronetti/frontal/wiki/Home)**: Central documentation index.
-- **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: Official Rust implementation architecture (v0.9.1), modules, Atlas Crimson theme, and 173 tests suite.
+- **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: Official Rust implementation architecture (v0.9.1), modules, Atlas Crimson theme, and 174 tests suite.
 - **[Board-Roadmap](https://github.com/julioCoronetti/frontal/wiki/Board-Roadmap)**: Architecture specification, Rust tech stack, decision matrix, consolidated capabilities, and Project Board evolution.
 - **Antigravity CLI (`agy`) Dossier**:
   - [Agy](https://github.com/julioCoronetti/frontal/wiki/Agy): Official CLI overview.
