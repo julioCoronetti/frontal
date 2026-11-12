@@ -37,6 +37,51 @@ pub fn hydrate_cache_from_reader<R: BufRead>(reader: R, cache: &mut RenderCache)
     cache.block_count().saturating_sub(initial_count)
 }
 
+pub fn hydrate_conversation(
+    conv_id: &str,
+    cache: &mut RenderCache,
+    db_path: Option<&std::path::Path>,
+) -> bool {
+    if hydrate_cache_from_transcript(conv_id, cache) {
+        return true;
+    }
+    let Some(path) = db_path else {
+        return false;
+    };
+    let messages = crate::infra::history::conversation_messages_at(path, conv_id);
+    if messages.is_empty() {
+        return false;
+    }
+    for message in messages {
+        match message.role.as_str() {
+            "user" => {
+                cache.push_user_message(&message.content);
+            }
+            "assistant" => {
+                cache.push_historical_assistant_message(&message.content);
+            }
+            "thought" => {
+                cache.push_historical_thought(&message.content);
+            }
+            "tool" => {
+                cache.push_historical_tool_call(
+                    message.step_index,
+                    message.tool_name.as_deref().unwrap_or("tool"),
+                    message.tool_args.as_deref(),
+                    Some(message.content.as_str()),
+                );
+            }
+            _ => {}
+        }
+    }
+    true
+}
+
+pub fn conversation_title(conv_id: &str, db_path: Option<&std::path::Path>) -> Option<String> {
+    query_agent_conversation_title(conv_id)
+        .or_else(|| db_path.and_then(|path| conversation_title_at(path, conv_id)))
+}
+
 pub fn hydrate_cache_from_transcript(conv_id: &str, cache: &mut RenderCache) -> bool {
     let path = match transcript_path_for_conversation(conv_id) {
         Some(p) => p,

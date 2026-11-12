@@ -290,7 +290,7 @@ async fn test_resume_modal_filters_uuid_fallbacks_and_deduplicates_open_sessions
 }
 
 #[tokio::test]
-async fn test_switching_backend_clears_conversation_id() {
+async fn test_resume_switches_backend_to_conversation_origin() {
     let (mut app, _) = test_app();
     app.user_config.backend = frontal::config::BackendKind::OpenCode;
     let new_session_id = app
@@ -298,34 +298,46 @@ async fn test_switching_backend_clears_conversation_id() {
         .await
         .unwrap();
     let meta = app.session_manager.get_metadata(&new_session_id).unwrap();
-    assert!(meta.conversation_id.is_none());
-    assert_eq!(app.tabs[0].backend, frontal::config::BackendKind::OpenCode);
+    assert_eq!(meta.conversation_id.as_deref(), Some("conv-agy-1"));
+    assert_eq!(app.tabs[0].backend, frontal::config::BackendKind::Agy);
+    assert_eq!(app.user_config.backend, frontal::config::BackendKind::Agy);
 
-    let (mut same_backend_app, _) = test_app();
-    same_backend_app.user_config.backend = frontal::config::BackendKind::Agy;
-    let preserved = same_backend_app
-        .respawn_active_session(Some("conv-agy-2".to_string()), None, None, None)
+    let (mut opencode_app, _) = test_app();
+    opencode_app.user_config.backend = frontal::config::BackendKind::Agy;
+    let switched = opencode_app
+        .respawn_active_session(Some("ses_native".to_string()), None, None, None)
         .await
         .unwrap();
     assert_eq!(
-        same_backend_app
+        opencode_app
             .session_manager
-            .get_metadata(&preserved)
+            .get_metadata(&switched)
             .unwrap()
             .conversation_id
             .as_deref(),
-        Some("conv-agy-2")
+        Some("ses_native")
+    );
+    assert_eq!(
+        opencode_app.tabs[0].backend,
+        frontal::config::BackendKind::OpenCode
     );
 
-    let (mut agy_app, _) = test_app();
-    agy_app.user_config.backend = frontal::config::BackendKind::Agy;
-    let rejected = agy_app
-        .respawn_active_session(Some("ses_foreign".to_string()), None, None, None)
+    let (mut model_app, initial) = test_app();
+    model_app.session_manager.set_session_metadata(
+        &initial,
+        Some("conv-agy-2".to_string()),
+        None,
+        None,
+        None,
+    );
+    model_app.user_config.backend = frontal::config::BackendKind::OpenCode;
+    let respawned = model_app
+        .respawn_active_session(None, Some("gemini-3.8-flash-high".to_string()), None, None)
         .await
         .unwrap();
-    assert!(agy_app
+    assert!(model_app
         .session_manager
-        .get_metadata(&rejected)
+        .get_metadata(&respawned)
         .unwrap()
         .conversation_id
         .is_none());

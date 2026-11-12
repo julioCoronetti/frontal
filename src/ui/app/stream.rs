@@ -1,5 +1,7 @@
+use crate::infra::history::StoredMessage;
 use crate::protocol::{EngineEvent, SessionEnvelope, StreamEvent};
 use crate::ui::app::App;
+use crate::ui::cache::BlockKind;
 use crate::ui::modal::{DangerConfirmationModal, Modal};
 use crate::ui::notify::emit_sensory_notification;
 use crate::ui::tab::StreamOutcome;
@@ -91,6 +93,7 @@ impl App {
                 };
                 let outcome =
                     self.tabs[tab_idx].apply_stream_event(&boxed_ev, &mode, &model, is_active);
+                let completed = matches!(&outcome, Some(StreamOutcome::TurnCompleted { .. }));
                 match outcome {
                     Some(StreamOutcome::DangerRequired(danger)) => {
                         if is_active {
@@ -119,6 +122,9 @@ impl App {
                         }
                     }
                     None => {}
+                }
+                if completed {
+                    self.persist_completed_turn(tab_idx);
                 }
                 self.dirty = true;
             }
@@ -154,5 +160,46 @@ impl App {
                 self.dirty = true;
             }
         }
+    }
+
+    fn persist_completed_turn(&mut self, tab_idx: usize) {
+        let Some(conversation_id) = self
+            .session_manager
+            .get_metadata(&self.tabs[tab_idx].session_id)
+            .and_then(|meta| meta.conversation_id.clone())
+        else {
+            return;
+        };
+        let last_persisted = self.tabs[tab_idx].persisted_block_id;
+        let mut messages = Vec::new();
+        let mut max_id = last_persisted;
+        for block in self.tabs[tab_idx].cache.blocks() {
+            if !block.consolidated || block.id <= last_persisted {
+                continue;
+            }
+            max_id = max_id.max(block.id);
+            let role = match &block.kind {
+                BlockKind::User => "user",
+                BlockKind::Assistant => "assistant",
+                BlockKind::Thought => "thought",
+                BlockKind::Tool { .. } => "tool",
+                BlockKind::Error => continue,
+            };
+            let (tool_name, tool_args) = match &block.kind {
+                BlockKind::Tool { name, .. } => (Some(name.clone()), block.tool_args.clone()),
+                _ => (None, None),
+            };
+            messages.push(StoredMessage {
+                role: role.to_string(),
+                content: block.content.clone(),
+                tool_name,
+                tool_args,
+                step_index: block.step_index,
+            });
+        }
+        if !messages.is_empty() {
+            self.history.append_messages(conversation_id, messages);
+        }
+        self.tabs[tab_idx].persisted_block_id = max_id;
     }
 }

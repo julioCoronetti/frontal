@@ -109,17 +109,24 @@ impl App {
             .as_ref()
             .map(|config| config.backend)
             .unwrap_or(self.tabs[self.active_tab_index].backend);
-        let target_backend = self.user_config.backend;
+        let requested_backend = conversation_id.as_deref().map(|id| {
+            if id.starts_with("ses_") {
+                BackendKind::OpenCode
+            } else {
+                BackendKind::Agy
+            }
+        });
+        let target_backend = requested_backend.unwrap_or(self.user_config.backend);
+        if let Some(backend) = requested_backend {
+            self.user_config.backend = backend;
+        }
         let backend_changed = target_backend != prev_backend;
-        let final_conv_id = if backend_changed {
-            None
-        } else {
-            conversation_id
-                .or(prev_conv_id.clone())
-                .filter(|id| match target_backend {
-                    BackendKind::OpenCode => id.starts_with("ses_"),
-                    BackendKind::Agy => !id.starts_with("ses_"),
-                })
+        let final_conv_id = match conversation_id {
+            Some(id) => Some(id),
+            None if backend_changed => None,
+            None => prev_conv_id
+                .clone()
+                .filter(|id| backend_compatible(target_backend, id)),
         };
         let final_model = model.or(prev_model);
         let final_effort = effort.or(prev_effort);
@@ -180,13 +187,16 @@ impl App {
         if is_different_conv || self.cache.is_empty() {
             if let Some(ref cid) = final_conv_id {
                 let cid_clone = cid.clone();
+                let db_path = self.history.path().map(|path| path.to_path_buf());
                 let mut hydrated_cache = crate::ui::cache::RenderCache::new();
                 let (hydrated, new_cache, maybe_title) = tokio::task::spawn_blocking(move || {
-                    let ok = crate::ui::history::hydrate_cache_from_transcript(
+                    let ok = crate::ui::history::hydrate_conversation(
                         &cid_clone,
                         &mut hydrated_cache,
+                        db_path.as_deref(),
                     );
-                    let title = crate::ui::history::query_agent_conversation_title(&cid_clone);
+                    let title =
+                        crate::ui::history::conversation_title(&cid_clone, db_path.as_deref());
                     (ok, hydrated_cache, title)
                 })
                 .await
@@ -206,9 +216,22 @@ impl App {
             }
         }
 
+        self.tabs[self.active_tab_index].persisted_block_id = self
+            .cache
+            .blocks()
+            .last()
+            .map(|block| block.id)
+            .unwrap_or(0);
         self.sync_session_to_history(&new_id);
         self.status_text = format!("Respawned session: {}", new_id);
         self.dirty = true;
         Ok(new_id)
+    }
+}
+
+fn backend_compatible(backend: BackendKind, conversation_id: &str) -> bool {
+    match backend {
+        BackendKind::OpenCode => conversation_id.starts_with("ses_"),
+        BackendKind::Agy => !conversation_id.starts_with("ses_"),
     }
 }

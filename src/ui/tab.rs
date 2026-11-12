@@ -27,6 +27,7 @@ pub struct TabState {
     pub pending_danger: Option<crate::security::DangerAssessment>,
     pub suspended_events: Vec<StreamEvent>,
     pub queued_prompts: std::collections::VecDeque<String>,
+    pub persisted_block_id: u64,
 }
 
 impl TabState {
@@ -48,6 +49,7 @@ impl TabState {
             pending_danger: None,
             suspended_events: Vec::new(),
             queued_prompts: std::collections::VecDeque::new(),
+            persisted_block_id: 0,
         }
     }
 
