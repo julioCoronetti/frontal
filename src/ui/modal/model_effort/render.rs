@@ -158,7 +158,7 @@ impl ModelEffortModal {
         let efforts = self.current_supported_efforts();
         if !efforts.is_empty() && !self.showing_providers() {
             let seg_len = if efforts.len() <= 3 { 7 } else { 5 };
-            let seg_str = "─".repeat(seg_len);
+            let seg_str = "━".repeat(seg_len);
             let track_nodes_len = efforts.len().saturating_sub(1) * (seg_len + 1) + 1;
             let total_track_len = 1 + 2 + track_nodes_len + 2 + 1;
             let pad_left = (area.width as usize)

@@ -187,7 +187,7 @@ fn test_model_effort_modal_rendering_layout_and_slider() {
         for y in 0..buffer.area.height {
             for x in 0..buffer.area.width {
                 let cell = buffer.cell((x, y)).unwrap();
-                if cell.symbol() == "─" {
+                if cell.symbol() == "━" {
                     red |= cell.fg == ACCENT_PRIMARY;
                     gray |= cell.fg == TEXT_MUTED;
                 }
