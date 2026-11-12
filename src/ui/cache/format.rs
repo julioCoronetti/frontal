@@ -211,6 +211,7 @@ impl RenderCache {
                         ]));
                     }
                 }
+                result.push(Line::from(""));
             }
             BlockKind::Tool { name, state } => {
                 let max_args_len = (width as usize).saturating_sub(name.chars().count() + 25);

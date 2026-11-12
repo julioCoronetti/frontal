@@ -93,8 +93,8 @@ fn test_clipboard_selection_no_padding_or_indent_pollution() {
 
     let total = cache.total_lines();
     assert!(total >= 7);
-    viewport.start_selection(total - 1, 2);
-    viewport.update_selection(total - 1, 28);
+    viewport.start_selection(total - 2, 2);
+    viewport.update_selection(total - 2, 28);
     let thought_selected = viewport.selected_text(&cache).unwrap();
     assert_eq!(thought_selected, "internal thought reasoning");
 }
