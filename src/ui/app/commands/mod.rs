@@ -58,7 +58,6 @@ impl App {
         } else if trimmed == "/model" || trimmed.starts_with("/model ") {
             let mut modal = ModelEffortModal::with_models(self.available_models.clone());
             modal.set_opencode_models(self.opencode_models.clone());
-            modal.set_backend(self.backend);
             let mut modal = modal.with_initial_selection(
                 Some(self.active_model_name()),
                 Some(self.active_effort_name()),

@@ -351,7 +351,7 @@ fn test_select_model_effort_persists_modal_backend() {
         "opencode-go/deepseek-v4.1-flash".to_string(),
         "deepseek-v4.1-flash".to_string(),
     )]);
-    modal.set_backend(frontal::config::BackendKind::OpenCode);
+    modal.backend = frontal::config::BackendKind::OpenCode;
     app.modals.push(Modal::ModelEffort(modal));
 
     let action = app.dispatch_modal_action(ModalAction::SelectModelEffort {

@@ -13,7 +13,7 @@ pub enum ModelEffortStep {
 }
 
 mod providers;
-pub use providers::ProviderItem;
+pub use providers::{ListEntry, ProviderItem, AGY_PROVIDER_ID};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModelItem {
@@ -29,7 +29,6 @@ pub struct ModelEffortModal {
     pub models: Vec<ModelItem>,
     pub providers: Vec<ProviderItem>,
     pub provider: Option<String>,
-    pub selected_provider_idx: usize,
     pub agy_models: Vec<ModelItem>,
     pub opencode_models: Vec<ModelItem>,
     pub fallback_efforts: Vec<String>,
@@ -63,8 +62,8 @@ impl ModelEffortModal {
             .first()
             .map(|m| Self::default_effort_for_model(&m.supported_efforts).0)
             .unwrap_or(0);
-        Self {
-            step: ModelEffortStep::SelectModel,
+        let mut modal = Self {
+            step: ModelEffortStep::SelectProvider,
             backend: BackendKind::Agy,
             query: String::new(),
             agy_models: items.clone(),
@@ -72,13 +71,14 @@ impl ModelEffortModal {
             models: items,
             providers: Vec::new(),
             provider: None,
-            selected_provider_idx: 0,
             fallback_efforts: fallback,
             selected_model_idx: 0,
             selected_effort_idx: initial_effort_idx,
             current_model: None,
             current_effort: None,
-        }
+        };
+        modal.rebuild_providers();
+        modal
     }
 
     pub fn with_initial_selection(
@@ -86,34 +86,42 @@ impl ModelEffortModal {
         current_model: Option<String>,
         current_effort: Option<String>,
     ) -> Self {
-        if let Some(ref cur_m) = current_model {
-            if self.backend == BackendKind::OpenCode {
-                if let Some(provider) = cur_m.split_once('/').map(|(p, _)| p.to_string()) {
-                    if self.providers.iter().any(|item| item.id == provider) {
-                        self.provider = Some(provider);
-                        self.step = ModelEffortStep::SelectModel;
-                        self.scope_models_to_provider();
-                    }
-                }
-            }
-            if let Some(pos) = self
-                .active_pool()
+        if let Some(ref cur_model) = current_model {
+            let (backend, provider) = match cur_model.split_once('/') {
+                Some((provider, _)) => (BackendKind::OpenCode, Some(provider.to_string())),
+                None => (BackendKind::Agy, Some(AGY_PROVIDER_ID.to_string())),
+            };
+            let known = self
+                .providers
                 .iter()
-                .position(|m| &m.id == cur_m || cur_m.starts_with(&format!("{}-", m.id)))
-            {
+                .any(|item| Some(&item.id) == provider.as_ref());
+            if known {
+                self.backend = backend;
+                self.provider = provider;
+                self.step = ModelEffortStep::SelectModel;
+                self.scope_models_to_provider();
+            }
+            if let Some(pos) = self.visible_entries().iter().position(|entry| match entry {
+                ListEntry::Model { backend, index } => {
+                    let id = &self.model_pool(*backend)[*index].id;
+                    id == cur_model || cur_model.starts_with(&format!("{}-", id))
+                }
+                ListEntry::Provider(_) => false,
+            }) {
                 self.selected_model_idx = pos;
             }
         }
-        let effs = self.current_supported_efforts();
-        if let Some(ref cur_e) = current_effort {
-            if let Some(pos) = effs.iter().position(|e| e == cur_e) {
-                self.selected_effort_idx = pos;
-            } else {
-                self.selected_effort_idx = Self::default_effort_for_model(effs).0;
+        let effort_idx = {
+            let efforts = self.current_supported_efforts();
+            match current_effort {
+                Some(ref effort) => efforts
+                    .iter()
+                    .position(|candidate| candidate == effort)
+                    .unwrap_or_else(|| Self::default_effort_for_model(efforts).0),
+                None => Self::default_effort_for_model(efforts).0,
             }
-        } else {
-            self.selected_effort_idx = Self::default_effort_for_model(effs).0;
-        }
+        };
+        self.selected_effort_idx = effort_idx;
         self.current_model = current_model;
         self.current_effort = current_effort;
         self
@@ -196,44 +204,11 @@ impl ModelEffortModal {
         }
     }
 
-    pub fn toggle_backend(&mut self) {
-        let next = match self.backend {
-            BackendKind::Agy => BackendKind::OpenCode,
-            BackendKind::OpenCode => BackendKind::Agy,
-        };
-        self.set_backend(next);
-    }
-
-    pub fn set_backend(&mut self, backend: BackendKind) {
-        if self.backend == backend {
-            return;
-        }
-        self.backend = backend;
-        self.provider = None;
-        self.selected_provider_idx = 0;
-        self.query.clear();
-        match backend {
-            BackendKind::Agy => {
-                self.step = ModelEffortStep::SelectModel;
-                self.models = self.agy_models.clone();
-            }
-            BackendKind::OpenCode => {
-                self.step = ModelEffortStep::SelectProvider;
-                self.rebuild_providers();
-                self.models = self.opencode_models.clone();
-            }
-        }
-        self.selected_model_idx = 0;
-        let idx = Self::default_effort_for_model(self.current_supported_efforts()).0;
-        self.selected_effort_idx = idx;
-    }
-
     pub fn current_supported_efforts(&self) -> &[String] {
-        let filtered = self.filtered_indices();
-        if let Some(&idx) = filtered.get(self.selected_model_idx) {
-            return &self.active_pool()[idx].supported_efforts;
+        match self.selected_model() {
+            Some(model) => &model.supported_efforts,
+            None => &self.fallback_efforts,
         }
-        &self.fallback_efforts
     }
 
     pub fn default_effort_for_model(efforts: &[String]) -> (usize, String) {
@@ -249,18 +224,12 @@ impl ModelEffortModal {
     }
 
     pub fn filtered_indices(&self) -> Vec<usize> {
-        let q = self.query.trim().to_lowercase();
-        self.active_pool()
+        self.visible_entries()
             .iter()
-            .enumerate()
-            .filter(|(_, m)| {
-                if q.is_empty() {
-                    true
-                } else {
-                    m.id.to_lowercase().contains(&q) || m.name.to_lowercase().contains(&q)
-                }
+            .filter_map(|entry| match entry {
+                ListEntry::Model { index, .. } => Some(*index),
+                ListEntry::Provider(_) => None,
             })
-            .map(|(i, _)| i)
             .collect()
     }
 
@@ -299,28 +268,21 @@ impl ModelEffortModal {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> ModalAction {
-        let max_model = self.filtered_indices().len().saturating_sub(1);
+        let max_entry = self.visible_entries().len().saturating_sub(1);
+        let efforts_visible = !self.showing_providers() && self.selected_model().is_some();
         let max_eff = self.current_supported_efforts().len().saturating_sub(1);
-
-        let showing_providers = self.showing_providers();
-        let max_provider = self.providers.len().saturating_sub(1);
 
         match key.code {
             KeyCode::Esc => {
-                if self.backend == BackendKind::OpenCode
-                    && self.step == ModelEffortStep::SelectModel
-                {
-                    self.step = ModelEffortStep::SelectProvider;
-                    self.provider = None;
-                    self.models = self.opencode_models.clone();
-                    self.selected_model_idx = 0;
+                if self.step == ModelEffortStep::SelectModel && !self.searching() {
+                    self.back_to_providers();
                     return ModalAction::None;
                 }
                 ModalAction::Close
             }
             KeyCode::Up => {
-                if showing_providers {
-                    self.selected_provider_idx = self.selected_provider_idx.saturating_sub(1);
+                if self.showing_providers() {
+                    self.selected_model_idx = self.selected_model_idx.saturating_sub(1);
                     return ModalAction::None;
                 }
                 let prev_eff = self
@@ -332,13 +294,11 @@ impl ModelEffortModal {
                 ModalAction::None
             }
             KeyCode::Down => {
-                if showing_providers {
-                    if self.selected_provider_idx < max_provider {
-                        self.selected_provider_idx += 1;
-                    }
+                if self.showing_providers() {
+                    self.selected_model_idx = (self.selected_model_idx + 1).min(max_entry);
                     return ModalAction::None;
                 }
-                if self.selected_model_idx < max_model {
+                if self.selected_model_idx < max_entry {
                     let prev_eff = self
                         .current_supported_efforts()
                         .get(self.selected_effort_idx)
@@ -349,69 +309,68 @@ impl ModelEffortModal {
                 ModalAction::None
             }
             KeyCode::Left => {
-                if showing_providers {
+                if !efforts_visible {
                     return ModalAction::None;
                 }
                 self.selected_effort_idx = self.selected_effort_idx.saturating_sub(1);
                 ModalAction::None
             }
             KeyCode::Right => {
-                if showing_providers {
+                if !efforts_visible {
                     return ModalAction::None;
                 }
                 self.selected_effort_idx = (self.selected_effort_idx + 1).min(max_eff);
                 ModalAction::None
             }
             KeyCode::Tab => {
-                if showing_providers {
+                if !efforts_visible {
                     return ModalAction::None;
                 }
-                let effs = self.current_supported_efforts();
-                if !effs.is_empty() {
-                    self.selected_effort_idx = (self.selected_effort_idx + 1) % effs.len();
+                let efforts = self.current_supported_efforts();
+                if !efforts.is_empty() {
+                    self.selected_effort_idx = (self.selected_effort_idx + 1) % efforts.len();
                 }
                 ModalAction::None
             }
             KeyCode::BackTab => {
-                if showing_providers {
+                if !efforts_visible {
                     return ModalAction::None;
                 }
-                let effs = self.current_supported_efforts();
-                if !effs.is_empty() {
+                let efforts = self.current_supported_efforts();
+                if !efforts.is_empty() {
                     self.selected_effort_idx =
-                        (self.selected_effort_idx + effs.len() - 1) % effs.len();
+                        (self.selected_effort_idx + efforts.len() - 1) % efforts.len();
                 }
                 ModalAction::None
             }
             KeyCode::Enter => {
-                if showing_providers {
-                    if let Some(provider) = self.providers.get(self.selected_provider_idx) {
-                        self.provider = Some(provider.id.clone());
-                        self.step = ModelEffortStep::SelectModel;
-                        self.scope_models_to_provider();
-                    }
+                if self.showing_providers() {
+                    self.activate_provider(self.selected_model_idx);
                     return ModalAction::None;
                 }
-                let filtered = self.filtered_indices();
-                if let Some(&real_idx) = filtered.get(self.selected_model_idx) {
-                    let model = self.active_pool()[real_idx].id.clone();
-                    let efforts = self.current_supported_efforts();
-                    let effort = efforts
-                        .get(self.selected_effort_idx)
-                        .cloned()
-                        .unwrap_or_else(|| "high".to_string());
-                    ModalAction::SelectModelEffort { model, effort }
-                } else {
-                    ModalAction::None
+                match self.selected_entry() {
+                    Some(ListEntry::Model { backend, index }) => {
+                        let (model_id, provider_label, effort) = {
+                            let model = &self.model_pool(backend)[index];
+                            (
+                                model.id.clone(),
+                                self.provider_label(backend, &model.id),
+                                model
+                                    .supported_efforts
+                                    .get(self.selected_effort_idx)
+                                    .cloned()
+                                    .unwrap_or_else(|| "high".to_string()),
+                            )
+                        };
+                        self.backend = backend;
+                        self.provider = Some(provider_label);
+                        ModalAction::SelectModelEffort {
+                            model: model_id,
+                            effort,
+                        }
+                    }
+                    _ => ModalAction::None,
                 }
-            }
-            KeyCode::F(2) => {
-                self.toggle_backend();
-                ModalAction::None
-            }
-            KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.toggle_backend();
-                ModalAction::None
             }
             KeyCode::Char(c)
                 if !key.modifiers.contains(KeyModifiers::CONTROL)

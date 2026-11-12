@@ -4,7 +4,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
-use super::ModelEffortModal;
+use super::{ListEntry, ModelEffortModal};
 use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY};
 
 impl ModelEffortModal {
@@ -21,18 +21,18 @@ impl ModelEffortModal {
 
         let mut lines = Vec::new();
         let title = if self.showing_providers() {
-            format!(" Select Provider: [{}]", self.backend_label())
+            " Select Provider:"
         } else {
-            format!(" Select Model: [{}]", self.backend_label())
+            " Select Model:"
         };
-        let esc_pad = (area.width as usize).saturating_sub(title.chars().count() + 8);
+        let esc_pad = (area.width as usize).saturating_sub(title.chars().count() + 5);
         let title_style = Style::default()
             .fg(TEXT_PRIMARY)
             .add_modifier(Modifier::BOLD);
         lines.push(Line::from(vec![
-            Span::styled(title.as_str(), title_style),
+            Span::styled(title, title_style),
             Span::styled(
-                format!("{:>esc_pad$}", "F2 esc "),
+                format!("{:>esc_pad$}", "esc "),
                 Style::default().fg(TEXT_MUTED),
             ),
         ]));
@@ -60,7 +60,7 @@ impl ModelEffortModal {
         )]));
         lines.push(Line::raw(""));
 
-        let filtered = self.filtered_indices();
+        let entries = self.visible_entries();
         let visible_count = area.height.saturating_sub(10) as usize;
         let visible_count = visible_count.max(1);
         let scroll_offset = if self.selected_model_idx >= visible_count {
@@ -69,85 +69,87 @@ impl ModelEffortModal {
             0
         };
 
-        if self.showing_providers() {
-            if self.providers.is_empty() {
-                lines.push(Line::from(vec![Span::styled(
-                    "   No providers available",
-                    Style::default().fg(TEXT_MUTED),
-                )]));
-            } else {
-                let provider_offset = if self.selected_provider_idx >= visible_count {
-                    self.selected_provider_idx + 1 - visible_count
-                } else {
-                    0
-                };
-                for (display_idx, provider) in self
-                    .providers
-                    .iter()
-                    .enumerate()
-                    .skip(provider_offset)
-                    .take(visible_count)
-                {
-                    let is_sel = display_idx == self.selected_provider_idx;
-                    let style = if is_sel {
-                        Style::default()
-                            .fg(ACCENT_PRIMARY)
-                            .add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(TEXT_PRIMARY)
-                    };
-                    lines.push(Line::from(vec![
-                        Span::styled(
-                            if is_sel { " ● " } else { "   " },
-                            Style::default().fg(if is_sel { ACCENT_PRIMARY } else { TEXT_MUTED }),
-                        ),
-                        Span::styled(&provider.name, style),
-                        Span::styled(
-                            format!("  ({} models)", provider.count),
-                            Style::default().fg(TEXT_MUTED),
-                        ),
-                    ]));
-                }
-            }
-        } else if filtered.is_empty() {
+        if entries.is_empty() {
             lines.push(Line::from(vec![Span::styled(
-                "   No models matching query",
+                "   No results",
                 Style::default().fg(TEXT_MUTED),
             )]));
         } else {
-            for (display_idx, &real_idx) in filtered
+            for (display_idx, entry) in entries
                 .iter()
                 .enumerate()
                 .skip(scroll_offset)
                 .take(visible_count)
             {
                 let is_sel = display_idx == self.selected_model_idx;
-                let m = &self.active_pool()[real_idx];
-                let is_current = self
-                    .current_model
-                    .as_ref()
-                    .map(|cur| cur == &m.id || cur.starts_with(&format!("{}-", m.id)))
-                    .unwrap_or(false);
-
-                let bullet = if is_sel { " ● " } else { "   " };
-                let current_label = if is_current { "  (current)" } else { "" };
-
-                let style = if is_sel {
-                    Style::default()
-                        .fg(ACCENT_PRIMARY)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(TEXT_PRIMARY)
-                };
-
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        bullet,
-                        Style::default().fg(if is_sel { ACCENT_PRIMARY } else { TEXT_MUTED }),
-                    ),
-                    Span::styled(&m.name, style),
-                    Span::styled(current_label, Style::default().fg(TEXT_MUTED)),
-                ]));
+                match entry {
+                    ListEntry::Provider(index) => {
+                        let provider = &self.providers[*index];
+                        let style = if is_sel {
+                            Style::default()
+                                .fg(ACCENT_PRIMARY)
+                                .add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(TEXT_PRIMARY)
+                        };
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                if is_sel { " ● " } else { "   " },
+                                Style::default().fg(if is_sel {
+                                    ACCENT_PRIMARY
+                                } else {
+                                    TEXT_MUTED
+                                }),
+                            ),
+                            Span::styled(&provider.name, style),
+                            Span::styled(
+                                format!("  ({} models)", provider.count),
+                                Style::default().fg(TEXT_MUTED),
+                            ),
+                        ]));
+                    }
+                    ListEntry::Model { backend, index } => {
+                        let model = &self.model_pool(*backend)[*index];
+                        let is_current = self
+                            .current_model
+                            .as_ref()
+                            .map(|cur| {
+                                cur == &model.id || cur.starts_with(&format!("{}-", model.id))
+                            })
+                            .unwrap_or(false);
+                        let style = if is_sel {
+                            Style::default()
+                                .fg(ACCENT_PRIMARY)
+                                .add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(TEXT_PRIMARY)
+                        };
+                        let current_label = if is_current { "  (current)" } else { "" };
+                        let mut spans = vec![
+                            Span::styled(
+                                if is_sel { " ● " } else { "   " },
+                                Style::default().fg(if is_sel {
+                                    ACCENT_PRIMARY
+                                } else {
+                                    TEXT_MUTED
+                                }),
+                            ),
+                            Span::styled(&model.name, style),
+                            Span::styled(current_label, Style::default().fg(TEXT_MUTED)),
+                        ];
+                        if self.searching() {
+                            let provider = self.provider_label(*backend, &model.id);
+                            let content_width = area.width.saturating_sub(2) as usize;
+                            let used = 3 + model.name.chars().count() + current_label.len();
+                            let spaces = content_width
+                                .saturating_sub(used + provider.chars().count())
+                                .max(1);
+                            spans.push(Span::raw(" ".repeat(spaces)));
+                            spans.push(Span::styled(provider, Style::default().fg(TEXT_MUTED)));
+                        }
+                        lines.push(Line::from(spans));
+                    }
+                }
             }
         }
 

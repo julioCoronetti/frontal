@@ -12,6 +12,9 @@ fn test_model_effort_selector_two_step_flow() {
     let mut modal = ModelEffortModal::new();
     assert_eq!(modal.selected_model_idx, 0);
 
+    let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    assert_eq!(modal.handle_key(enter), ModalAction::None);
+
     let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
     modal.handle_key(down);
     assert_eq!(modal.selected_model_idx, 1);
@@ -38,6 +41,7 @@ fn test_model_effort_selector_two_step_flow() {
 #[test]
 fn test_model_effort_query_filtering_and_effort_cycling() {
     let mut modal = ModelEffortModal::new();
+    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(modal.filtered_indices().len(), modal.models.len());
 
     let char_s = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE);
@@ -112,6 +116,7 @@ fn test_model_catalog_normalization_and_effort_decoupling() {
     assert_eq!(modal.models[2].name, "Custom Model");
 
     let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    assert_eq!(modal.handle_key(enter), ModalAction::None);
     let act = modal.handle_key(enter);
     assert_eq!(
         act,
@@ -139,6 +144,7 @@ fn test_model_catalog_normalization_and_effort_decoupling() {
 #[test]
 fn test_model_effort_modal_rendering_layout_and_slider() {
     let mut modal = ModelEffortModal::new();
+    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     let backend = TestBackend::new(50, 18);
     let mut terminal = Terminal::new(backend).unwrap();
 
@@ -245,7 +251,7 @@ fn test_model_effort_modal_restores_last_selected_effort_and_model() {
 }
 
 #[test]
-fn test_model_effort_modal_backend_toggle_preserves_catalogs_and_query() {
+fn test_model_provider_list_selects_backend_and_shows_provider_in_search() {
     let mut modal = ModelEffortModal::with_models(vec![(
         "gemini-3.8-flash-high".to_string(),
         "Gemini 3.8 Flash (High)".to_string(),
@@ -254,21 +260,25 @@ fn test_model_effort_modal_backend_toggle_preserves_catalogs_and_query() {
         "opencode-go/deepseek-v4.1-flash".to_string(),
         "deepseek-v4.1-flash".to_string(),
     )]);
-    assert_eq!(modal.backend, frontal::config::BackendKind::Agy);
+    assert!(modal.showing_providers());
+    assert_eq!(modal.providers.len(), 2);
+    assert_eq!(modal.providers[0].id, "agy");
+    assert_eq!(modal.providers[1].id, "opencode-go");
 
-    modal.handle_key(KeyEvent::new(KeyCode::F(2), KeyModifiers::NONE));
+    let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    modal.handle_key(enter);
+    assert!(!modal.showing_providers());
+    assert_eq!(modal.backend, frontal::config::BackendKind::Agy);
+    assert_eq!(modal.models[0].id, "gemini-3.8-flash");
+
+    modal.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(modal.showing_providers());
+    modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    modal.handle_key(enter);
     assert_eq!(modal.backend, frontal::config::BackendKind::OpenCode);
     assert_eq!(modal.models[0].id, "opencode-go/deepseek-v4.1-flash");
 
-    modal.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
-    assert_eq!(modal.query, "b");
-    assert_eq!(modal.backend, frontal::config::BackendKind::OpenCode);
-
-    modal.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL));
-    assert_eq!(modal.backend, frontal::config::BackendKind::Agy);
-    assert_eq!(modal.models[0].id, "gemini-3.8-flash");
-    assert!(modal.query.is_empty());
-
+    modal.set_query("deep");
     let backend = TestBackend::new(50, 18);
     let mut terminal = Terminal::new(backend).unwrap();
     terminal.draw(|f| modal.render(f, f.area())).unwrap();
@@ -279,8 +289,8 @@ fn test_model_effort_modal_backend_toggle_preserves_catalogs_and_query() {
         .iter()
         .map(|c| c.symbol())
         .collect::<String>();
-    assert!(rendered.contains("[Agy]"));
-    assert!(rendered.contains('◎'));
+    assert!(rendered.contains("deepseek-v4.1-flash"));
+    assert!(rendered.contains("opencode-go"));
 }
 
 #[test]
@@ -303,15 +313,15 @@ fn test_opencode_provider_drilldown_and_global_search() {
             "deepseek-v4.1-flash-free".to_string(),
         ),
     ]);
-    modal.set_backend(frontal::config::BackendKind::OpenCode);
-
     assert!(modal.showing_providers());
-    assert_eq!(modal.providers.len(), 2);
-    assert_eq!(modal.providers[0].id, "opencode");
-    assert_eq!(modal.providers[0].count, 1);
-    assert_eq!(modal.providers[1].id, "opencode-go");
-    assert_eq!(modal.providers[1].count, 2);
+    assert_eq!(modal.providers.len(), 3);
+    assert_eq!(modal.providers[0].id, "agy");
+    assert_eq!(modal.providers[1].id, "opencode");
+    assert_eq!(modal.providers[1].count, 1);
+    assert_eq!(modal.providers[2].id, "opencode-go");
+    assert_eq!(modal.providers[2].count, 2);
 
+    modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(!modal.showing_providers());
@@ -345,7 +355,6 @@ fn test_opencode_provider_drilldown_and_global_search() {
         .map(|model| (model.id.clone(), model.name.clone()))
         .collect();
     positioned.set_opencode_models(raw);
-    positioned.set_backend(frontal::config::BackendKind::OpenCode);
     let positioned = positioned.with_initial_selection(
         Some("opencode-go/gemini-4-argon".to_string()),
         Some("high".to_string()),
