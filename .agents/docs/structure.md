@@ -33,7 +33,7 @@ Reference documentation for on-demand inspection of repository modules.
 - `src/ui/highlight.rs`: Incremental line-by-line syntax highlighting via `syntect` with state checkpoints.
 - `src/ui/editor/`: Multi-line prompt editor backed by B-Tree (`ropey`), atomic extmarks (`@`, `/`), and paste pills (`mod.rs`, `mutations.rs`, `navigation.rs`).
 - `src/ui/autocomplete.rs`: Floating popover autocompletion for commands and files (`FileSearchWorker`).
-- `src/ui/modal/`: Partitioned floating modal stack (`mod.rs`, `danger.rs`, `diff.rs`, `model_effort/`, `palette.rs`, `respawn.rs`, `select.rs`, `usage/`).
+- `src/ui/modal/`: Partitioned floating modal stack (`mod.rs`, `danger.rs`, `diff.rs`, `model_effort/`, `palette.rs`, `select.rs`, `usage/`).
 - `src/ui/diff.rs`: Integrated unified diff viewer.
 - `src/ui/notify.rs`: Terminal sensory notifications (audio bell and visual flash).
 - `src/ui/terminal.rs`: Raw mode bootstrap, bracketed paste, and TTY recovery panic hook.

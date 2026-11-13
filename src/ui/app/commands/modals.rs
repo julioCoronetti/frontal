@@ -1,5 +1,5 @@
 use crate::ui::app::{App, AppAction};
-use crate::ui::modal::{DiffModal, HotRespawnModal, Modal, ModalAction, ModelEffortModal};
+use crate::ui::modal::{DiffModal, Modal, ModalAction, ModelEffortModal};
 
 impl App {
     pub fn dispatch_modal_action(&mut self, action: ModalAction) -> Option<Option<AppAction>> {
@@ -101,19 +101,6 @@ impl App {
                             Some(self.active_effort_name()),
                         );
                         self.modals.push(Modal::ModelEffort(modal));
-                        Some(None)
-                    }
-                    "hot_respawn" => {
-                        let conv_id = self
-                            .session_manager
-                            .get_metadata(&self.active_session)
-                            .and_then(|m| m.conversation_id.clone());
-                        let model = Some(self.active_model_name());
-                        let effort = Some(self.active_effort_name());
-                        let mode = Some(self.active_mode_name());
-                        self.modals.push(Modal::HotRespawn(HotRespawnModal::new(
-                            conv_id, model, effort, mode,
-                        )));
                         Some(None)
                     }
                     "resume_session" => {

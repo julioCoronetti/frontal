@@ -5,7 +5,7 @@ use ratatui::Terminal;
 
 use frontal::protocol::TokenUsage;
 use frontal::ui::diff::{DiffLineKind, DiffViewer};
-use frontal::ui::modal::{CommandPaletteModal, HotRespawnModal, ModalAction, ModelEffortModal};
+use frontal::ui::modal::{CommandPaletteModal, ModalAction, ModelEffortModal};
 use frontal::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_RUBY, BORDER_SUBTLE, TEXT_PRIMARY};
 
 use crate::common::{press_key, test_app};
@@ -27,38 +27,6 @@ fn test_modal_stack_push_pop_and_exclusive_focus() {
 
     app.handle_terminal_event(press_key(KeyCode::Char('b'), KeyModifiers::NONE));
     assert_eq!(app.editor.text(), "b");
-}
-
-#[test]
-fn test_hot_respawn_modal_navigation_and_submission() {
-    let mut modal = HotRespawnModal::new(
-        Some("conv-123".to_string()),
-        Some("gemini-3.8-flash-high".to_string()),
-        Some("high".to_string()),
-        Some("auto".to_string()),
-    );
-
-    assert_eq!(modal.active_field, 0);
-
-    let tab = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
-    modal.handle_key(tab);
-    assert_eq!(modal.active_field, 1);
-
-    let char_x = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE);
-    modal.handle_key(char_x);
-    assert_eq!(modal.model, "gemini-3.8-flash-highx");
-
-    let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-    let act = modal.handle_key(enter);
-    assert_eq!(
-        act,
-        ModalAction::Respawn {
-            conversation_id: Some("conv-123".to_string()),
-            model: Some("gemini-3.8-flash-highx".to_string()),
-            effort: Some("high".to_string()),
-            mode: Some("auto".to_string()),
-        }
-    );
 }
 
 #[test]
@@ -149,12 +117,8 @@ fn test_adversarial_modal_and_palette_inputs() {
 
 #[test]
 fn test_modal_shortcut_keys_do_not_leak_chars() {
-    let mut respawn = HotRespawnModal::new(None, None, None, None);
     let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
     let alt_x = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::ALT);
-    respawn.handle_key(ctrl_c);
-    respawn.handle_key(alt_x);
-    assert!(respawn.conversation_id.is_empty());
 
     let mut palette = CommandPaletteModal::new();
     palette.handle_key(ctrl_c);
@@ -248,7 +212,7 @@ fn test_modal_backdrop_dimming_overlay() {
 }
 
 #[test]
-fn test_modal_palette_and_respawn_atlas_crimson_styling() {
+fn test_modal_palette_and_effort_atlas_crimson_styling() {
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend).unwrap();
 
@@ -275,33 +239,6 @@ fn test_modal_palette_and_respawn_atlas_crimson_styling() {
     assert_eq!(border_cell.fg, BORDER_SUBTLE);
     assert!(found_prompt_highlight);
     assert!(found_selected_ruby);
-
-    let respawn = HotRespawnModal::new(
-        Some("c-1".to_string()),
-        Some("m-1".to_string()),
-        Some("high".to_string()),
-        Some("auto".to_string()),
-    );
-    terminal
-        .draw(|f| respawn.render(f, ratatui::layout::Rect::new(10, 2, 60, 20)))
-        .unwrap();
-    let buf2 = terminal.backend().buffer();
-
-    let mut found_active_field_highlight = false;
-    let mut found_active_val_ruby = false;
-    for y in 0..buf2.area.height {
-        for x in 0..buf2.area.width {
-            let cell = buf2.cell((x, y)).unwrap();
-            if cell.symbol() == "C" && cell.fg == ACCENT_HIGHLIGHT {
-                found_active_field_highlight = true;
-            }
-            if cell.bg == ACCENT_RUBY && cell.fg == TEXT_PRIMARY {
-                found_active_val_ruby = true;
-            }
-        }
-    }
-    assert!(found_active_field_highlight);
-    assert!(found_active_val_ruby);
 
     let mut effort_modal =
         ModelEffortModal::with_models(vec![("m-1".to_string(), "Model One".to_string())]);

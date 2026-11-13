@@ -92,7 +92,6 @@ impl AutocompletePopover {
             ("/clear", "Clear active conversation"),
             ("/new", "Open new session tab"),
             ("/model", "Select model and reasoning effort"),
-            ("/respawn", "Hot-respawn session preserving conversation"),
             ("/resume", "Resume past session from history"),
             ("/rename", "Rename active session"),
             ("/diff", "View local git diff"),

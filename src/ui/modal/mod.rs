@@ -9,7 +9,6 @@ pub mod danger;
 pub mod diff;
 pub mod model_effort;
 pub mod palette;
-pub mod respawn;
 pub mod select;
 pub mod usage;
 
@@ -17,7 +16,6 @@ pub use danger::DangerConfirmationModal;
 pub use diff::DiffModal;
 pub use model_effort::{ModelEffortModal, ModelEffortStep, ModelItem};
 pub use palette::{CommandPaletteModal, PaletteItem};
-pub use respawn::HotRespawnModal;
 pub use select::{DialogSelect, SelectItem, SelectResult};
 pub use usage::UsageModal;
 
@@ -43,7 +41,6 @@ pub enum ModalAction {
 
 pub enum Modal {
     ModelEffort(ModelEffortModal),
-    HotRespawn(HotRespawnModal),
     CommandPalette(CommandPaletteModal),
     Diff(DiffModal),
     Select(DialogSelect<ModalAction>),
@@ -55,7 +52,6 @@ impl Modal {
     pub fn handle_key(&mut self, key: KeyEvent) -> ModalAction {
         match self {
             Self::ModelEffort(m) => m.handle_key(key),
-            Self::HotRespawn(m) => m.handle_key(key),
             Self::CommandPalette(m) => m.handle_key(key),
             Self::Diff(m) => m.handle_key(key),
             Self::Select(m) => match m.handle_key(key) {
@@ -95,7 +91,6 @@ impl Modal {
     pub fn render(&self, frame: &mut Frame, area: Rect) {
         match self {
             Self::ModelEffort(m) => m.render(frame, area),
-            Self::HotRespawn(m) => m.render(frame, area),
             Self::CommandPalette(m) => m.render(frame, area),
             Self::Diff(m) => m.render(frame, area),
             Self::Select(m) => m.render(frame, area),
@@ -119,9 +114,6 @@ impl Modal {
             }
             Self::CommandPalette(_) | Self::Select(_) => {
                 ModalStack::centered_rect_bounded(48, 55, 42, 64, 12, 22, screen)
-            }
-            Self::HotRespawn(_) => {
-                ModalStack::centered_rect_bounded(52, 58, 44, 68, 14, 24, screen)
             }
             Self::Usage(_) => ModalStack::centered_rect_bounded(60, 68, 54, 78, 18, 30, screen),
             Self::DangerConfirmation(m) => {

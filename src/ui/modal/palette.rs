@@ -45,11 +45,6 @@ impl CommandPaletteModal {
                 shortcut: "/model".to_string(),
             },
             PaletteItem {
-                id: "hot_respawn".to_string(),
-                title: "Hot-Respawn Session".to_string(),
-                shortcut: "/respawn".to_string(),
-            },
-            PaletteItem {
                 id: "resume_session".to_string(),
                 title: "Resume Past Session".to_string(),
                 shortcut: "/resume".to_string(),

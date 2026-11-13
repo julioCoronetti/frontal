@@ -3,7 +3,7 @@ mod modals;
 mod resume;
 
 use crate::ui::app::{App, AppAction};
-use crate::ui::modal::{DiffModal, HotRespawnModal, Modal, ModelEffortModal};
+use crate::ui::modal::{DiffModal, Modal, ModelEffortModal};
 
 impl App {
     pub fn is_turn_active(&self) -> bool {
@@ -88,19 +88,6 @@ impl App {
                 .push(Modal::Diff(DiffModal::new(&Self::load_git_diff())));
             self.dirty = true;
             Some(None)
-        } else if trimmed == "/respawn" {
-            let conv_id = self
-                .session_manager
-                .get_metadata(&self.active_session)
-                .and_then(|m| m.conversation_id.clone());
-            let model = Some(self.active_model_name());
-            let effort = Some(self.active_effort_name());
-            let mode = Some(self.active_mode_name());
-            self.modals.push(Modal::HotRespawn(HotRespawnModal::new(
-                conv_id, model, effort, mode,
-            )));
-            self.dirty = true;
-            Some(None)
         } else if trimmed == "/resume" || trimmed.starts_with("/resume ") {
             let query = trimmed.strip_prefix("/resume ").map(|q| q.trim());
             self.open_resume_modal(query);
@@ -130,7 +117,7 @@ impl App {
         } else if trimmed == "/help" {
             self.cache.push_user_message("/help");
             self.cache.push_error(&format!(
-                "Frontal v{} - Available local commands: /clear, /new, /quota, /sidebar, /interrupt, /quit, /exit, /help, /model, /diff, /respawn, /resume, /rename",
+                "Frontal v{} - Available local commands: /clear, /new, /quota, /sidebar, /interrupt, /quit, /exit, /help, /model, /diff, /resume, /rename",
                 env!("CARGO_PKG_VERSION")
             ));
             self.status_text = String::from("Ready");

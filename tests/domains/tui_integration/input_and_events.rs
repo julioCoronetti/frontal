@@ -226,11 +226,6 @@ fn test_contextual_ctrl_c_and_slash_commands_routing() {
     assert!(matches!(app.modals.top(), Some(Modal::Diff(_))));
     app.modals.pop();
 
-    app.editor.insert_str("/respawn");
-    app.handle_terminal_event(enter.clone());
-    assert!(matches!(app.modals.top(), Some(Modal::HotRespawn(_))));
-    app.modals.pop();
-
     app.editor.insert_str("/unknown_cmd");
     app.handle_terminal_event(enter);
     assert_eq!(app.cache.blocks_count(), 2);

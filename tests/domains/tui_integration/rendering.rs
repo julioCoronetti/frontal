@@ -6,9 +6,7 @@ use frontal::protocol::{EngineEvent, SessionId, StepState, StreamEvent};
 use frontal::session::SessionManager;
 use frontal::ui::app::{App, AppAction};
 use frontal::ui::cache::{BlockKind, RenderCache, TurnMeta};
-use frontal::ui::modal::{
-    CommandPaletteModal, DiffModal, HotRespawnModal, Modal, ModelEffortModal,
-};
+use frontal::ui::modal::{CommandPaletteModal, DiffModal, Modal, ModelEffortModal};
 use frontal::ui::theme::{
     ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BG_USER_CONTAINER, BORDER_SUBTLE,
     TAB_ACTIVE_DOT, TEXT_MUTED, TEXT_PRIMARY,
@@ -279,7 +277,6 @@ fn test_adversarial_terminal_dimensions_no_panic() {
 
     let model_modal = ModelEffortModal::new();
     let cmd_modal = CommandPaletteModal::new();
-    let respawn_modal = HotRespawnModal::new(None, None, None, None);
     let diff_modal = DiffModal::new("--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new");
 
     for &(w, h) in &[(20, 8), (1, 1)] {
@@ -288,9 +285,6 @@ fn test_adversarial_terminal_dimensions_no_panic() {
 
         terminal.draw(|f| model_modal.render(f, f.area())).unwrap();
         terminal.draw(|f| cmd_modal.render(f, f.area())).unwrap();
-        terminal
-            .draw(|f| respawn_modal.render(f, f.area()))
-            .unwrap();
         terminal.draw(|f| diff_modal.render(f, f.area())).unwrap();
     }
 }
