@@ -25,6 +25,18 @@ impl App {
             area
         };
 
+        let is_welcome = self.cache.blocks_count() == 0 && !self.waiting_for_response;
+        let show_sidebar = !is_welcome && self.sidebar_visible && padded_area.width >= 100;
+        let (main_column, sidebar_area) = if show_sidebar {
+            let cols = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Min(60), Constraint::Length(SIDEBAR_WIDTH)])
+                .split(padded_area);
+            (cols[0], Some(cols[1]))
+        } else {
+            (padded_area, None)
+        };
+
         let input_lines = (self.editor.line_count() as u16).clamp(1, 8);
         let bottom_height = input_lines + 3;
         let chunks = Layout::default()
@@ -35,7 +47,7 @@ impl App {
                 Constraint::Min(3),
                 Constraint::Length(bottom_height),
             ])
-            .split(padded_area);
+            .split(main_column);
 
         let tab_bar_area = chunks[0];
         let divider_area = chunks[1];
@@ -45,32 +57,20 @@ impl App {
         let spinner_char = SPINNER_FRAMES[(self.spinner_tick as usize / 4) % SPINNER_FRAMES.len()];
 
         self.render_tab_bar(frame, tab_bar_area, spinner_char);
-        self.render_divider(frame, divider_area, padded_area.width);
+        self.render_divider(frame, divider_area, divider_area.width);
 
-        let is_welcome = self.cache.blocks_count() == 0 && !self.waiting_for_response;
-        let show_sidebar = !is_welcome && self.sidebar_visible && padded_area.width >= 100;
-        let (input_column, sidebar_area) = if show_sidebar {
-            let cols = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Min(60), Constraint::Length(SIDEBAR_WIDTH)])
-                .split(bottom_area);
-            (cols[0], Some(cols[1]))
-        } else {
-            (bottom_area, None)
-        };
-
-        let input_height = (input_lines + 2).min(input_column.height);
+        let input_height = (input_lines + 2).min(bottom_area.height);
         let input_area = Rect {
-            x: input_column.x,
-            y: input_column.y,
-            width: input_column.width,
+            x: bottom_area.x,
+            y: bottom_area.y,
+            width: bottom_area.width,
             height: input_height,
         };
         let footer_area = Rect {
-            x: input_column.x,
-            y: input_column.y.saturating_add(input_height),
-            width: input_column.width,
-            height: input_column.height.saturating_sub(input_height).min(1),
+            x: bottom_area.x,
+            y: bottom_area.y.saturating_add(input_height),
+            width: bottom_area.width,
+            height: bottom_area.height.saturating_sub(input_height).min(1),
         };
 
         self.viewport_bounds = (

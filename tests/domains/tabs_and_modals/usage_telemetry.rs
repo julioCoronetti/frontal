@@ -324,15 +324,20 @@ fn test_sidebar_context_telemetry_rendering_resolved_window() {
     assert!(!text.contains("Cache:"));
     assert!(!text.contains("Last turn:"));
     assert!(!text.contains("Workspace"));
-    assert!(terminal
-        .backend()
-        .buffer()
-        .content()
-        .iter()
-        .any(|cell| cell.bg == frontal::ui::theme::BG_SIDEBAR));
+    let buffer = terminal.backend().buffer();
+    assert_eq!(
+        buffer.cell((108, 0)).unwrap().bg,
+        frontal::ui::theme::BG_SIDEBAR
+    );
+    assert_eq!(
+        buffer.cell((108, 29)).unwrap().bg,
+        frontal::ui::theme::BG_SIDEBAR
+    );
+    assert_eq!(app.viewport_bounds.2, 78);
 
     let (_, narrow) = crate::common::render_app(&mut app, 99, 30);
     assert!(!narrow.contains("tokens"));
+    assert_eq!(app.viewport_bounds.2, 95);
 
     let body = serde_json::json!({
         "opencode-go": {
@@ -449,9 +454,12 @@ fn test_sidebar_toggle_via_command_and_palette() {
     assert!(!app.sidebar_visible);
     let (_, text) = crate::common::render_app(&mut app, 120, 30);
     assert!(!text.contains("tokens"));
+    assert_eq!(app.viewport_bounds.2, 116);
     app.handle_terminal_event(crate::common::press_key(
         KeyCode::Char('b'),
         KeyModifiers::CONTROL,
     ));
     assert!(app.sidebar_visible);
+    crate::common::render_app(&mut app, 120, 30);
+    assert_eq!(app.viewport_bounds.2, 78);
 }
