@@ -41,6 +41,14 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
         let _ = models_tx.send(models).await;
     });
 
+    let (catalog_tx, mut catalog_rx) = tokio::sync::mpsc::channel(1);
+    tokio::spawn(async move {
+        let catalog = tokio::task::spawn_blocking(crate::model_catalog::ModelCatalog::load_default)
+            .await
+            .unwrap_or_default();
+        let _ = catalog_tx.send(catalog).await;
+    });
+
     let (opencode_tx, mut opencode_rx) = tokio::sync::mpsc::channel(1);
     let opencode_bin = engine_config
         .as_ref()
@@ -60,6 +68,9 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
             }
             Some(models) = opencode_rx.recv() => {
                 app.set_opencode_models(models);
+            }
+            Some(catalog) = catalog_rx.recv() => {
+                app.set_model_catalog(catalog);
             }
             maybe_event = event_stream.next() => {
                 if let Some(Ok(event)) = maybe_event {

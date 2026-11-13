@@ -298,3 +298,88 @@ async fn test_opencode_engine_reports_non_zero_exit_as_error() {
     assert!(message.contains("code 3"));
     assert!(message.contains("boom"));
 }
+
+#[test]
+fn test_model_catalog_resolution_from_opencode_database() {
+    use frontal::model_catalog::ModelCatalog;
+    use frontal::model_spec::{ContextWindowSource, ModelSpec};
+
+    let guard = crate::common::TempDirGuard::new("model_catalog");
+    let db_path = guard.path().join("opencode.db");
+    let connection = rusqlite::Connection::open(&db_path).unwrap();
+    connection
+        .execute_batch("CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+        .unwrap();
+    let body = serde_json::json!({
+        "opencode-go": {
+            "models": {
+                "deepseek-v4.1-flash": {"limit": {"context": 1_000_000, "output": 384_000}}
+            }
+        },
+        "custom": {
+            "models": {"tiny": {"limit": {"context": 64_000}}}
+        }
+    })
+    .to_string();
+    let envelope = serde_json::json!({
+        "updatedAt": 0,
+        "digest": "digest",
+        "body": body
+    })
+    .to_string();
+    connection
+        .execute(
+            "INSERT INTO kv (key, value) VALUES (?1, ?2)",
+            rusqlite::params!["models-dev:v2:catalog", envelope],
+        )
+        .unwrap();
+    drop(connection);
+
+    let catalog = ModelCatalog::load_from_path(&db_path).expect("catalog expected");
+    let resolved = ModelSpec::resolve_with_catalog(
+        &["opencode-go/deepseek-v4.1-flash"],
+        None,
+        &[],
+        Some(&catalog),
+    );
+    assert_eq!(resolved.usable(), Some(1_000_000));
+    assert_eq!(
+        resolved.context_window.unwrap().source,
+        ContextWindowSource::Catalog
+    );
+
+    let override_spec = ModelSpec::resolve_with_catalog(
+        &["opencode-go/deepseek-v4.1-flash"],
+        None,
+        &[("opencode-go/deepseek-v4.1-flash".to_string(), 500_000)],
+        Some(&catalog),
+    );
+    assert_eq!(
+        override_spec.context_window.unwrap().source,
+        ContextWindowSource::Config
+    );
+    assert_eq!(override_spec.usable(), Some(500_000));
+
+    let heuristic =
+        ModelSpec::resolve_with_catalog(&["gemini-3.8-flash-high"], None, &[], Some(&catalog));
+    assert_eq!(
+        heuristic.context_window.unwrap().source,
+        ContextWindowSource::Heuristic
+    );
+}
+
+#[test]
+fn test_model_catalog_missing_or_corrupt_database_degrades() {
+    use frontal::model_catalog::ModelCatalog;
+
+    assert!(
+        ModelCatalog::load_from_path(std::path::Path::new("/nonexistent/opencode.db")).is_none()
+    );
+
+    let guard = crate::common::TempDirGuard::new("model_catalog_corrupt");
+    let db_path = guard.path().join("opencode.db");
+    std::fs::write(&db_path, "not a sqlite database").unwrap();
+    assert!(ModelCatalog::load_from_path(&db_path).is_none());
+    assert!(ModelCatalog::parse_catalog("{\"body\":\"not json\"}").is_none());
+    assert!(ModelCatalog::parse_catalog("{}").is_none());
+}

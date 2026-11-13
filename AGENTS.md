@@ -1,7 +1,7 @@
 ## Project Overview & Core Constraints
 - Project: Frontal.
 - Purpose: High-performance, asynchronous, decoupled Terminal User Interface (TUI) harness for Antigravity CLI (`agy`) and `stream-json` compatible engines.
-- Status: Production architecture in Rust (version `0.10.0`), verified by 182 tests across 8 hermetic domains on branch `main`. Continuous flow driven by GitHub Project Board #8.
+- Status: Production architecture in Rust (version `0.10.0`), verified by 184 tests across 8 hermetic domains on branch `main`. Continuous flow driven by GitHub Project Board #8.
 - Stack: `tokio`, `tokio-util`, `bytes`, `futures-util`, `serde`, `serde_json`, `libc`, `ratatui` (0.29), `crossterm` (0.28), `pulldown-cmark` (0.12), `syntect` (5.2), `ropey` (1.6), `rusqlite` (0.32), `arboard` (3.4). Single-crate repository; no external dependencies allowed without explicit operator authorization.
 - Branches: `main` (active) and `origin/legacy` (Python/Textual prototype).
 
@@ -12,7 +12,7 @@
 ### Mechanical Rules
 - Zero comments in code: Strictly forbidden across all source files. Documentation belongs in git commit messages, GitHub Wiki, or `.agents/docs/`.
 - File modularity ceiling: Strict limit of 500 lines per `.rs` file. Files exceeding this ceiling must be partitioned into cohesive submodules with public re-exports.
-- Quality enforcement: Strict compilation without warnings (`cargo clippy --all-targets -- -D warnings`), canonical formatting (`cargo fmt --check`), and 182 tests clean pass.
+- Quality enforcement: Strict compilation without warnings (`cargo clippy --all-targets -- -D warnings`), canonical formatting (`cargo fmt --check`), and 184 tests clean pass.
 
 ### Architectural Invariants
 1. 2-Level Render Cache ($O(1)$ during active turns): Level 1 stores immutable AST (`MessageBlock` with styled spans). Level 2 caches formatted visual lines indexed by `(width, revision)`. Resizes or block toggles invalidate Level 2 only. Active streaming emits deltas at 60 FPS without re-parsing history.
@@ -27,7 +27,7 @@
 Canonical test harness in `tests/suite.rs` validates all 8 architectural domains:
 - `tests/domains/architecture.rs`: Architectural mechanical invariants (4 tests).
 - `tests/domains/protocol_and_cli.rs`: Protocol `stream-json`, NDJSON, and CLI (21 tests).
-- `tests/domains/engine_and_session/`: Subprocess `agy`, fixtures, POSIX isolation, and `OpenCodeEngine` per-turn turns (15 tests).
+- `tests/domains/engine_and_session/`: Subprocess `agy`, fixtures, POSIX isolation, and `OpenCodeEngine` per-turn turns (17 tests).
 - `tests/domains/cache_and_markdown.rs`: RenderCache L1/L2 and Markdown (16 tests).
 - `tests/domains/viewport_and_clipboard.rs`: Sticky scroll, clean selection, and clipboard (16 tests).
 - `tests/domains/editor_and_history.rs`: Editor `ropey` and SQLite WAL history (16 tests).
@@ -41,7 +41,7 @@ Detailed module mapping available on demand in `.agents/docs/structure.md`.
 ## On-Demand Resources & Skills (.agents/)
 Operational procedures and reference documentation are decoupled from the base prompt:
 - Skills (`.agents/skills/`):
-  - `frontal-quality-gate`: Runs the canonical Cargo triad (`fmt`, `clippy`, and 182 tests) and verifies architectural invariants.
+  - `frontal-quality-gate`: Runs the canonical Cargo triad (`fmt`, `clippy`, and 184 tests) and verifies architectural invariants.
   - `frontal-card-lifecycle`: Manages card closure workflows, SemVer bumping, release tags, and Project Board #8 transitions.
   - `frontal-wiki-sync`: Audits invariant tokens, prevents extinct legacy terms, and commits to the `.wiki/` mirror.
 - Documentation (`.agents/docs/`):
@@ -58,7 +58,7 @@ Every change must pass the automated gate (`.agents/skills/frontal-quality-gate/
 1. Atomic threshold: Maximum 5 modified files (unless `ATOMIC_OVERRIDE=1`).
 2. Canonical formatting: `cargo fmt --check`.
 3. Strict linting: `cargo clippy --all-targets -- -D warnings` (zero warnings).
-4. Test suite pass: `cargo test --quiet` (unified integration suite passing 182 tests).
+4. Test suite pass: `cargo test --quiet` (unified integration suite passing 184 tests).
 
 ### Commit Message Governance
 Commit messages and trailers are validated via `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh validate-commit`:

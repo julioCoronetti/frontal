@@ -9,6 +9,7 @@ const EFFORT_SUFFIXES: &[&str] = &["-xhigh", "-medium", "-high", "-low", "-max"]
 pub enum ContextWindowSource {
     Protocol,
     Config,
+    Catalog,
     Heuristic,
 }
 
@@ -17,6 +18,7 @@ impl ContextWindowSource {
         match self {
             Self::Protocol => "protocol",
             Self::Config => "config",
+            Self::Catalog => "catalog",
             Self::Heuristic => "family",
         }
     }
@@ -39,6 +41,15 @@ impl ModelSpec {
         protocol_hint: Option<u64>,
         overrides: &[(String, u64)],
     ) -> Self {
+        Self::resolve_with_catalog(models, protocol_hint, overrides, None)
+    }
+
+    pub fn resolve_with_catalog(
+        models: &[&str],
+        protocol_hint: Option<u64>,
+        overrides: &[(String, u64)],
+        catalog: Option<&crate::model_catalog::ModelCatalog>,
+    ) -> Self {
         if let Some(tokens) = protocol_hint.filter(|tokens| *tokens > 0) {
             return Self::with(tokens, ContextWindowSource::Protocol);
         }
@@ -58,6 +69,15 @@ impl ModelSpec {
                     .any(|candidate| keys.iter().any(|key| key == candidate))
                 {
                     return Self::with(*tokens, ContextWindowSource::Config);
+                }
+            }
+        }
+        if let Some(catalog) = catalog {
+            for keys in &candidates {
+                for key in keys {
+                    if let Some(tokens) = catalog.get(key) {
+                        return Self::with(tokens, ContextWindowSource::Catalog);
+                    }
                 }
             }
         }

@@ -4,6 +4,7 @@ pub mod infra;
 pub mod ui;
 
 pub use crate::core::config;
+pub use crate::core::model_catalog;
 pub use crate::core::model_spec;
 pub use crate::core::protocol;
 pub use crate::core::security;

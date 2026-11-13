@@ -46,6 +46,7 @@ pub struct App {
     pub cwd_display: String,
     pub available_models: Vec<(String, String)>,
     pub opencode_models: Vec<(String, String)>,
+    pub model_catalog: crate::model_catalog::ModelCatalog,
     pub user_config: crate::config::UserConfig,
     pub sidebar_visible: bool,
     pub viewport_bounds: (u16, u16, u16, u16),
@@ -118,6 +119,7 @@ impl App {
             cwd_display,
             available_models,
             opencode_models: Vec::new(),
+            model_catalog: crate::model_catalog::ModelCatalog::default(),
             user_config: crate::config::UserConfig::load(),
             sidebar_visible: true,
             viewport_bounds: (0, 0, 80, 20),
@@ -154,6 +156,7 @@ impl App {
             cwd_display,
             available_models,
             opencode_models: Vec::new(),
+            model_catalog: crate::model_catalog::ModelCatalog::default(),
             user_config: crate::config::UserConfig::new_isolated(),
             sidebar_visible: true,
             viewport_bounds: (0, 0, 80, 20),
@@ -173,11 +176,17 @@ impl App {
     pub fn active_model_spec(&self) -> crate::model_spec::ModelSpec {
         let served = self.served_model.as_deref().unwrap_or("");
         let active = self.active_model_name();
-        crate::model_spec::ModelSpec::resolve(
+        crate::model_spec::ModelSpec::resolve_with_catalog(
             &[served, active.as_str()],
             self.context_window_hint,
             &self.user_config.context_windows,
+            Some(&self.model_catalog),
         )
+    }
+
+    pub fn set_model_catalog(&mut self, catalog: crate::model_catalog::ModelCatalog) {
+        self.model_catalog = catalog;
+        self.dirty = true;
     }
 
     pub fn set_available_models(&mut self, models: Vec<(String, String)>) {

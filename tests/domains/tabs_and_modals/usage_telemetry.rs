@@ -324,6 +324,37 @@ fn test_sidebar_context_telemetry_rendering_resolved_window() {
     assert!(!text.contains("Cache:"));
     assert!(!text.contains("Last turn:"));
     assert!(!text.contains("Workspace"));
+
+    let body = serde_json::json!({
+        "opencode-go": {
+            "models": {
+                "deepseek-v4.1-flash": {"limit": {"context": 1_000_000}}
+            }
+        }
+    })
+    .to_string();
+    let catalog = frontal::model_catalog::ModelCatalog::parse_catalog(
+        &serde_json::json!({"body": body}).to_string(),
+    )
+    .unwrap();
+    app.set_model_catalog(catalog);
+    let session_id = app.active_session.clone();
+    app.session_manager.set_session_metadata(
+        &session_id,
+        None,
+        Some("opencode-go/deepseek-v4.1-flash".to_string()),
+        None,
+        None,
+    );
+    app.last_turn_usage = Some(TokenUsage {
+        input_tokens: 250_000,
+        total_tokens: 250_000,
+        ..Default::default()
+    });
+
+    let (_, text) = crate::common::render_app(&mut app, 120, 30);
+    assert!(text.contains("250,000 tokens"));
+    assert!(text.contains("25% used"));
 }
 
 #[test]
