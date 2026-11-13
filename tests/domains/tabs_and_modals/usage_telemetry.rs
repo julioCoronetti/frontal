@@ -369,3 +369,36 @@ fn test_sidebar_unknown_window_fallback() {
     assert!(text.contains("800,000 tokens"));
     assert!(text.contains("80% used"));
 }
+
+#[test]
+fn test_sidebar_toggle_via_command_and_palette() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use frontal::ui::modal::{CommandPaletteModal, ModalAction};
+
+    let (mut app, _) = crate::common::test_app();
+    app.cache.push_user_message("prompt for sidebar telemetry");
+    let (_, text) = crate::common::render_app(&mut app, 120, 30);
+    assert!(text.contains("Context"));
+
+    app.editor.insert_str("/sidebar");
+    app.handle_terminal_event(crate::common::press_key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(!app.sidebar_visible);
+    let (_, text) = crate::common::render_app(&mut app, 120, 30);
+    assert!(!text.contains("tokens"));
+
+    let mut palette = CommandPaletteModal::new();
+    for ch in ['s', 'i', 'd', 'e', 'b', 'a', 'r'] {
+        palette.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    let filtered = palette.filtered_indices();
+    assert_eq!(palette.items[filtered[0]].id, "toggle_sidebar");
+    let action = palette.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        action,
+        ModalAction::ExecuteCommand("toggle_sidebar".to_string())
+    );
+    app.dispatch_modal_action(action);
+    assert!(app.sidebar_visible);
+    let (_, text) = crate::common::render_app(&mut app, 120, 30);
+    assert!(text.contains("tokens"));
+}

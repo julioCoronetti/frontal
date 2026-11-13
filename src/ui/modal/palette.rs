@@ -70,6 +70,11 @@ impl CommandPaletteModal {
                 shortcut: "/quota".to_string(),
             },
             PaletteItem {
+                id: "toggle_sidebar".to_string(),
+                title: "Toggle Context Sidebar".to_string(),
+                shortcut: "/sidebar".to_string(),
+            },
+            PaletteItem {
                 id: "clear".to_string(),
                 title: "Clear Conversation Viewport".to_string(),
                 shortcut: "/clear".to_string(),

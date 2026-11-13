@@ -48,15 +48,16 @@ impl App {
         self.render_divider(frame, divider_area, padded_area.width);
 
         let is_welcome = self.cache.blocks_count() == 0 && !self.waiting_for_response;
-        let (chat_area, sidebar_area) = if !is_welcome && padded_area.width >= 100 {
-            let cols = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Min(60), Constraint::Length(28)])
-                .split(viewport_area);
-            (cols[0], Some(cols[1]))
-        } else {
-            (viewport_area, None)
-        };
+        let (chat_area, sidebar_area) =
+            if !is_welcome && self.sidebar_visible && padded_area.width >= 100 {
+                let cols = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Min(60), Constraint::Length(28)])
+                    .split(viewport_area);
+                (cols[0], Some(cols[1]))
+            } else {
+                (viewport_area, None)
+            };
         self.viewport_bounds = (chat_area.x, chat_area.y, chat_area.width, chat_area.height);
 
         self.render_chat(frame, chat_area, is_welcome, spinner_char);

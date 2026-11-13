@@ -41,6 +41,15 @@ impl App {
             self.status_text = String::from("New tab");
             self.dirty = true;
             Some(Some(AppAction::NewTab))
+        } else if trimmed == "/sidebar" {
+            self.sidebar_visible = !self.sidebar_visible;
+            self.status_text = if self.sidebar_visible {
+                String::from("Context sidebar shown")
+            } else {
+                String::from("Context sidebar hidden")
+            };
+            self.dirty = true;
+            Some(None)
         } else if trimmed == "/quota" {
             let modal = if self.backend == crate::config::BackendKind::OpenCode {
                 crate::ui::modal::UsageModal::load_opencode(
@@ -121,7 +130,7 @@ impl App {
         } else if trimmed == "/help" {
             self.cache.push_user_message("/help");
             self.cache.push_error(&format!(
-                "Frontal v{} - Available local commands: /clear, /new, /quota, /interrupt, /quit, /exit, /help, /model, /diff, /respawn, /resume, /rename",
+                "Frontal v{} - Available local commands: /clear, /new, /quota, /sidebar, /interrupt, /quit, /exit, /help, /model, /diff, /respawn, /resume, /rename",
                 env!("CARGO_PKG_VERSION")
             ));
             self.status_text = String::from("Ready");

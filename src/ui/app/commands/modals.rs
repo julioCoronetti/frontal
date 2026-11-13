@@ -143,6 +143,11 @@ impl App {
                         self.modals.push(Modal::Usage(modal));
                         Some(None)
                     }
+                    "toggle_sidebar" => {
+                        self.sidebar_visible = !self.sidebar_visible;
+                        self.dirty = true;
+                        Some(None)
+                    }
                     "clear" => {
                         self.cache.clear();
                         self.viewport.clear_selection();
