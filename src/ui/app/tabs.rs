@@ -128,6 +128,10 @@ impl App {
                 .clone()
                 .filter(|id| backend_compatible(target_backend, id)),
         };
+        let model_changed = model
+            .as_ref()
+            .map(|requested| prev_model.as_ref() != Some(requested))
+            .unwrap_or(false);
         let final_model = model.or(prev_model);
         let final_effort = effort.or(prev_effort);
         let final_mode = mode.or(prev_mode);
@@ -183,6 +187,11 @@ impl App {
         if is_different_conv {
             self.last_turn_usage = None;
             self.accumulated_usage = crate::protocol::TokenUsage::default();
+        }
+        self.in_flight_usage = None;
+        if is_different_conv || model_changed {
+            self.context_window_hint = None;
+            self.served_model = None;
         }
         if is_different_conv || self.cache.is_empty() {
             if let Some(ref cid) = final_conv_id {

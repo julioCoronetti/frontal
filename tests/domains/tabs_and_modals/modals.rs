@@ -3,6 +3,7 @@ use ratatui::backend::TestBackend;
 use ratatui::style::{Color, Modifier};
 use ratatui::Terminal;
 
+use frontal::protocol::TokenUsage;
 use frontal::ui::diff::{DiffLineKind, DiffViewer};
 use frontal::ui::modal::{CommandPaletteModal, HotRespawnModal, ModalAction, ModelEffortModal};
 use frontal::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_RUBY, BORDER_SUBTLE, TEXT_PRIMARY};
@@ -173,6 +174,9 @@ fn test_respawn_active_session_metadata_inheritance() {
     );
     assert_eq!(app.active_model_name(), "gemini-4-argon-high");
     assert_eq!(app.active_mode_name(), "architect");
+    app.context_window_hint = Some(1_000_000);
+    app.served_model = Some("gemini-4-argon-high".to_string());
+    app.in_flight_usage = Some(TokenUsage::default());
 
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let new_session_id = app
@@ -189,6 +193,9 @@ fn test_respawn_active_session_metadata_inheritance() {
         assert_eq!(app.tabs[0].session_id, new_session_id);
         assert_eq!(app.active_model_name(), "gemini-3.8-flash-high");
         assert_eq!(app.active_mode_name(), "architect");
+        assert_eq!(app.context_window_hint, None);
+        assert_eq!(app.served_model, None);
+        assert_eq!(app.in_flight_usage, None);
         let meta = app.session_manager.get_metadata(&new_session_id).unwrap();
         assert_eq!(meta.conversation_id.as_deref(), Some("conv-inherited"));
         assert_eq!(meta.effort.as_deref(), Some("low"));
