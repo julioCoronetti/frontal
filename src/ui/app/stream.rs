@@ -197,22 +197,26 @@ impl App {
                 step_index: block.step_index,
             });
         }
-        let snapshot = crate::infra::history::TelemetrySnapshot {
-            last: self.tabs[tab_idx].last_turn_usage.unwrap_or_default(),
-            accumulated: self.tabs[tab_idx].accumulated_usage,
-            steps: self.tabs[tab_idx].steps_seen,
-            turns: self.tabs[tab_idx].turns_completed,
-            duration_millis: self.tabs[tab_idx]
-                .last_turn_duration_seconds
-                .map(|seconds| (seconds * 1000.0).round() as u64),
-            context_window: self.tabs[tab_idx].context_window_hint,
-            model: self
-                .session_manager
-                .get_metadata(&self.tabs[tab_idx].session_id)
-                .and_then(|meta| meta.model.clone())
-                .filter(|model| !model.trim().is_empty()),
-        };
-        self.history.record_telemetry(&conversation_id, snapshot);
+        let last_usage = self.tabs[tab_idx].last_turn_usage;
+        if last_usage.is_some() || self.tabs[tab_idx].turns_completed > 0 {
+            let model = self.tabs[tab_idx].served_model.clone().or_else(|| {
+                self.session_manager
+                    .get_metadata(&self.tabs[tab_idx].session_id)
+                    .and_then(|meta| meta.model.clone())
+            });
+            let snapshot = crate::infra::history::TelemetrySnapshot {
+                last: last_usage.unwrap_or_default(),
+                accumulated: self.tabs[tab_idx].accumulated_usage,
+                steps: self.tabs[tab_idx].steps_seen,
+                turns: self.tabs[tab_idx].turns_completed,
+                duration_millis: self.tabs[tab_idx]
+                    .last_turn_duration_seconds
+                    .map(|seconds| (seconds * 1000.0).round() as u64),
+                context_window: self.tabs[tab_idx].context_window_hint,
+                model: model.filter(|model| !model.trim().is_empty()),
+            };
+            self.history.record_telemetry(&conversation_id, snapshot);
+        }
         if !messages.is_empty() {
             self.history.append_messages(conversation_id, messages);
         }

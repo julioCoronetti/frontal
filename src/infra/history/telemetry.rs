@@ -55,7 +55,7 @@ pub fn load(path: &Path, conversation_id: &str) -> Option<TelemetrySnapshot> {
     }
     let conn =
         Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
-    conn.busy_timeout(std::time::Duration::from_millis(2_000))
+    conn.busy_timeout(std::time::Duration::from_millis(300))
         .ok()?;
     let payload: String = conn
         .query_row(

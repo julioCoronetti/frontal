@@ -259,11 +259,14 @@ impl App {
                     self.last_turn_duration_seconds = snapshot
                         .duration_millis
                         .map(|millis| millis as f64 / 1000.0);
-                    if let Some(window) = snapshot.context_window {
-                        self.context_window_hint = Some(window);
-                    }
-                    if let Some(model) = snapshot.model.filter(|model| !model.trim().is_empty()) {
-                        self.served_model = Some(model);
+                    if !model_changed {
+                        if let Some(window) = snapshot.context_window {
+                            self.context_window_hint = Some(window);
+                        }
+                        if let Some(model) = snapshot.model.filter(|model| !model.trim().is_empty())
+                        {
+                            self.served_model = Some(model);
+                        }
                     }
                 }
             } else if is_different_conv {

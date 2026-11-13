@@ -176,9 +176,7 @@ fn normalize_model_id(raw: &str) -> String {
         .split('#')
         .next()
         .unwrap_or("")
-        .trim_matches(|ch: char| {
-            !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '.' || ch == '_' || ch == '/')
-        })
+        .trim_matches(|ch: char| !ch.is_ascii_alphanumeric())
         .to_string()
 }
 

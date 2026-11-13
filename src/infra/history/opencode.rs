@@ -2,8 +2,43 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
+use serde::Deserialize;
 
 use crate::protocol::TokenUsage;
+
+#[derive(Deserialize, Default)]
+struct AssistantPayload {
+    #[serde(default)]
+    tokens: Option<MessageTokens>,
+    #[serde(default)]
+    model: Option<MessageModel>,
+}
+
+#[derive(Deserialize, Default)]
+struct MessageTokens {
+    #[serde(default)]
+    input: u64,
+    #[serde(default)]
+    output: u64,
+    #[serde(default)]
+    reasoning: u64,
+    #[serde(default)]
+    cache: CacheTokens,
+}
+
+#[derive(Deserialize, Default)]
+struct CacheTokens {
+    #[serde(default)]
+    read: u64,
+}
+
+#[derive(Deserialize, Default)]
+struct MessageModel {
+    #[serde(default, rename = "providerID")]
+    provider_id: Option<String>,
+    #[serde(default)]
+    id: Option<String>,
+}
 
 pub fn default_path() -> Option<PathBuf> {
     crate::model_catalog::ModelCatalog::default_path()
@@ -18,7 +53,7 @@ pub fn load_usage_at(path: &Path, session_id: &str) -> Option<(TokenUsage, Optio
         return None;
     }
     let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
-    connection.busy_timeout(Duration::from_millis(2_000)).ok()?;
+    connection.busy_timeout(Duration::from_millis(300)).ok()?;
     let payload: String = connection
         .query_row(
             "SELECT data FROM session_message
@@ -28,31 +63,18 @@ pub fn load_usage_at(path: &Path, session_id: &str) -> Option<(TokenUsage, Optio
             |row| row.get(0),
         )
         .ok()?;
-    let value: serde_json::Value = serde_json::from_str(&payload).ok()?;
-    let tokens = value.get("tokens")?;
-    let input = tokens
-        .get("input")
-        .and_then(|item| item.as_u64())
-        .unwrap_or(0);
-    let output = tokens
-        .get("output")
-        .and_then(|item| item.as_u64())
-        .unwrap_or(0);
-    let reasoning = tokens
-        .get("reasoning")
-        .and_then(|item| item.as_u64())
-        .unwrap_or(0);
-    let cache_read = tokens
-        .get("cache")
-        .and_then(|cache| cache.get("read"))
-        .and_then(|item| item.as_u64())
-        .unwrap_or(0);
+    let payload: AssistantPayload = serde_json::from_str(&payload).ok()?;
+    let tokens = payload.tokens?;
+    let input = tokens.input;
+    let output = tokens.output;
+    let reasoning = tokens.reasoning;
+    let cache_read = tokens.cache.read;
     if input == 0 && output == 0 && reasoning == 0 && cache_read == 0 {
         return None;
     }
-    let model = value.get("model").and_then(|model| {
-        let provider = model.get("providerID").and_then(|item| item.as_str())?;
-        let id = model.get("id").and_then(|item| item.as_str())?;
+    let model = payload.model.and_then(|model| {
+        let provider = sanitize_part(model.provider_id.as_deref()?)?;
+        let id = sanitize_part(model.id.as_deref()?)?;
         Some(format!("{}/{}", provider, id))
     });
     Some((
@@ -65,4 +87,13 @@ pub fn load_usage_at(path: &Path, session_id: &str) -> Option<(TokenUsage, Optio
         },
         model,
     ))
+}
+
+fn sanitize_part(value: &str) -> Option<&str> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.chars().any(char::is_control) {
+        None
+    } else {
+        Some(trimmed)
+    }
 }

@@ -433,3 +433,54 @@ fn test_opencode_session_usage_and_stray_model_suffix() {
     );
     assert_eq!(spec.usable(), Some(1_000_000));
 }
+
+#[tokio::test]
+async fn test_model_switch_ignores_persisted_window_hint() {
+    use frontal::infra::history::TelemetrySnapshot;
+    use frontal::ui::app::App;
+
+    let _lock = PGID_TEST_LOCK.lock().await;
+    let guard = crate::common::TempDirGuard::new("model_switch_telemetry");
+    let old_home = std::env::var("HOME").ok();
+    std::env::set_var("HOME", guard.0.clone());
+
+    let mut manager = SessionManager::new();
+    let session_id = SessionId::new();
+    manager.register_mock_session(session_id.clone());
+    let mut app = App::new(manager, session_id);
+
+    let conv_id = "conv-switch-1";
+    let active = app.active_session.clone();
+    app.session_manager
+        .set_session_metadata(&active, Some(conv_id.to_string()), None, None, None);
+    app.history.record_telemetry(
+        conv_id,
+        TelemetrySnapshot {
+            last: frontal::protocol::TokenUsage {
+                total_tokens: 10_000,
+                ..Default::default()
+            },
+            context_window: Some(1_000_000),
+            model: Some("opencode-go/deepseek-v4.1-flash".to_string()),
+            ..Default::default()
+        },
+    );
+    app.history.flush();
+
+    let result = app
+        .respawn_active_session(
+            None,
+            Some("anthropic/claude-sonnet-5-5".to_string()),
+            None,
+            None,
+        )
+        .await;
+    assert!(result.is_ok());
+    assert_eq!(app.context_window_hint, None);
+    assert_eq!(app.served_model, None);
+    assert_eq!(app.active_model_name(), "anthropic/claude-sonnet-5-5");
+
+    if let Some(home) = old_home {
+        std::env::set_var("HOME", home);
+    }
+}
