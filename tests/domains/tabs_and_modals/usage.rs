@@ -1,5 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-use frontal::protocol::{context_window_for_model, SessionId, TokenUsage};
+use frontal::model_spec::ModelSpec;
+use frontal::protocol::{SessionId, TokenUsage};
 use frontal::ui::modal::usage::{
     fetch::{
         build_usage_summary, parse_available_models, parse_plan_info, parse_quota_summary_groups,
@@ -56,13 +57,28 @@ fn test_token_usage_accumulate_and_metrics() {
 }
 
 #[test]
-fn test_context_window_for_model_dynamic_resolution() {
-    assert_eq!(context_window_for_model("gemini-2.5-pro"), 1_000_000);
-    assert_eq!(context_window_for_model("Gemini-Flash"), 1_000_000);
-    assert_eq!(context_window_for_model("claude-3-7-sonnet"), 200_000);
-    assert_eq!(context_window_for_model("Claude-Opus"), 200_000);
-    assert_eq!(context_window_for_model("gpt-4o"), 128_000);
-    assert_eq!(context_window_for_model("custom-local-model"), 128_000);
+fn test_model_spec_family_resolution_is_case_insensitive() {
+    assert_eq!(
+        ModelSpec::resolve(&["gemini-2.5-pro"], None, &[]).usable(),
+        Some(1_000_000)
+    );
+    assert_eq!(
+        ModelSpec::resolve(&["Gemini-Flash"], None, &[]).usable(),
+        Some(1_000_000)
+    );
+    assert_eq!(
+        ModelSpec::resolve(&["claude-3-7-sonnet"], None, &[]).usable(),
+        Some(200_000)
+    );
+    assert_eq!(
+        ModelSpec::resolve(&["Claude-Opus"], None, &[]).usable(),
+        Some(200_000)
+    );
+    assert_eq!(ModelSpec::resolve(&["gpt-4o"], None, &[]).usable(), None);
+    assert_eq!(
+        ModelSpec::resolve(&["custom-local-model"], None, &[]).usable(),
+        None
+    );
 }
 
 #[test]

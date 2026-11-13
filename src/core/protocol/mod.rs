@@ -169,17 +169,6 @@ impl TokenUsage {
     }
 }
 
-pub fn context_window_for_model(model: &str) -> u64 {
-    let lower = model.to_lowercase();
-    if lower.contains("gemini") {
-        1_000_000
-    } else if lower.contains("claude") {
-        200_000
-    } else {
-        128_000
-    }
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolInfo {
     #[serde(default)]

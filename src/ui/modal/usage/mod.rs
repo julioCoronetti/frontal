@@ -142,11 +142,26 @@ impl UsageModal {
         last_turn: Option<crate::protocol::TokenUsage>,
         accumulated: crate::protocol::TokenUsage,
     ) -> UsageSummary {
-        let window = crate::protocol::context_window_for_model(model).max(1);
+        let spec = crate::model_spec::ModelSpec::resolve(&[model], None, &[]);
         let used = last_turn
             .map(|usage| usage.input_tokens.saturating_add(usage.cache_read_tokens))
             .unwrap_or(0);
-        let remaining_pct = (100.0 - (used as f64 / window as f64) * 100.0).clamp(0.0, 100.0);
+        let (context_description, context_buckets) = match spec.usable() {
+            Some(window) => {
+                let remaining_pct =
+                    (100.0 - (used as f64 / window as f64) * 100.0).clamp(0.0, 100.0);
+                (
+                    format!("{} / {} tokens", used, window),
+                    vec![QuotaBucket {
+                        name: "Context capacity".to_string(),
+                        remaining_pct,
+                        reset_label: "latest turn".to_string(),
+                        exhausted: remaining_pct <= 0.0,
+                    }],
+                )
+            }
+            None => (format!("{} tokens · window unresolved", used), Vec::new()),
+        };
         let cache_pct = accumulated.cache_hit_percentage();
         let total_tokens = accumulated.effective_total();
         let summary = UsageSummary {
@@ -162,13 +177,8 @@ impl UsageModal {
             groups: vec![
                 QuotaGroup {
                     name: "Context Window".to_string(),
-                    description: Some(format!("{} / {} tokens", used, window)),
-                    buckets: vec![QuotaBucket {
-                        name: "Context capacity".to_string(),
-                        remaining_pct,
-                        reset_label: "latest turn".to_string(),
-                        exhausted: remaining_pct <= 0.0,
-                    }],
+                    description: Some(context_description),
+                    buckets: context_buckets,
                 },
                 QuotaGroup {
                     name: "Prompt Cache".to_string(),

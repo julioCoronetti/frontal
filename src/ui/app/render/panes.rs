@@ -131,10 +131,19 @@ impl App {
             .as_ref()
             .map(|u| u.effective_total())
             .unwrap_or(0);
-        let max_context =
-            crate::protocol::context_window_for_model(&self.active_model_name()) as f64;
-        let pct = (total_tokens as f64 / max_context.max(1.0) * 100.0).min(100.0);
-        let filled_blocks = ((pct / 100.0) * 14.0).round() as usize;
+        let model = self.active_model_name();
+        let spec = crate::model_spec::ModelSpec::resolve(
+            &[model.as_str()],
+            None,
+            &self.user_config.context_windows,
+        );
+        let max_context = spec.usable().unwrap_or(0) as f64;
+        let pct = spec.occupancy_pct(total_tokens).unwrap_or(0.0);
+        let filled_blocks = if max_context > 0.0 {
+            ((pct / 100.0) * 14.0).round().min(14.0) as usize
+        } else {
+            0
+        };
         let bar = format!(
             "{}{}",
             "■".repeat(filled_blocks),
