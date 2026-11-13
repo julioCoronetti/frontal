@@ -68,9 +68,9 @@ impl App {
         let model_name = crate::ui::labels::model_display_name(&self.active_model_name());
         let effort_name = self.active_effort_name();
         let input_title = if model_name.is_empty() {
-            format!(" Input · {} ", effort_name)
+            format!(" {} ", effort_name)
         } else {
-            format!(" Input · {} ({}) ", model_name, effort_name)
+            format!(" {} ({}) ", model_name, effort_name)
         };
         let display_content = self.editor.text();
         let (cur_line, cur_col) = self.editor.cursor_coordinates();

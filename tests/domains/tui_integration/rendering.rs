@@ -429,7 +429,7 @@ fn test_atlas_crimson_theme_constants_and_rendering() {
     for y in 0..buf.area.height {
         for x in 0..buf.area.width {
             let cell = buf.cell((x, y)).unwrap();
-            if cell.symbol() == "I" && cell.fg == ACCENT_PRIMARY {
+            if cell.symbol() == "G" && cell.fg == ACCENT_PRIMARY {
                 found_input_accent = true;
             }
         }
