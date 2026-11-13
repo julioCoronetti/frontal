@@ -291,6 +291,28 @@ fn test_streaming_usage_snapshot_retention_and_consolidation() {
     });
     assert_eq!(app.turns_completed, 1);
     assert_eq!(app.last_turn_usage.map(|u| u.total_tokens), Some(300));
+
+    use frontal::ui::cache::{BlockKind, RenderCache, TurnMeta};
+    let mut cache = RenderCache::new();
+    cache.push_user_message("long turn");
+    cache.append_streaming_delta(BlockKind::Assistant, "long answer");
+    cache.consolidate_active_turn_with_meta(
+        None,
+        Some(TurnMeta {
+            mode: "auto".to_string(),
+            model: "opencode-go/deepseek-v4.1-flash".to_string(),
+            duration_seconds: Some(115.4),
+            output_tokens: Some(5000),
+        }),
+    );
+    cache.ensure_visual_lines(80);
+    let meta_line: String = cache
+        .visible_slice(0, 40)
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .map(|span| span.content.as_ref())
+        .collect();
+    assert!(meta_line.contains("DeepSeek V4.1 Flash · 1m 55s · 43.3 tok/s"));
 }
 
 #[test]

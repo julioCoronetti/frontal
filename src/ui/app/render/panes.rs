@@ -1,11 +1,13 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::ui::app::App;
-use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, BG_SIDEBAR, TEXT_MUTED, TEXT_PRIMARY};
+use crate::ui::theme::{
+    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, BG_SIDEBAR, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY,
+};
 
 impl App {
     pub(crate) fn render_chat(
@@ -130,13 +132,16 @@ impl App {
             return;
         }
         frame.render_widget(
-            Block::default().style(Style::default().bg(BG_SIDEBAR)),
+            Block::default()
+                .borders(Borders::LEFT)
+                .border_style(Style::default().fg(BORDER_SUBTLE))
+                .style(Style::default().bg(BG_SIDEBAR)),
             sb_area,
         );
         let inner = Rect {
             x: sb_area.x.saturating_add(2),
             y: sb_area.y.saturating_add(1),
-            width: sb_area.width.saturating_sub(4),
+            width: sb_area.width.saturating_sub(3),
             height: sb_area.height.saturating_sub(1),
         };
         if inner.width == 0 || inner.height == 0 {
@@ -161,7 +166,7 @@ impl App {
         match spec.occupancy_pct(used_tokens) {
             Some(pct) => sb_lines.push(Line::from(vec![Span::styled(
                 format!("{:.0}% used", pct),
-                Style::default().fg(TEXT_MUTED),
+                Style::default().fg(ACCENT_PRIMARY),
             )])),
             None => sb_lines.push(Line::from(vec![Span::styled(
                 "window unknown",

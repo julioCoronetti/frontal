@@ -41,6 +41,15 @@ pub fn sanitize_terminal_line(line: &str) -> String {
     expanded
 }
 
+fn format_duration(seconds: f64) -> String {
+    if seconds >= 60.0 {
+        let total = seconds.round() as u64;
+        format!("{}m {}s", total / 60, total % 60)
+    } else {
+        format!("{:.1}s", seconds)
+    }
+}
+
 pub fn wrap_text_utf8(text: &str, max_width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     let max_w = max_width.max(1);
@@ -166,10 +175,16 @@ impl RenderCache {
                 result.extend(lines);
                 if block.consolidated {
                     if let Some(meta) = &block.turn_meta {
-                        let mut meta_parts = vec![format!("▣ {}", meta.model)];
+                        let display = crate::ui::labels::model_display_name(&meta.model);
+                        let model_label = if display.is_empty() {
+                            meta.model.clone()
+                        } else {
+                            display
+                        };
+                        let mut meta_parts = vec![model_label];
                         if let Some(d) = meta.duration_seconds {
                             if d > 0.0 {
-                                meta_parts.push(format!("{:.1}s", d));
+                                meta_parts.push(format_duration(d));
                                 if let Some(tok) = meta.output_tokens {
                                     if tok > 0 {
                                         meta_parts.push(format!("{:.1} tok/s", (tok as f64) / d));
