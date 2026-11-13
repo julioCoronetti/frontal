@@ -449,6 +449,7 @@ async fn test_respawn_applies_persisted_telemetry() {
             tool_name: None,
             tool_args: None,
             step_index: None,
+            turn_meta: None,
         }],
     );
     app.history.record_telemetry(

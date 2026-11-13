@@ -10,6 +10,7 @@ pub struct StoredMessage {
     pub tool_name: Option<String>,
     pub tool_args: Option<String>,
     pub step_index: Option<u64>,
+    pub turn_meta: Option<String>,
 }
 
 pub fn default_history_path() -> Option<PathBuf> {
@@ -21,7 +22,7 @@ pub fn default_history_path() -> Option<PathBuf> {
 pub fn conversation_messages_at(path: &Path, conv_id: &str) -> Vec<StoredMessage> {
     read_connection(path, |conn| {
         let mut stmt = conn.prepare(
-            "SELECT role, content, tool_name, tool_args, step_index
+            "SELECT role, content, tool_name, tool_args, step_index, turn_meta
              FROM messages WHERE conversation_id = ?1 ORDER BY id ASC",
         )?;
         let rows = stmt.query_map(params![conv_id], |row| {
@@ -31,6 +32,7 @@ pub fn conversation_messages_at(path: &Path, conv_id: &str) -> Vec<StoredMessage
                 tool_name: row.get(2)?,
                 tool_args: row.get(3)?,
                 step_index: row.get::<_, Option<i64>>(4)?.map(|value| value as u64),
+                turn_meta: row.get(5)?,
             })
         })?;
         Ok(rows.filter_map(Result::ok).collect())
@@ -76,8 +78,8 @@ pub(crate) fn insert_messages(conn: &Connection, conv_id: &str, messages: &[Stor
     for message in messages {
         let _ = conn.execute(
             "INSERT INTO messages
-             (conversation_id, role, content, tool_name, tool_args, step_index, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+             (conversation_id, role, content, tool_name, tool_args, step_index, turn_meta, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 conv_id,
                 message.role,
@@ -85,6 +87,7 @@ pub(crate) fn insert_messages(conn: &Connection, conv_id: &str, messages: &[Stor
                 message.tool_name,
                 message.tool_args,
                 message.step_index.map(|value| value as i64),
+                message.turn_meta,
                 now,
             ],
         );

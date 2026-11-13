@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::protocol::StepState;
 use crate::ui::highlight::IncrementalCodeHighlighter;
 use crate::ui::markdown::MarkdownSegment;
@@ -9,7 +11,7 @@ pub mod slice;
 
 pub use format::wrap_text_utf8;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TurnMeta {
     pub mode: String,
     pub model: String,
@@ -82,6 +84,14 @@ impl RenderCache {
     }
 
     pub fn push_historical_assistant_message(&mut self, text: &str) -> u64 {
+        self.push_historical_assistant_message_with_meta(text, None)
+    }
+
+    pub fn push_historical_assistant_message_with_meta(
+        &mut self,
+        text: &str,
+        turn_meta: Option<TurnMeta>,
+    ) -> u64 {
         let id = self.next_block_id;
         self.next_block_id += 1;
         self.blocks.push(MessageBlock {
@@ -95,9 +105,20 @@ impl RenderCache {
             step_index: None,
             code_highlighters: Vec::new(),
             markdown_ast: None,
-            turn_meta: None,
+            turn_meta,
         });
         id
+    }
+
+    pub fn set_last_assistant_turn_meta(&mut self, meta: TurnMeta) {
+        if let Some(block) = self
+            .blocks
+            .iter_mut()
+            .rev()
+            .find(|block| matches!(block.kind, BlockKind::Assistant) && block.consolidated)
+        {
+            block.turn_meta = Some(meta);
+        }
     }
 
     pub fn push_historical_thought(&mut self, thought: &str) -> u64 {

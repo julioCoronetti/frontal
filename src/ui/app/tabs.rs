@@ -92,13 +92,16 @@ impl App {
         let old_id = self.active_session.clone();
         let was_replay = self.session_manager.is_replay_session(&old_id);
         let base_engine_config = self.session_manager.get_engine_config(&old_id);
-        let model = model.filter(|value| !value.trim().is_empty());
+        let model = model
+            .map(|value| crate::config::sanitize_model_id(&value))
+            .filter(|value| !value.is_empty());
         let (prev_conv_id, prev_model, prev_effort, prev_mode) = {
             let meta = self.session_manager.get_metadata(&old_id);
             (
                 meta.and_then(|m| m.conversation_id.clone()),
                 meta.and_then(|m| m.model.clone())
-                    .filter(|value| !value.trim().is_empty()),
+                    .map(|value| crate::config::sanitize_model_id(&value))
+                    .filter(|value| !value.is_empty()),
                 meta.and_then(|m| m.effort.clone()),
                 meta.and_then(|m| m.mode.clone()),
             )
@@ -251,6 +254,7 @@ impl App {
                     self.tabs[self.active_tab_index].title = title;
                 }
                 if let Some(snapshot) = maybe_telemetry {
+                    let fallback_model = snapshot.model.clone();
                     self.last_turn_usage = Some(snapshot.last);
                     self.accumulated_usage = snapshot.accumulated;
                     self.steps_seen = snapshot.steps;
@@ -267,6 +271,28 @@ impl App {
                         {
                             self.served_model = Some(model);
                         }
+                    }
+                    let has_meta = self
+                        .cache
+                        .blocks()
+                        .iter()
+                        .rev()
+                        .find(|block| matches!(block.kind, crate::ui::cache::BlockKind::Assistant))
+                        .map(|block| block.turn_meta.is_some())
+                        .unwrap_or(false);
+                    if !has_meta && (snapshot.turns > 0 || snapshot.last.output_tokens > 0) {
+                        let mode = self.active_mode_name();
+                        let model = fallback_model.unwrap_or_else(|| self.active_model_name());
+                        let meta = crate::ui::cache::TurnMeta {
+                            mode,
+                            model,
+                            duration_seconds: snapshot
+                                .duration_millis
+                                .map(|millis| millis as f64 / 1000.0),
+                            output_tokens: (snapshot.last.output_tokens > 0)
+                                .then_some(snapshot.last.output_tokens),
+                        };
+                        self.cache.set_last_assistant_turn_meta(meta);
                     }
                 }
             } else if is_different_conv {

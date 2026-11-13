@@ -189,12 +189,18 @@ impl App {
                 BlockKind::Tool { name, .. } => (Some(name.clone()), block.tool_args.clone()),
                 _ => (None, None),
             };
+            let turn_meta = block.turn_meta.as_ref().and_then(|meta| {
+                let mut meta = meta.clone();
+                meta.model = crate::config::sanitize_model_id(&meta.model);
+                serde_json::to_string(&meta).ok()
+            });
             messages.push(StoredMessage {
                 role: role.to_string(),
                 content: block.content.clone(),
                 tool_name,
                 tool_args,
                 step_index: block.step_index,
+                turn_meta,
             });
         }
         let last_usage = self.tabs[tab_idx].last_turn_usage;

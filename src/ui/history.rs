@@ -58,7 +58,11 @@ pub fn hydrate_conversation(
                 cache.push_user_message(&message.content);
             }
             "assistant" => {
-                cache.push_historical_assistant_message(&message.content);
+                let turn_meta = message
+                    .turn_meta
+                    .as_deref()
+                    .and_then(|raw| serde_json::from_str::<crate::ui::cache::TurnMeta>(raw).ok());
+                cache.push_historical_assistant_message_with_meta(&message.content, turn_meta);
             }
             "thought" => {
                 cache.push_historical_thought(&message.content);

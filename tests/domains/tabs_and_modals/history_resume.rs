@@ -19,6 +19,7 @@ fn test_conversation_message_store_roundtrip_and_hydration() {
                 tool_name: None,
                 tool_args: None,
                 step_index: None,
+                turn_meta: None,
             },
             StoredMessage {
                 role: "thought".to_string(),
@@ -26,6 +27,7 @@ fn test_conversation_message_store_roundtrip_and_hydration() {
                 tool_name: None,
                 tool_args: None,
                 step_index: Some(2),
+                turn_meta: None,
             },
             StoredMessage {
                 role: "assistant".to_string(),
@@ -33,6 +35,7 @@ fn test_conversation_message_store_roundtrip_and_hydration() {
                 tool_name: None,
                 tool_args: None,
                 step_index: None,
+                turn_meta: None,
             },
         ],
     );

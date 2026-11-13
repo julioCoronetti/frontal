@@ -28,7 +28,6 @@ pub struct SessionRecord {
     pub title: Option<String>,
     pub created_at: i64,
 }
-
 pub fn format_relative_time(created_at: i64) -> String {
     if created_at <= 0 {
         return "just now".to_string();
@@ -48,7 +47,6 @@ pub fn format_relative_time(created_at: i64) -> String {
         format!("{}d ago", diff / 86400)
     }
 }
-
 impl SessionRecord {
     pub fn relative_time(&self) -> String {
         format_relative_time(self.created_at)
@@ -232,6 +230,7 @@ impl PromptHistory {
                  tool_name TEXT,
                  tool_args TEXT,
                  step_index INTEGER,
+                 turn_meta TEXT,
                  created_at INTEGER NOT NULL
              );
              CREATE INDEX IF NOT EXISTS idx_messages_conversation
@@ -240,6 +239,7 @@ impl PromptHistory {
         telemetry::ensure_schema(conn)?;
         let _ = conn.execute("ALTER TABLE sessions ADD COLUMN effort TEXT", []);
         let _ = conn.execute("ALTER TABLE sessions ADD COLUMN title TEXT", []);
+        let _ = conn.execute("ALTER TABLE messages ADD COLUMN turn_meta TEXT", []);
         Ok(())
     }
 
