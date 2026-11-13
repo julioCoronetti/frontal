@@ -392,6 +392,7 @@ fn test_background_tab_tool_calls_and_error_lifecycle() {
             num_turns: Some(1),
             usage: None,
             error: None,
+            ..Default::default()
         }),
     });
     app.handle_engine_envelope(SessionEnvelope {

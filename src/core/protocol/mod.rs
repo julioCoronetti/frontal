@@ -225,6 +225,15 @@ pub struct InitData {
     pub tools: Vec<String>,
     #[serde(default)]
     pub permission_mode: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(
+        default,
+        alias = "max_context_tokens",
+        alias = "context_length",
+        alias = "max_tokens"
+    )]
+    pub context_window: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -257,6 +266,15 @@ pub struct StepUpdateData {
     pub duration_seconds: Option<f64>,
     #[serde(default)]
     pub usage: Option<TokenUsage>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(
+        default,
+        alias = "max_context_tokens",
+        alias = "context_length",
+        alias = "max_tokens"
+    )]
+    pub context_window: Option<u64>,
 }
 
 impl StepUpdateData {
@@ -291,6 +309,15 @@ pub struct ResultData {
     pub num_turns: Option<u64>,
     #[serde(default)]
     pub usage: Option<TokenUsage>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(
+        default,
+        alias = "max_context_tokens",
+        alias = "context_length",
+        alias = "max_tokens"
+    )]
+    pub context_window: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

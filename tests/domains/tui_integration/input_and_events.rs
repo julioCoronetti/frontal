@@ -279,6 +279,7 @@ async fn test_last_turn_usage_persisted_through_result_and_subsequent_prompt() {
         duration_seconds: Some(1.2),
         num_turns: Some(1),
         usage: Some(usage),
+        ..Default::default()
     };
     let result_ev = frontal::protocol::StreamEvent::Result(frontal::protocol::ResultEvent {
         conversation_id: Some("conv-1".to_string()),
