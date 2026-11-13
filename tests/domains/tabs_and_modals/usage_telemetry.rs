@@ -127,6 +127,16 @@ fn test_model_spec_resolution_precedence_and_open_window() {
         ContextWindowSource::Heuristic
     );
 
+    let prioritized = ModelSpec::resolve(&["claude-sonnet-4-6", "gemini-3.1-pro-high"], None, &[]);
+    assert_eq!(prioritized.usable(), Some(200_000));
+    assert_eq!(
+        prioritized.context_window.unwrap().source,
+        ContextWindowSource::Heuristic
+    );
+
+    let provider_prefix = ModelSpec::resolve(&["gemini-proxy/llama-3-70b"], None, &[]);
+    assert_eq!(provider_prefix.usable(), None);
+
     let unknown = ModelSpec::resolve(&["opencode-go/deepseek-v4.1-flash"], None, &[]);
     assert_eq!(unknown.usable(), None);
     assert_eq!(unknown.occupancy_pct(1_000), None);
@@ -156,7 +166,7 @@ fn test_user_config_context_window_overrides_section_and_round_trip() {
     use frontal::model_spec::ModelSpec;
 
     let mut config = frontal::config::UserConfig::new_isolated();
-    let toml = "model = \"custom-model\"\n\n[context_windows]\n\"opencode-go/deepseek-v4.1-flash\" = 64_000\nclaude-sonnet-5-5-high = 1_000_000\ninvalid = nope\n";
+    let toml = "model = \"custom-model\" # active model\n\n[context_windows] # overrides\n\"opencode-go/deepseek-v4.1-flash\" = 64_000 # note\nclaude-sonnet-5-5-high = 1_000_000\ninvalid = nope\n";
     config.parse_content(toml);
 
     assert_eq!(config.model, "custom-model");
@@ -252,6 +262,35 @@ fn test_streaming_usage_snapshot_retention_and_consolidation() {
     });
     assert_eq!(app.last_turn_usage.map(|u| u.total_tokens), Some(400));
     assert_eq!(app.turns_completed, 0);
+
+    let next_turn = StreamEvent::StepUpdate(StepUpdateEvent {
+        conversation_id: None,
+        step_update: Some(StepUpdateData {
+            step_index: Some(0),
+            usage: Some(first),
+            ..Default::default()
+        }),
+    });
+    app.handle_engine_envelope(SessionEnvelope {
+        session_id: app.active_session.clone(),
+        event: EngineEvent::Stream(Box::new(next_turn)),
+    });
+    assert_eq!(app.steps_seen, 3);
+
+    let closing = StreamEvent::Result(frontal::protocol::ResultEvent {
+        conversation_id: None,
+        result: Some(frontal::protocol::ResultData {
+            response: Some("second turn done".to_string()),
+            usage: Some(first),
+            ..Default::default()
+        }),
+    });
+    app.handle_engine_envelope(SessionEnvelope {
+        session_id: app.active_session.clone(),
+        event: EngineEvent::Stream(Box::new(closing)),
+    });
+    assert_eq!(app.turns_completed, 1);
+    assert_eq!(app.last_turn_usage.map(|u| u.total_tokens), Some(300));
 }
 
 #[test]

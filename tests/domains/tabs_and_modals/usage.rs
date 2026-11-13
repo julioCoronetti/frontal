@@ -315,11 +315,20 @@ fn test_accumulated_usage_preserved_across_multisession_tab_swap() {
     assert_eq!(app.accumulated_usage.total_tokens, 3000);
     assert_eq!(app.last_turn_usage.unwrap().total_tokens, 850);
 
+    app.context_window_hint = Some(500_000);
+    app.steps_seen = 4;
+    app.turns_completed = 2;
+    app.last_turn_duration_seconds = Some(0.9);
+
     let enter = press_key(KeyCode::Enter, KeyModifiers::NONE);
     app.editor.insert_str("/clear");
     app.handle_terminal_event(enter);
     assert_eq!(app.accumulated_usage, TokenUsage::default());
     assert_eq!(app.last_turn_usage, None);
+    assert_eq!(app.context_window_hint, None);
+    assert_eq!(app.steps_seen, 0);
+    assert_eq!(app.turns_completed, 0);
+    assert_eq!(app.last_turn_duration_seconds, None);
 }
 
 #[test]
