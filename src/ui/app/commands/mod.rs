@@ -25,7 +25,13 @@ impl App {
             self.viewport.clear_selection();
             self.viewport.scroll_to_bottom();
             self.last_turn_usage = None;
+            self.in_flight_usage = None;
             self.accumulated_usage = crate::protocol::TokenUsage::default();
+            self.context_window_hint = None;
+            self.steps_seen = 0;
+            self.last_step_index = None;
+            self.turns_completed = 0;
+            self.last_turn_duration_seconds = None;
             self.queued_prompts.clear();
             self.status_text = String::from("Cleared");
             self.dirty = true;

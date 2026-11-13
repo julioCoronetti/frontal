@@ -81,6 +81,7 @@ impl TabState {
         let mut outcome = None;
         match event {
             StreamEvent::Init(ev) => {
+                self.last_step_index = None;
                 if let Some(init) = &ev.init {
                     self.update_context_hint(init.context_window);
                     if let Some(model) = &init.model {
@@ -198,6 +199,7 @@ impl TabState {
                     self.last_turn_usage = Some(usage);
                 }
                 let tokens = self.last_turn_usage.map(|u| u.output_tokens);
+                self.last_step_index = None;
                 self.turns_completed = self.turns_completed.saturating_add(1);
                 if let Some(elapsed) = duration {
                     self.last_turn_duration_seconds = Some(elapsed);
@@ -227,6 +229,7 @@ impl TabState {
             StreamEvent::Error(err) => {
                 self.waiting_for_response = false;
                 self.in_flight_usage = None;
+                self.last_step_index = None;
                 let msg = err
                     .error
                     .as_deref()

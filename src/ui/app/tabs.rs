@@ -187,6 +187,10 @@ impl App {
         if is_different_conv {
             self.last_turn_usage = None;
             self.accumulated_usage = crate::protocol::TokenUsage::default();
+            self.steps_seen = 0;
+            self.last_step_index = None;
+            self.turns_completed = 0;
+            self.last_turn_duration_seconds = None;
         }
         self.in_flight_usage = None;
         if is_different_conv || model_changed {
