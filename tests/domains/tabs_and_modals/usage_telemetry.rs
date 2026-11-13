@@ -352,6 +352,10 @@ fn test_sidebar_context_telemetry_rendering_resolved_window() {
         frontal::ui::theme::BG_SIDEBAR
     );
     assert_eq!(
+        buffer.cell((80, 2)).unwrap().fg,
+        frontal::ui::theme::ACCENT_PRIMARY
+    );
+    assert_eq!(
         buffer.cell((108, 29)).unwrap().bg,
         frontal::ui::theme::BG_SIDEBAR
     );

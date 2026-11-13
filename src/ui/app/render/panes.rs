@@ -5,9 +5,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::ui::app::App;
-use crate::ui::theme::{
-    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, BG_SIDEBAR, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY,
-};
+use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, BG_SIDEBAR, TEXT_MUTED, TEXT_PRIMARY};
 
 impl App {
     pub(crate) fn render_chat(
@@ -134,7 +132,11 @@ impl App {
         frame.render_widget(
             Block::default()
                 .borders(Borders::LEFT)
-                .border_style(Style::default().fg(BORDER_SUBTLE))
+                .border_style(
+                    Style::default()
+                        .fg(ACCENT_PRIMARY)
+                        .add_modifier(Modifier::BOLD),
+                )
                 .style(Style::default().bg(BG_SIDEBAR)),
             sb_area,
         );
