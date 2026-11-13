@@ -253,3 +253,78 @@ fn test_streaming_usage_snapshot_retention_and_consolidation() {
     assert_eq!(app.last_turn_usage.map(|u| u.total_tokens), Some(400));
     assert_eq!(app.turns_completed, 0);
 }
+
+#[test]
+fn test_sidebar_context_telemetry_rendering_resolved_window() {
+    let (mut app, _) = crate::common::test_app();
+    app.cache.push_user_message("prompt for sidebar telemetry");
+    app.last_turn_usage = Some(TokenUsage {
+        input_tokens: 400_000,
+        output_tokens: 60_000,
+        cache_read_tokens: 40_000,
+        total_tokens: 500_000,
+        ..Default::default()
+    });
+    app.accumulated_usage = TokenUsage {
+        input_tokens: 100_000,
+        cache_read_tokens: 50_000,
+        total_tokens: 150_000,
+        ..Default::default()
+    };
+    app.steps_seen = 3;
+    app.turns_completed = 2;
+    app.last_turn_duration_seconds = Some(1.5);
+
+    let (_, text) = crate::common::render_app(&mut app, 120, 30);
+    assert!(text.contains("Session Active"));
+    assert!(text.contains("500000 tok (50.0%)"));
+    assert!(text.contains("Remaining: 500000 tok"));
+    assert!(text.contains("Compact in 250000 tok"));
+    assert!(text.contains("Steps: 3 · Turns: 2"));
+    assert!(text.contains("Cache: 40000 tok · 33.3%"), "TEXT: {}", text);
+    assert!(text.contains("Last turn: 1.5s"));
+}
+
+#[test]
+fn test_sidebar_unknown_window_and_compaction_alert() {
+    let (mut app, _) = crate::common::test_app();
+    app.cache.push_user_message("prompt for sidebar telemetry");
+    app.user_config.model = "opencode-go/unknown-model".to_string();
+    let session_id = app.active_session.clone();
+    app.session_manager.set_session_metadata(
+        &session_id,
+        None,
+        Some("opencode-go/unknown-model".to_string()),
+        None,
+        None,
+    );
+    app.last_turn_usage = Some(TokenUsage {
+        input_tokens: 120_000,
+        total_tokens: 120_000,
+        ..Default::default()
+    });
+
+    let (_, text) = crate::common::render_app(&mut app, 120, 30);
+    assert!(text.contains("120000 tok · window open"), "TEXT: {}", text);
+    assert!(text.contains("limit unknown"));
+    assert!(!text.contains("120000 tok ("));
+
+    app.user_config.model = "gemini-3.8-flash-high".to_string();
+    let session_id = app.active_session.clone();
+    app.session_manager.set_session_metadata(
+        &session_id,
+        None,
+        Some("gemini-3.8-flash-high".to_string()),
+        None,
+        None,
+    );
+    app.last_turn_usage = Some(TokenUsage {
+        input_tokens: 800_000,
+        total_tokens: 800_000,
+        ..Default::default()
+    });
+
+    let (_, text) = crate::common::render_app(&mut app, 120, 30);
+    assert!(text.contains("800000 tok (80.0%)"));
+    assert!(text.contains("Compact now (>=75%)"));
+}

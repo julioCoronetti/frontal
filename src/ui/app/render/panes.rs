@@ -126,29 +126,14 @@ impl App {
     }
 
     pub(crate) fn render_sidebar(&self, frame: &mut Frame, sb_area: Rect) {
-        let total_tokens = self
+        let used_tokens = self
             .last_turn_usage
             .as_ref()
-            .map(|u| u.effective_total())
+            .map(|usage| usage.effective_total())
             .unwrap_or(0);
-        let model = self.active_model_name();
-        let spec = crate::model_spec::ModelSpec::resolve(
-            &[model.as_str()],
-            None,
-            &self.user_config.context_windows,
-        );
-        let max_context = spec.usable().unwrap_or(0) as f64;
-        let pct = spec.occupancy_pct(total_tokens).unwrap_or(0.0);
-        let filled_blocks = if max_context > 0.0 {
-            ((pct / 100.0) * 14.0).round().min(14.0) as usize
-        } else {
-            0
-        };
-        let bar = format!(
-            "{}{}",
-            "■".repeat(filled_blocks),
-            "░".repeat(14usize.saturating_sub(filled_blocks))
-        );
+        let spec = self.active_model_spec();
+        let window = spec.usable();
+        let occupancy = spec.occupancy_pct(used_tokens);
         let mut sb_lines = vec![
             Line::from(vec![
                 Span::styled("● ", Style::default().fg(Color::Green)),
@@ -171,18 +156,80 @@ impl App {
                 "Context Window",
                 Style::default().fg(TEXT_MUTED).add_modifier(Modifier::BOLD),
             )]),
+        ];
+        match (window, occupancy) {
+            (Some(tokens), Some(pct)) => {
+                sb_lines.push(Line::from(vec![Span::styled(
+                    format!("{} tok ({:.1}%)", used_tokens, pct),
+                    Style::default().fg(TEXT_PRIMARY),
+                )]));
+                let filled = ((pct / 100.0) * 14.0).round().clamp(0.0, 14.0) as usize;
+                let bar = format!(
+                    "{}{}",
+                    "■".repeat(filled),
+                    "░".repeat(14usize.saturating_sub(filled))
+                );
+                sb_lines.push(Line::from(vec![Span::styled(
+                    bar,
+                    Style::default().fg(ACCENT_PRIMARY),
+                )]));
+                let remaining = spec.remaining(used_tokens).unwrap_or(tokens);
+                sb_lines.push(Line::from(vec![Span::styled(
+                    format!("Remaining: {} tok", remaining),
+                    Style::default().fg(TEXT_MUTED),
+                )]));
+                if spec.is_compaction_recommended(used_tokens) {
+                    sb_lines.push(Line::from(vec![Span::styled(
+                        "Compact now (>=75%)",
+                        Style::default()
+                            .fg(ACCENT_HIGHLIGHT)
+                            .add_modifier(Modifier::BOLD),
+                    )]));
+                } else if let Some(margin) = spec.compact_margin(used_tokens) {
+                    sb_lines.push(Line::from(vec![Span::styled(
+                        format!("Compact in {} tok", margin),
+                        Style::default().fg(TEXT_MUTED),
+                    )]));
+                }
+            }
+            _ => {
+                sb_lines.push(Line::from(vec![Span::styled(
+                    format!("{} tok · window open", used_tokens),
+                    Style::default().fg(TEXT_PRIMARY),
+                )]));
+                sb_lines.push(Line::from(vec![Span::styled(
+                    "limit unknown",
+                    Style::default().fg(TEXT_MUTED),
+                )]));
+            }
+        }
+        sb_lines.extend(vec![
+            Line::from(""),
             Line::from(vec![Span::styled(
-                format!("{} tok ({:.1}%)", total_tokens, pct),
+                format!(
+                    "Steps: {} · Turns: {}",
+                    self.steps_seen, self.turns_completed
+                ),
                 Style::default().fg(TEXT_PRIMARY),
             )]),
-            Line::from(vec![Span::styled(bar, Style::default().fg(ACCENT_PRIMARY))]),
-        ];
-        if self.accumulated_usage.effective_total() > 0 {
+        ]);
+        let cache_read = self
+            .last_turn_usage
+            .map(|usage| usage.cache_read_tokens)
+            .unwrap_or(0);
+        if cache_read > 0 || self.accumulated_usage.effective_total() > 0 {
             sb_lines.push(Line::from(vec![Span::styled(
                 format!(
-                    "Cache hit: {:.1}%",
+                    "Cache: {} tok · {:.1}%",
+                    cache_read,
                     self.accumulated_usage.cache_hit_percentage()
                 ),
+                Style::default().fg(TEXT_MUTED),
+            )]));
+        }
+        if let Some(duration) = self.last_turn_duration_seconds {
+            sb_lines.push(Line::from(vec![Span::styled(
+                format!("Last turn: {:.1}s", duration),
                 Style::default().fg(TEXT_MUTED),
             )]));
         }

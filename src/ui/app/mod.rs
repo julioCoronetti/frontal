@@ -167,6 +167,17 @@ impl App {
         &mut self.tabs[self.active_tab_index]
     }
 
+    pub fn active_model_spec(&self) -> crate::model_spec::ModelSpec {
+        let served = self.served_model.clone().unwrap_or_default();
+        let configured = self.user_config.model.clone();
+        let active = self.active_model_name();
+        crate::model_spec::ModelSpec::resolve(
+            &[served.as_str(), configured.as_str(), active.as_str()],
+            self.context_window_hint,
+            &self.user_config.context_windows,
+        )
+    }
+
     pub fn set_available_models(&mut self, models: Vec<(String, String)>) {
         self.available_models = models;
     }
