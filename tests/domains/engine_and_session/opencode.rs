@@ -383,3 +383,53 @@ fn test_model_catalog_missing_or_corrupt_database_degrades() {
     assert!(ModelCatalog::parse_catalog("{\"body\":\"not json\"}").is_none());
     assert!(ModelCatalog::parse_catalog("{}").is_none());
 }
+
+#[test]
+fn test_opencode_session_usage_and_stray_model_suffix() {
+    use frontal::infra::history::opencode;
+    use frontal::model_catalog::ModelCatalog;
+    use frontal::model_spec::ModelSpec;
+
+    let guard = crate::common::TempDirGuard::new("opencode_usage");
+    let db_path = guard.path().join("opencode.db");
+    let connection = rusqlite::Connection::open(&db_path).unwrap();
+    connection
+        .execute_batch("CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, data TEXT);")
+        .unwrap();
+    let data = serde_json::json!({
+        "tokens": {"input": 10_540, "output": 87, "reasoning": 84, "cache": {"read": 800}},
+        "model": {"id": "deepseek-v4.1-flash", "providerID": "opencode-go", "variant": "max"}
+    })
+    .to_string();
+    connection
+        .execute(
+            "INSERT INTO session_message (id, session_id, type, seq, data) VALUES (?1, ?2, 'assistant', 1, ?3)",
+            rusqlite::params!["m1", "ses_test", data],
+        )
+        .unwrap();
+    drop(connection);
+
+    let (usage, model) = opencode::load_usage_at(&db_path, "ses_test").expect("usage expected");
+    assert_eq!(usage.input_tokens, 10_540);
+    assert_eq!(usage.output_tokens, 87);
+    assert_eq!(usage.thinking_tokens, 84);
+    assert_eq!(usage.cache_read_tokens, 800);
+    assert_eq!(usage.effective_total(), 11_511);
+    assert_eq!(model.as_deref(), Some("opencode-go/deepseek-v4.1-flash"));
+    assert!(opencode::load_usage_at(&db_path, "conv-uuid").is_none());
+    assert!(opencode::load_usage_at(std::path::Path::new("/nonexistent"), "ses_x").is_none());
+
+    let body = serde_json::json!({
+        "opencode-go": {"models": {"deepseek-v4.1-flash": {"limit": {"context": 1_000_000}}}}
+    })
+    .to_string();
+    let catalog =
+        ModelCatalog::parse_catalog(&serde_json::json!({"body": body}).to_string()).unwrap();
+    let spec = ModelSpec::resolve_with_catalog(
+        &["opencode-go/deepseek-v4.1-flash]"],
+        None,
+        &[],
+        Some(&catalog),
+    );
+    assert_eq!(spec.usable(), Some(1_000_000));
+}

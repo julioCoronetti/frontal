@@ -213,9 +213,24 @@ impl App {
                         );
                         let title =
                             crate::ui::history::conversation_title(&cid_clone, db_path.as_deref());
-                        let telemetry = db_path.as_deref().and_then(|path| {
-                            crate::infra::history::telemetry::load(path, &cid_clone)
-                        });
+                        let telemetry = db_path
+                            .as_deref()
+                            .and_then(|path| {
+                                crate::infra::history::telemetry::load(path, &cid_clone)
+                            })
+                            .or_else(|| {
+                                crate::infra::history::opencode::load_usage(&cid_clone).map(
+                                    |(usage, model)| crate::infra::history::TelemetrySnapshot {
+                                        last: usage,
+                                        accumulated: usage,
+                                        steps: 0,
+                                        turns: 0,
+                                        duration_millis: None,
+                                        context_window: None,
+                                        model,
+                                    },
+                                )
+                            });
                         (ok, hydrated_cache, title, telemetry)
                     })
                     .await

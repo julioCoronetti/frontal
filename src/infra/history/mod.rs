@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 pub mod agent;
 mod api;
 pub mod messages;
+pub mod opencode;
 pub mod telemetry;
 pub mod transcript;
 

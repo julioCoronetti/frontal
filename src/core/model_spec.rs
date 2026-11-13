@@ -171,12 +171,14 @@ fn model_variants(normalized: &str) -> Vec<String> {
 }
 
 fn normalize_model_id(raw: &str) -> String {
-    raw.trim()
-        .to_lowercase()
+    let lowered = raw.trim().to_lowercase();
+    lowered
         .split('#')
         .next()
         .unwrap_or("")
-        .trim()
+        .trim_matches(|ch: char| {
+            !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '.' || ch == '_' || ch == '/')
+        })
         .to_string()
 }
 
