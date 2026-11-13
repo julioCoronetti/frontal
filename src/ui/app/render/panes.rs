@@ -134,9 +134,9 @@ impl App {
             sb_area,
         );
         let inner = Rect {
-            x: sb_area.x.saturating_add(1),
+            x: sb_area.x.saturating_add(2),
             y: sb_area.y.saturating_add(1),
-            width: sb_area.width.saturating_sub(2),
+            width: sb_area.width.saturating_sub(4),
             height: sb_area.height.saturating_sub(1),
         };
         if inner.width == 0 || inner.height == 0 {

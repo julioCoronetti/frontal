@@ -326,14 +326,22 @@ fn test_sidebar_context_telemetry_rendering_resolved_window() {
     assert!(!text.contains("Workspace"));
     let buffer = terminal.backend().buffer();
     assert_eq!(
-        buffer.cell((108, 0)).unwrap().bg,
+        buffer.cell((108, 2)).unwrap().bg,
         frontal::ui::theme::BG_SIDEBAR
     );
     assert_eq!(
         buffer.cell((108, 29)).unwrap().bg,
         frontal::ui::theme::BG_SIDEBAR
     );
-    assert_eq!(app.viewport_bounds.2, 78);
+    assert_ne!(
+        buffer.cell((78, 29)).unwrap().bg,
+        frontal::ui::theme::BG_SIDEBAR
+    );
+    assert_ne!(
+        buffer.cell((79, 29)).unwrap().bg,
+        frontal::ui::theme::BG_SIDEBAR
+    );
+    assert_eq!(app.viewport_bounds.2, 76);
 
     let (_, narrow) = crate::common::render_app(&mut app, 99, 30);
     assert!(!narrow.contains("tokens"));
@@ -461,5 +469,5 @@ fn test_sidebar_toggle_via_command_and_palette() {
     ));
     assert!(app.sidebar_visible);
     crate::common::render_app(&mut app, 120, 30);
-    assert_eq!(app.viewport_bounds.2, 78);
+    assert_eq!(app.viewport_bounds.2, 76);
 }
