@@ -315,17 +315,19 @@ fn test_sidebar_context_telemetry_rendering_resolved_window() {
     app.last_turn_duration_seconds = Some(1.5);
 
     let (_, text) = crate::common::render_app(&mut app, 120, 30);
-    assert!(text.contains("Session Active"));
-    assert!(text.contains("500000 tok (50.0%)"));
-    assert!(text.contains("Remaining: 500000 tok"));
-    assert!(text.contains("Compact in 250000 tok"));
-    assert!(text.contains("Steps: 3 · Turns: 2"));
-    assert!(text.contains("Cache: 40000 tok · 33.3%"), "TEXT: {}", text);
-    assert!(text.contains("Last turn: 1.5s"));
+    assert!(text.contains("Context"));
+    assert!(text.contains("500,000 tokens"));
+    assert!(text.contains("50% used"));
+    assert!(!text.contains("Remaining:"));
+    assert!(!text.contains("Compact"));
+    assert!(!text.contains("Steps:"));
+    assert!(!text.contains("Cache:"));
+    assert!(!text.contains("Last turn:"));
+    assert!(!text.contains("Workspace"));
 }
 
 #[test]
-fn test_sidebar_unknown_window_and_compaction_alert() {
+fn test_sidebar_unknown_window_fallback() {
     let (mut app, _) = crate::common::test_app();
     app.cache.push_user_message("prompt for sidebar telemetry");
     app.user_config.model = "opencode-go/unknown-model".to_string();
@@ -344,9 +346,9 @@ fn test_sidebar_unknown_window_and_compaction_alert() {
     });
 
     let (_, text) = crate::common::render_app(&mut app, 120, 30);
-    assert!(text.contains("120000 tok · window open"), "TEXT: {}", text);
-    assert!(text.contains("limit unknown"));
-    assert!(!text.contains("120000 tok ("));
+    assert!(text.contains("120,000 tokens"));
+    assert!(text.contains("window unknown"));
+    assert!(!text.contains("% used"));
 
     app.user_config.model = "gemini-3.8-flash-high".to_string();
     let session_id = app.active_session.clone();
@@ -364,6 +366,6 @@ fn test_sidebar_unknown_window_and_compaction_alert() {
     });
 
     let (_, text) = crate::common::render_app(&mut app, 120, 30);
-    assert!(text.contains("800000 tok (80.0%)"));
-    assert!(text.contains("Compact now (>=75%)"));
+    assert!(text.contains("800,000 tokens"));
+    assert!(text.contains("80% used"));
 }

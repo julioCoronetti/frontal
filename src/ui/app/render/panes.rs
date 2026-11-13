@@ -1,5 +1,5 @@
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
@@ -132,124 +132,43 @@ impl App {
             .map(|usage| usage.effective_total())
             .unwrap_or(0);
         let spec = self.active_model_spec();
-        let window = spec.usable();
-        let occupancy = spec.occupancy_pct(used_tokens);
-        let mut sb_lines = vec![
-            Line::from(vec![
-                Span::styled("● ", Style::default().fg(Color::Green)),
-                Span::styled(
-                    "Session Active",
-                    Style::default()
-                        .fg(TEXT_PRIMARY)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("ID: ", Style::default().fg(TEXT_MUTED)),
-                Span::styled(
-                    self.active_session.as_str(),
-                    Style::default().fg(TEXT_PRIMARY),
-                ),
-            ]),
-            Line::from(""),
-            Line::from(vec![Span::styled(
-                "Context Window",
-                Style::default().fg(TEXT_MUTED).add_modifier(Modifier::BOLD),
-            )]),
-        ];
-        match (window, occupancy) {
-            (Some(tokens), Some(pct)) => {
-                sb_lines.push(Line::from(vec![Span::styled(
-                    format!("{} tok ({:.1}%)", used_tokens, pct),
-                    Style::default().fg(TEXT_PRIMARY),
-                )]));
-                let filled = ((pct / 100.0) * 14.0).round().clamp(0.0, 14.0) as usize;
-                let bar = format!(
-                    "{}{}",
-                    "■".repeat(filled),
-                    "░".repeat(14usize.saturating_sub(filled))
-                );
-                sb_lines.push(Line::from(vec![Span::styled(
-                    bar,
-                    Style::default().fg(ACCENT_PRIMARY),
-                )]));
-                let remaining = spec.remaining(used_tokens).unwrap_or(tokens);
-                sb_lines.push(Line::from(vec![Span::styled(
-                    format!("Remaining: {} tok", remaining),
-                    Style::default().fg(TEXT_MUTED),
-                )]));
-                if spec.is_compaction_recommended(used_tokens) {
-                    sb_lines.push(Line::from(vec![Span::styled(
-                        "Compact now (>=75%)",
-                        Style::default()
-                            .fg(ACCENT_HIGHLIGHT)
-                            .add_modifier(Modifier::BOLD),
-                    )]));
-                } else if let Some(margin) = spec.compact_margin(used_tokens) {
-                    sb_lines.push(Line::from(vec![Span::styled(
-                        format!("Compact in {} tok", margin),
-                        Style::default().fg(TEXT_MUTED),
-                    )]));
-                }
-            }
-            _ => {
-                sb_lines.push(Line::from(vec![Span::styled(
-                    format!("{} tok · window open", used_tokens),
-                    Style::default().fg(TEXT_PRIMARY),
-                )]));
-                sb_lines.push(Line::from(vec![Span::styled(
-                    "limit unknown",
-                    Style::default().fg(TEXT_MUTED),
-                )]));
-            }
-        }
-        sb_lines.extend(vec![
-            Line::from(""),
-            Line::from(vec![Span::styled(
-                format!(
-                    "Steps: {} · Turns: {}",
-                    self.steps_seen, self.turns_completed
-                ),
-                Style::default().fg(TEXT_PRIMARY),
-            )]),
-        ]);
-        let cache_read = self
-            .last_turn_usage
-            .map(|usage| usage.cache_read_tokens)
-            .unwrap_or(0);
-        if cache_read > 0 || self.accumulated_usage.effective_total() > 0 {
-            sb_lines.push(Line::from(vec![Span::styled(
-                format!(
-                    "Cache: {} tok · {:.1}%",
-                    cache_read,
-                    self.accumulated_usage.cache_hit_percentage()
-                ),
+        let mut sb_lines = vec![Line::from(vec![Span::styled(
+            "Context",
+            Style::default()
+                .fg(TEXT_PRIMARY)
+                .add_modifier(Modifier::BOLD),
+        )])];
+        sb_lines.push(Line::from(vec![Span::styled(
+            format!("{} tokens", format_token_count(used_tokens)),
+            Style::default().fg(TEXT_MUTED),
+        )]));
+        match spec.occupancy_pct(used_tokens) {
+            Some(pct) => sb_lines.push(Line::from(vec![Span::styled(
+                format!("{:.0}% used", pct),
                 Style::default().fg(TEXT_MUTED),
-            )]));
-        }
-        if let Some(duration) = self.last_turn_duration_seconds {
-            sb_lines.push(Line::from(vec![Span::styled(
-                format!("Last turn: {:.1}s", duration),
+            )])),
+            None => sb_lines.push(Line::from(vec![Span::styled(
+                "window unknown",
                 Style::default().fg(TEXT_MUTED),
-            )]));
+            )])),
         }
-        sb_lines.extend(vec![
-            Line::from(""),
-            Line::from(vec![Span::styled(
-                "Workspace",
-                Style::default().fg(TEXT_MUTED).add_modifier(Modifier::BOLD),
-            )]),
-            Line::from(vec![Span::styled(
-                &self.cwd_display,
-                Style::default().fg(TEXT_MUTED),
-            )]),
-        ]);
         let sb_widget = Paragraph::new(sb_lines).block(
             Block::default()
                 .borders(Borders::LEFT)
-                .border_style(Style::default().fg(BORDER_SUBTLE))
-                .title(" Context "),
+                .border_style(Style::default().fg(BORDER_SUBTLE)),
         );
         frame.render_widget(sb_widget, sb_area);
     }
+}
+
+fn format_token_count(value: u64) -> String {
+    let digits = value.to_string();
+    let mut formatted = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            formatted.push(',');
+        }
+        formatted.push(digit);
+    }
+    formatted
 }

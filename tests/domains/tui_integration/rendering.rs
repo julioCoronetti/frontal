@@ -378,9 +378,9 @@ fn test_welcome_state_sidebar_and_scroll_down_indicator() {
         .map(|c| c.symbol())
         .collect::<Vec<_>>()
         .join("");
-    assert!(text2.contains("Context Window"));
-    assert!(text2.contains("700 tok"));
-    assert!(text2.contains("Session Active"));
+    assert!(text2.contains("Context"));
+    assert!(text2.contains("700 tokens"));
+    assert!(text2.contains("% used"));
 
     app.viewport.scroll_up(10);
     terminal.draw(|f| app.render(f)).unwrap();
