@@ -348,11 +348,11 @@ fn test_sidebar_context_telemetry_rendering_resolved_window() {
     assert!(!text.contains("Workspace"));
     let buffer = terminal.backend().buffer();
     assert_eq!(
-        buffer.cell((108, 2)).unwrap().bg,
+        buffer.cell((108, 1)).unwrap().bg,
         frontal::ui::theme::BG_SIDEBAR
     );
     assert_eq!(
-        buffer.cell((80, 2)).unwrap().fg,
+        buffer.cell((80, 1)).unwrap().fg,
         frontal::ui::theme::ACCENT_PRIMARY
     );
     assert_eq!(

@@ -86,9 +86,9 @@ impl App {
         let sidebar_area = if show_sidebar {
             Some(Rect {
                 x: padded_area.x.saturating_add(main_width + SIDEBAR_GAP),
-                y: padded_area.y.saturating_add(2),
+                y: padded_area.y.saturating_add(1),
                 width: padded_area.width.saturating_sub(main_width + SIDEBAR_GAP),
-                height: padded_area.height.saturating_sub(2),
+                height: padded_area.height.saturating_sub(1),
             })
         } else {
             None
