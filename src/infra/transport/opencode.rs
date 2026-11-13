@@ -24,12 +24,13 @@ pub fn opencode_variant(effort: &str) -> Option<&'static str> {
 }
 
 pub fn model_with_variant(model: &str, effort: Option<&str>) -> String {
+    let model = crate::config::sanitize_model_id(model);
     if model.contains('#') {
-        return model.to_string();
+        return model;
     }
     match effort.and_then(opencode_variant) {
         Some(variant) => format!("{}#{}", model, variant),
-        None => model.to_string(),
+        None => model,
     }
 }
 

@@ -38,6 +38,38 @@ pub struct UserConfig {
     pub backend: BackendKind,
     pub isolated: bool,
     pub context_windows: Vec<(String, u64)>,
+    pub needs_repair: bool,
+}
+
+pub fn sanitize_model_id(raw: &str) -> String {
+    let trimmed = raw.trim();
+    let (base_raw, variant_raw) = match trimmed.split_once('#') {
+        Some((base, variant)) => (base, Some(variant)),
+        None => (trimmed, None),
+    };
+    let base = base_raw
+        .chars()
+        .filter(|ch| {
+            ch.is_ascii_alphanumeric() || matches!(ch, '/' | '-' | '.' | '_' | ':' | '@' | '+')
+        })
+        .collect::<String>();
+    let base = base
+        .trim_matches(|ch: char| !ch.is_ascii_alphanumeric())
+        .to_string();
+    let variant = variant_raw
+        .map(|value| {
+            value
+                .chars()
+                .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '.' | '_'))
+                .collect::<String>()
+                .trim_matches(|ch: char| !ch.is_ascii_alphanumeric())
+                .to_string()
+        })
+        .filter(|value| !value.is_empty());
+    match variant {
+        Some(value) if !base.is_empty() => format!("{}#{}", base, value),
+        _ => base,
+    }
 }
 
 impl Default for UserConfig {
@@ -55,6 +87,7 @@ impl UserConfig {
             backend: BackendKind::Agy,
             isolated: true,
             context_windows: Vec::new(),
+            needs_repair: false,
         }
     }
 
@@ -66,6 +99,7 @@ impl UserConfig {
             backend: BackendKind::Agy,
             isolated: false,
             context_windows: Vec::new(),
+            needs_repair: false,
         }
     }
 
@@ -80,6 +114,9 @@ impl UserConfig {
         if let Some(path) = Self::config_path() {
             if let Ok(content) = fs::read_to_string(&path) {
                 config.parse_content(&content);
+                if config.needs_repair {
+                    let _ = config.save();
+                }
             }
         }
         config
@@ -112,7 +149,13 @@ impl UserConfig {
             }
             match k {
                 "model" if !v.is_empty() => {
-                    self.model = v.to_string();
+                    let sanitized = sanitize_model_id(v);
+                    if !sanitized.is_empty() {
+                        if sanitized != v {
+                            self.needs_repair = true;
+                        }
+                        self.model = sanitized;
+                    }
                 }
                 "effort" if !v.is_empty() => {
                     self.effort = v.to_string();
@@ -129,14 +172,14 @@ impl UserConfig {
     }
 
     pub fn set_context_window(&mut self, model: &str, tokens: u64) {
-        let key = model.trim();
+        let key = sanitize_model_id(model);
         if key.is_empty() || tokens == 0 {
             return;
         }
         if let Some(entry) = self
             .context_windows
             .iter_mut()
-            .find(|(existing, _)| existing.eq_ignore_ascii_case(key))
+            .find(|(existing, _)| existing.eq_ignore_ascii_case(&key))
         {
             entry.1 = tokens;
         } else {

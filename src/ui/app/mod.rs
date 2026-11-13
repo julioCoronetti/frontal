@@ -198,13 +198,13 @@ impl App {
     }
 
     pub fn active_model_name(&self) -> String {
-        self.session_manager
+        let model = self
+            .session_manager
             .get_metadata(&self.active_session)
             .and_then(|m| m.model.clone())
             .filter(|model| !model.trim().is_empty())
-            .unwrap_or_else(|| self.user_config.model.clone())
-            .trim()
-            .to_string()
+            .unwrap_or_else(|| self.user_config.model.clone());
+        crate::config::sanitize_model_id(&model)
     }
 
     pub fn active_mode_name(&self) -> String {

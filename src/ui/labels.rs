@@ -16,10 +16,19 @@ pub fn prettify_slug(slug: &str) -> String {
             index += 2;
             continue;
         }
-        words.push(pretty_token(token));
+        words.push(pretty_token(&clean_token(token)));
         index += 1;
     }
     words.join(" ")
+}
+
+fn clean_token(token: &str) -> String {
+    token
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | ':'))
+        .collect::<String>()
+        .trim_matches(|ch: char| !ch.is_ascii_alphanumeric())
+        .to_string()
 }
 
 fn pretty_token(token: &str) -> String {
@@ -74,9 +83,8 @@ pub fn provider_display_name(provider_id: &str) -> String {
 }
 
 pub fn model_display_name(model_id: &str) -> String {
-    let base = model_id
-        .split_once('/')
-        .map(|(_, model)| model)
-        .unwrap_or(model_id);
+    let sanitized = crate::config::sanitize_model_id(model_id);
+    let base = sanitized.split('#').next().unwrap_or(&sanitized);
+    let base = base.split_once('/').map(|(_, model)| model).unwrap_or(base);
     prettify_slug(crate::transport::EngineConfig::strip_effort_suffix(base))
 }

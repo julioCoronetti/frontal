@@ -234,13 +234,16 @@ impl EngineConfig {
             args.push(project.clone());
         }
         if let Some(model) = &self.model {
-            args.push("--model".to_string());
-            let final_model = if self.effort.is_some() {
-                Self::strip_effort_suffix(model)
-            } else {
-                model.as_str()
-            };
-            args.push(final_model.to_string());
+            let model = crate::config::sanitize_model_id(model);
+            if !model.is_empty() {
+                args.push("--model".to_string());
+                let final_model = if self.effort.is_some() {
+                    Self::strip_effort_suffix(&model)
+                } else {
+                    model.as_str()
+                };
+                args.push(final_model.to_string());
+            }
         }
         if let Some(mode) = &self.mode {
             args.push("--mode".to_string());

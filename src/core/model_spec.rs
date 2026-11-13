@@ -171,13 +171,8 @@ fn model_variants(normalized: &str) -> Vec<String> {
 }
 
 fn normalize_model_id(raw: &str) -> String {
-    let lowered = raw.trim().to_lowercase();
-    lowered
-        .split('#')
-        .next()
-        .unwrap_or("")
-        .trim_matches(|ch: char| !ch.is_ascii_alphanumeric())
-        .to_string()
+    let sanitized = crate::config::sanitize_model_id(raw);
+    sanitized.split('#').next().unwrap_or("").to_lowercase()
 }
 
 fn strip_effort(model: &str) -> String {
