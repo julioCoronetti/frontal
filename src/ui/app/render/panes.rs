@@ -144,7 +144,6 @@ impl App {
             .bg(BG_SIDEBAR)
             .add_modifier(Modifier::BOLD);
         let mut sb_lines = vec![
-            Line::from(vec![Span::styled("▌", bar_style)]),
             sidebar_line("Context", TEXT_PRIMARY, true, bar_style),
             sidebar_line(
                 &format!("{} tokens", format_token_count(used_tokens)),

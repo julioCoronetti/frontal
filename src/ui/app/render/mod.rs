@@ -59,7 +59,7 @@ impl App {
         let spinner_char = SPINNER_FRAMES[(self.spinner_tick as usize / 4) % SPINNER_FRAMES.len()];
 
         self.render_tab_bar(frame, tab_bar_area, spinner_char);
-        self.render_divider(frame, divider_area, main_width);
+        self.render_divider(frame, divider_area, padded_area.width);
 
         let body_chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -86,9 +86,9 @@ impl App {
         let sidebar_area = if show_sidebar {
             Some(Rect {
                 x: padded_area.x.saturating_add(main_width + SIDEBAR_GAP),
-                y: padded_area.y.saturating_add(1),
+                y: padded_area.y.saturating_add(2),
                 width: padded_area.width.saturating_sub(main_width + SIDEBAR_GAP),
-                height: padded_area.height.saturating_sub(1),
+                height: padded_area.height.saturating_sub(2),
             })
         } else {
             None
