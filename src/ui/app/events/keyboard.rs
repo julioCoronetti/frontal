@@ -43,6 +43,17 @@ impl App {
             }
         }
 
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('b') {
+            self.sidebar_visible = !self.sidebar_visible;
+            self.status_text = if self.sidebar_visible {
+                String::from("Context sidebar shown")
+            } else {
+                String::from("Context sidebar hidden")
+            };
+            self.dirty = true;
+            return None;
+        }
+
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('p') {
             self.modals
                 .push(Modal::CommandPalette(CommandPaletteModal::new()));

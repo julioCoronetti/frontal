@@ -7,6 +7,7 @@ use ratatui::Frame;
 
 use crate::ui::app::App;
 
+const SIDEBAR_WIDTH: u16 = 38;
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 impl App {
@@ -25,22 +26,21 @@ impl App {
         };
 
         let input_lines = (self.editor.line_count() as u16).clamp(1, 8);
+        let bottom_height = input_lines + 3;
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(1),
                 Constraint::Length(1),
                 Constraint::Min(3),
-                Constraint::Length(input_lines + 2),
-                Constraint::Length(1),
+                Constraint::Length(bottom_height),
             ])
             .split(padded_area);
 
         let tab_bar_area = chunks[0];
         let divider_area = chunks[1];
         let viewport_area = chunks[2];
-        let input_area = chunks[3];
-        let footer_area = chunks[4];
+        let bottom_area = chunks[3];
 
         let spinner_char = SPINNER_FRAMES[(self.spinner_tick as usize / 4) % SPINNER_FRAMES.len()];
 
@@ -48,19 +48,39 @@ impl App {
         self.render_divider(frame, divider_area, padded_area.width);
 
         let is_welcome = self.cache.blocks_count() == 0 && !self.waiting_for_response;
-        let (chat_area, sidebar_area) =
-            if !is_welcome && self.sidebar_visible && padded_area.width >= 100 {
-                let cols = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([Constraint::Min(60), Constraint::Length(28)])
-                    .split(viewport_area);
-                (cols[0], Some(cols[1]))
-            } else {
-                (viewport_area, None)
-            };
-        self.viewport_bounds = (chat_area.x, chat_area.y, chat_area.width, chat_area.height);
+        let show_sidebar = !is_welcome && self.sidebar_visible && padded_area.width >= 100;
+        let (input_column, sidebar_area) = if show_sidebar {
+            let cols = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Min(60), Constraint::Length(SIDEBAR_WIDTH)])
+                .split(bottom_area);
+            (cols[0], Some(cols[1]))
+        } else {
+            (bottom_area, None)
+        };
 
-        self.render_chat(frame, chat_area, is_welcome, spinner_char);
+        let input_height = (input_lines + 2).min(input_column.height);
+        let input_area = Rect {
+            x: input_column.x,
+            y: input_column.y,
+            width: input_column.width,
+            height: input_height,
+        };
+        let footer_area = Rect {
+            x: input_column.x,
+            y: input_column.y.saturating_add(input_height),
+            width: input_column.width,
+            height: input_column.height.saturating_sub(input_height).min(1),
+        };
+
+        self.viewport_bounds = (
+            viewport_area.x,
+            viewport_area.y,
+            viewport_area.width,
+            viewport_area.height,
+        );
+
+        self.render_chat(frame, viewport_area, is_welcome, spinner_char);
         if let Some(sb_area) = sidebar_area {
             self.render_sidebar(frame, sb_area);
         }

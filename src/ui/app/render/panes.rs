@@ -1,11 +1,11 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::ui::app::App;
-use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY};
+use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, BG_SIDEBAR, TEXT_MUTED, TEXT_PRIMARY};
 
 impl App {
     pub(crate) fn render_chat(
@@ -126,6 +126,22 @@ impl App {
     }
 
     pub(crate) fn render_sidebar(&self, frame: &mut Frame, sb_area: Rect) {
+        if sb_area.width == 0 || sb_area.height == 0 {
+            return;
+        }
+        frame.render_widget(
+            Block::default().style(Style::default().bg(BG_SIDEBAR)),
+            sb_area,
+        );
+        let inner = Rect {
+            x: sb_area.x.saturating_add(1),
+            y: sb_area.y.saturating_add(1),
+            width: sb_area.width.saturating_sub(2),
+            height: sb_area.height.saturating_sub(1),
+        };
+        if inner.width == 0 || inner.height == 0 {
+            return;
+        }
         let used_tokens = self
             .last_turn_usage
             .as_ref()
@@ -152,12 +168,7 @@ impl App {
                 Style::default().fg(TEXT_MUTED),
             )])),
         }
-        let sb_widget = Paragraph::new(sb_lines).block(
-            Block::default()
-                .borders(Borders::LEFT)
-                .border_style(Style::default().fg(BORDER_SUBTLE)),
-        );
-        frame.render_widget(sb_widget, sb_area);
+        frame.render_widget(Paragraph::new(sb_lines), inner);
     }
 }
 

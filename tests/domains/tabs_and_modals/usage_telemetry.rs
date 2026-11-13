@@ -314,7 +314,7 @@ fn test_sidebar_context_telemetry_rendering_resolved_window() {
     app.turns_completed = 2;
     app.last_turn_duration_seconds = Some(1.5);
 
-    let (_, text) = crate::common::render_app(&mut app, 120, 30);
+    let (terminal, text) = crate::common::render_app(&mut app, 120, 30);
     assert!(text.contains("Context"));
     assert!(text.contains("500,000 tokens"));
     assert!(text.contains("50% used"));
@@ -324,6 +324,15 @@ fn test_sidebar_context_telemetry_rendering_resolved_window() {
     assert!(!text.contains("Cache:"));
     assert!(!text.contains("Last turn:"));
     assert!(!text.contains("Workspace"));
+    assert!(terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .any(|cell| cell.bg == frontal::ui::theme::BG_SIDEBAR));
+
+    let (_, narrow) = crate::common::render_app(&mut app, 99, 30);
+    assert!(!narrow.contains("tokens"));
 
     let body = serde_json::json!({
         "opencode-go": {
@@ -432,4 +441,17 @@ fn test_sidebar_toggle_via_command_and_palette() {
     assert!(app.sidebar_visible);
     let (_, text) = crate::common::render_app(&mut app, 120, 30);
     assert!(text.contains("tokens"));
+
+    app.handle_terminal_event(crate::common::press_key(
+        KeyCode::Char('b'),
+        KeyModifiers::CONTROL,
+    ));
+    assert!(!app.sidebar_visible);
+    let (_, text) = crate::common::render_app(&mut app, 120, 30);
+    assert!(!text.contains("tokens"));
+    app.handle_terminal_event(crate::common::press_key(
+        KeyCode::Char('b'),
+        KeyModifiers::CONTROL,
+    ));
+    assert!(app.sidebar_visible);
 }
