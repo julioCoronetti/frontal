@@ -1,7 +1,7 @@
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::ui::app::App;
@@ -130,53 +130,54 @@ impl App {
             return;
         }
         frame.render_widget(
-            Block::default()
-                .borders(Borders::LEFT)
-                .border_style(
-                    Style::default()
-                        .fg(ACCENT_PRIMARY)
-                        .add_modifier(Modifier::BOLD),
-                )
-                .style(Style::default().bg(BG_SIDEBAR)),
+            Block::default().style(Style::default().bg(BG_SIDEBAR)),
             sb_area,
         );
-        let inner = Rect {
-            x: sb_area.x.saturating_add(2),
-            y: sb_area.y.saturating_add(1),
-            width: sb_area.width.saturating_sub(3),
-            height: sb_area.height.saturating_sub(1),
-        };
-        if inner.width == 0 || inner.height == 0 {
-            return;
-        }
         let used_tokens = self
             .last_turn_usage
             .as_ref()
             .map(|usage| usage.effective_total())
             .unwrap_or(0);
         let spec = self.active_model_spec();
-        let mut sb_lines = vec![Line::from(vec![Span::styled(
-            "Context",
-            Style::default()
-                .fg(TEXT_PRIMARY)
-                .add_modifier(Modifier::BOLD),
-        )])];
-        sb_lines.push(Line::from(vec![Span::styled(
-            format!("{} tokens", format_token_count(used_tokens)),
-            Style::default().fg(TEXT_MUTED),
-        )]));
+        let bar_style = Style::default()
+            .fg(ACCENT_PRIMARY)
+            .bg(BG_SIDEBAR)
+            .add_modifier(Modifier::BOLD);
+        let mut sb_lines = vec![
+            sidebar_line("Context", TEXT_PRIMARY, true, bar_style),
+            sidebar_line(
+                &format!("{} tokens", format_token_count(used_tokens)),
+                TEXT_MUTED,
+                false,
+                bar_style,
+            ),
+        ];
         match spec.occupancy_pct(used_tokens) {
-            Some(pct) => sb_lines.push(Line::from(vec![Span::styled(
-                format!("{:.0}% used", pct),
-                Style::default().fg(ACCENT_PRIMARY),
-            )])),
-            None => sb_lines.push(Line::from(vec![Span::styled(
-                "window unknown",
-                Style::default().fg(TEXT_MUTED),
-            )])),
+            Some(pct) => sb_lines.push(sidebar_line(
+                &format!("{:.0}% used", pct),
+                ACCENT_PRIMARY,
+                false,
+                bar_style,
+            )),
+            None => sb_lines.push(sidebar_line("window unknown", TEXT_MUTED, false, bar_style)),
         }
-        frame.render_widget(Paragraph::new(sb_lines), inner);
+        while sb_lines.len() < sb_area.height as usize {
+            sb_lines.push(Line::from(vec![Span::styled("▌", bar_style)]));
+        }
+        frame.render_widget(Paragraph::new(sb_lines), sb_area);
     }
+}
+
+fn sidebar_line(text: &str, color: Color, bold: bool, bar_style: Style) -> Line<'static> {
+    let mut text_style = Style::default().fg(color).bg(BG_SIDEBAR);
+    if bold {
+        text_style = text_style.add_modifier(Modifier::BOLD);
+    }
+    Line::from(vec![
+        Span::styled("▌", bar_style),
+        Span::raw(" "),
+        Span::styled(text.to_string(), text_style),
+    ])
 }
 
 fn format_token_count(value: u64) -> String {
