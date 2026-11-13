@@ -12,6 +12,8 @@ struct AssistantPayload {
     tokens: Option<MessageTokens>,
     #[serde(default)]
     model: Option<MessageModel>,
+    #[serde(default)]
+    time: MessageTime,
 }
 
 #[derive(Deserialize, Default)]
@@ -33,6 +35,16 @@ struct CacheTokens {
 }
 
 #[derive(Deserialize, Default)]
+struct MessageTime {
+    #[serde(default)]
+    created: Option<u64>,
+    #[serde(default)]
+    streamed: Option<u64>,
+    #[serde(default)]
+    completed: Option<u64>,
+}
+
+#[derive(Deserialize, Default)]
 struct MessageModel {
     #[serde(default, rename = "providerID")]
     provider_id: Option<String>,
@@ -44,11 +56,14 @@ pub fn default_path() -> Option<PathBuf> {
     crate::model_catalog::ModelCatalog::default_path()
 }
 
-pub fn load_usage(session_id: &str) -> Option<(TokenUsage, Option<String>)> {
+pub fn load_usage(session_id: &str) -> Option<(TokenUsage, Option<String>, Option<u64>)> {
     default_path().and_then(|path| load_usage_at(&path, session_id))
 }
 
-pub fn load_usage_at(path: &Path, session_id: &str) -> Option<(TokenUsage, Option<String>)> {
+pub fn load_usage_at(
+    path: &Path,
+    session_id: &str,
+) -> Option<(TokenUsage, Option<String>, Option<u64>)> {
     if !path.is_file() || !session_id.starts_with("ses_") {
         return None;
     }
@@ -77,6 +92,11 @@ pub fn load_usage_at(path: &Path, session_id: &str) -> Option<(TokenUsage, Optio
         let id = sanitize_part(model.id.as_deref()?)?;
         Some(format!("{}/{}", provider, id))
     });
+    let end = payload.time.completed.or(payload.time.streamed);
+    let duration_millis = end
+        .zip(payload.time.created)
+        .map(|(end, start)| end.saturating_sub(start))
+        .filter(|millis| *millis > 0);
     Some((
         TokenUsage {
             input_tokens: input,
@@ -86,6 +106,7 @@ pub fn load_usage_at(path: &Path, session_id: &str) -> Option<(TokenUsage, Optio
             total_tokens: 0,
         },
         model,
+        duration_millis,
     ))
 }
 

@@ -398,7 +398,8 @@ fn test_opencode_session_usage_and_stray_model_suffix() {
         .unwrap();
     let data = serde_json::json!({
         "tokens": {"input": 10_540, "output": 87, "reasoning": 84, "cache": {"read": 800}},
-        "model": {"id": "deepseek-v4.1-flash", "providerID": "opencode-go", "variant": "max"}
+        "model": {"id": "deepseek-v4.1-flash", "providerID": "opencode-go", "variant": "max"},
+        "time": {"created": 1_000, "completed": 3_500}
     })
     .to_string();
     connection
@@ -409,7 +410,9 @@ fn test_opencode_session_usage_and_stray_model_suffix() {
         .unwrap();
     drop(connection);
 
-    let (usage, model) = opencode::load_usage_at(&db_path, "ses_test").expect("usage expected");
+    let (usage, model, duration) =
+        opencode::load_usage_at(&db_path, "ses_test").expect("usage expected");
+    assert_eq!(duration, Some(2_500));
     assert_eq!(usage.input_tokens, 10_540);
     assert_eq!(usage.output_tokens, 87);
     assert_eq!(usage.thinking_tokens, 84);

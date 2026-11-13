@@ -223,14 +223,16 @@ impl App {
                             })
                             .or_else(|| {
                                 crate::infra::history::opencode::load_usage(&cid_clone).map(
-                                    |(usage, model)| crate::infra::history::TelemetrySnapshot {
-                                        last: usage,
-                                        accumulated: usage,
-                                        steps: 0,
-                                        turns: 0,
-                                        duration_millis: None,
-                                        context_window: None,
-                                        model,
+                                    |(usage, model, duration_millis)| {
+                                        crate::infra::history::TelemetrySnapshot {
+                                            last: usage,
+                                            accumulated: usage,
+                                            steps: 0,
+                                            turns: 0,
+                                            duration_millis,
+                                            context_window: None,
+                                            model,
+                                        }
                                     },
                                 )
                             });
