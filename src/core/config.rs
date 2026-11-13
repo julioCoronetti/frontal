@@ -88,8 +88,8 @@ impl UserConfig {
     pub fn parse_content(&mut self, content: &str) {
         let mut section: Option<String> = None;
         for line in content.lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
+            let trimmed = strip_comment(line).trim();
+            if trimmed.is_empty() {
                 continue;
             }
             if trimmed.starts_with('[') && trimmed.ends_with(']') {
@@ -173,6 +173,22 @@ impl UserConfig {
         }
         Ok(())
     }
+}
+
+fn strip_comment(line: &str) -> &str {
+    let mut quote: Option<char> = None;
+    for (index, ch) in line.char_indices() {
+        if ch == '"' || ch == '\'' {
+            if quote == Some(ch) {
+                quote = None;
+            } else if quote.is_none() {
+                quote = Some(ch);
+            }
+        } else if ch == '#' && quote.is_none() {
+            return &line[..index];
+        }
+    }
+    line
 }
 
 fn parse_token_count(value: &str) -> Option<u64> {

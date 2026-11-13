@@ -216,12 +216,7 @@ pub struct InitData {
     pub permission_mode: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
-    #[serde(
-        default,
-        alias = "max_context_tokens",
-        alias = "context_length",
-        alias = "max_tokens"
-    )]
+    #[serde(default, alias = "max_context_tokens", alias = "context_length")]
     pub context_window: Option<u64>,
 }
 
@@ -257,12 +252,7 @@ pub struct StepUpdateData {
     pub usage: Option<TokenUsage>,
     #[serde(default)]
     pub model: Option<String>,
-    #[serde(
-        default,
-        alias = "max_context_tokens",
-        alias = "context_length",
-        alias = "max_tokens"
-    )]
+    #[serde(default, alias = "max_context_tokens", alias = "context_length")]
     pub context_window: Option<u64>,
 }
 
@@ -300,12 +290,7 @@ pub struct ResultData {
     pub usage: Option<TokenUsage>,
     #[serde(default)]
     pub model: Option<String>,
-    #[serde(
-        default,
-        alias = "max_context_tokens",
-        alias = "context_length",
-        alias = "max_tokens"
-    )]
+    #[serde(default, alias = "max_context_tokens", alias = "context_length")]
     pub context_window: Option<u64>,
 }
 

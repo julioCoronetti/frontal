@@ -42,25 +42,34 @@ impl ModelSpec {
         if let Some(tokens) = protocol_hint.filter(|tokens| *tokens > 0) {
             return Self::with(tokens, ContextWindowSource::Protocol);
         }
-        let keys = model_keys(models);
-        if keys.is_empty() {
-            return Self::default();
-        }
-        for (name, tokens) in overrides {
-            if *tokens == 0 {
+        let candidates: Vec<Vec<String>> =
+            models.iter().map(|model| model_keys(&[model])).collect();
+        for keys in &candidates {
+            if keys.is_empty() {
                 continue;
             }
-            let override_keys = model_keys(&[name.as_str()]);
-            if override_keys
-                .iter()
-                .any(|candidate| keys.iter().any(|key| key == candidate))
-            {
-                return Self::with(*tokens, ContextWindowSource::Config);
+            for (name, tokens) in overrides {
+                if *tokens == 0 {
+                    continue;
+                }
+                let override_keys = model_keys(&[name.as_str()]);
+                if override_keys
+                    .iter()
+                    .any(|candidate| keys.iter().any(|key| key == candidate))
+                {
+                    return Self::with(*tokens, ContextWindowSource::Config);
+                }
             }
         }
-        for (family, tokens) in FAMILY_CONTEXT_WINDOWS {
-            if keys.iter().any(|key| key.contains(family)) {
-                return Self::with(*tokens, ContextWindowSource::Heuristic);
+        for raw in models {
+            let slug = bare_slug(raw);
+            if slug.is_empty() {
+                continue;
+            }
+            for (family, tokens) in FAMILY_CONTEXT_WINDOWS {
+                if slug.contains(family) {
+                    return Self::with(*tokens, ContextWindowSource::Heuristic);
+                }
             }
         }
         Self::default()
@@ -118,6 +127,14 @@ fn model_keys(models: &[&str]) -> Vec<String> {
         }
     }
     keys
+}
+
+fn bare_slug(raw: &str) -> String {
+    let normalized = normalize_model_id(raw);
+    normalized
+        .rsplit_once('/')
+        .map(|(_, bare)| bare.to_string())
+        .unwrap_or(normalized)
 }
 
 fn model_variants(normalized: &str) -> Vec<String> {
