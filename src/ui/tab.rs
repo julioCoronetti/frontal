@@ -23,7 +23,14 @@ pub struct TabState {
     pub has_unread: bool,
     pub turn_started_at: Option<std::time::Instant>,
     pub last_turn_usage: Option<TokenUsage>,
+    pub in_flight_usage: Option<TokenUsage>,
     pub accumulated_usage: TokenUsage,
+    pub served_model: Option<String>,
+    pub context_window_hint: Option<u64>,
+    pub steps_seen: u64,
+    pub last_step_index: Option<u64>,
+    pub turns_completed: u64,
+    pub last_turn_duration_seconds: Option<f64>,
     pub pending_danger: Option<crate::security::DangerAssessment>,
     pub suspended_events: Vec<StreamEvent>,
     pub queued_prompts: std::collections::VecDeque<String>,
@@ -45,7 +52,14 @@ impl TabState {
             has_unread: false,
             turn_started_at: None,
             last_turn_usage: None,
+            in_flight_usage: None,
             accumulated_usage: TokenUsage::default(),
+            served_model: None,
+            context_window_hint: None,
+            steps_seen: 0,
+            last_step_index: None,
+            turns_completed: 0,
+            last_turn_duration_seconds: None,
             pending_danger: None,
             suspended_events: Vec::new(),
             queued_prompts: std::collections::VecDeque::new(),
@@ -67,6 +81,12 @@ impl TabState {
         let mut outcome = None;
         match event {
             StreamEvent::Init(ev) => {
+                if let Some(init) = &ev.init {
+                    self.update_context_hint(init.context_window);
+                    if let Some(model) = &init.model {
+                        self.served_model = Some(model.clone());
+                    }
+                }
                 if let Some(conv_id) = &ev.conversation_id {
                     self.status_text = format!("Conversation: {}", conv_id);
                 }
@@ -76,8 +96,25 @@ impl TabState {
             }
             StreamEvent::StepUpdate(update) => {
                 if let Some(data) = &update.step_update {
+                    self.update_context_hint(data.context_window);
+                    if let Some(model) = &data.model {
+                        self.served_model = Some(model.clone());
+                    }
+                    if let Some(index) = data.step_index {
+                        let advanced = self
+                            .last_step_index
+                            .map(|previous| index > previous)
+                            .unwrap_or(true);
+                        if advanced {
+                            self.last_step_index = Some(index);
+                            self.steps_seen = self.steps_seen.saturating_add(1);
+                        }
+                    }
                     if let Some(usage) = &data.usage {
-                        self.last_turn_usage = Some(*usage);
+                        let in_flight =
+                            self.in_flight_usage.get_or_insert_with(TokenUsage::default);
+                        in_flight.accumulate(usage);
+                        self.last_turn_usage = self.in_flight_usage;
                     }
                     if let Some(delta) = &data.text_delta {
                         self.waiting_for_response = false;
@@ -148,17 +185,23 @@ impl TabState {
                             .take()
                             .map(|t| t.elapsed().as_secs_f64())
                     });
-                let turn_usage = res.result.as_ref().and_then(|r| r.usage);
-                let usage = turn_usage.or(self.last_turn_usage);
-                let tokens = usage.as_ref().map(|u| u.output_tokens);
-                if let Some(ref u) = usage {
-                    self.accumulated_usage.accumulate(u);
+                if let Some(result) = &res.result {
+                    self.update_context_hint(result.context_window);
+                    if let Some(model) = &result.model {
+                        self.served_model = Some(model.clone());
+                    }
                 }
-                self.last_turn_usage = if self.backend == BackendKind::OpenCode {
-                    self.last_turn_usage.or(turn_usage)
-                } else {
-                    usage
-                };
+                let turn_usage = res.result.as_ref().and_then(|r| r.usage);
+                let consolidated = turn_usage.or(self.in_flight_usage.take());
+                if let Some(usage) = consolidated {
+                    self.accumulated_usage.accumulate(&usage);
+                    self.last_turn_usage = Some(usage);
+                }
+                let tokens = self.last_turn_usage.map(|u| u.output_tokens);
+                self.turns_completed = self.turns_completed.saturating_add(1);
+                if let Some(elapsed) = duration {
+                    self.last_turn_duration_seconds = Some(elapsed);
+                }
                 let meta = crate::ui::cache::TurnMeta {
                     mode: mode.to_string(),
                     model: model.to_string(),
@@ -183,7 +226,7 @@ impl TabState {
             }
             StreamEvent::Error(err) => {
                 self.waiting_for_response = false;
-                self.last_turn_usage = None;
+                self.in_flight_usage = None;
                 let msg = err
                     .error
                     .as_deref()
@@ -200,6 +243,12 @@ impl TabState {
             _ => {}
         }
         outcome
+    }
+
+    fn update_context_hint(&mut self, hint: Option<u64>) {
+        if let Some(tokens) = hint.filter(|tokens| *tokens > 0) {
+            self.context_window_hint = Some(tokens);
+        }
     }
 
     pub fn handle_background_stream_event(

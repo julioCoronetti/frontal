@@ -262,7 +262,6 @@ impl App {
                         self.dirty = true;
                         return None;
                     }
-                    self.last_turn_usage = None;
                     let active_id = self.active_session.clone();
                     self.session_manager.set_session_prompt(&active_id, &p);
                     self.sync_session_to_history(&active_id);
@@ -273,7 +272,6 @@ impl App {
                     self.turn_started_at = Some(std::time::Instant::now());
                     self.dirty = true;
                     self.status_text = String::from("Waiting for response...");
-                    self.last_turn_usage = None;
                     return Some(AppAction::SubmitPrompt(p));
                 }
             }

@@ -135,11 +135,14 @@ fn test_background_tab_token_usage_swap_and_isolation() {
     app.switch_tab(1);
     assert_eq!(app.active_tab_index, 1);
     assert_eq!(app.last_turn_usage, Some(usage));
+    assert_eq!(app.tabs[1].steps_seen, 1);
+    assert_eq!(app.tabs[1].turns_completed, 1);
 
     let enter = press_key(KeyCode::Enter, KeyModifiers::NONE);
     app.editor.insert_str("new prompt");
     app.handle_terminal_event(enter);
-    assert_eq!(app.last_turn_usage, None);
+    assert_eq!(app.last_turn_usage, Some(usage));
+    assert_eq!(app.tabs[0].last_turn_usage, None);
 }
 
 #[test]

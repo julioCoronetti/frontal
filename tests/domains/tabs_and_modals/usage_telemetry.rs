@@ -186,3 +186,70 @@ fn test_user_config_context_window_overrides_section_and_round_trip() {
     assert_eq!(config.context_windows.len(), 2);
     assert_eq!(config.context_windows[0].1, 128_000);
 }
+
+#[test]
+fn test_streaming_usage_snapshot_retention_and_consolidation() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    use frontal::protocol::{
+        EngineEvent, ErrorEvent, SessionEnvelope, StepUpdateData, StepUpdateEvent, StreamEvent,
+    };
+
+    let (mut app, _) = crate::common::test_app();
+
+    let first = TokenUsage {
+        input_tokens: 260,
+        output_tokens: 40,
+        total_tokens: 300,
+        ..Default::default()
+    };
+    let streaming = StreamEvent::StepUpdate(StepUpdateEvent {
+        conversation_id: None,
+        step_update: Some(StepUpdateData {
+            step_index: Some(1),
+            usage: Some(first),
+            ..Default::default()
+        }),
+    });
+    app.handle_engine_envelope(SessionEnvelope {
+        session_id: app.active_session.clone(),
+        event: EngineEvent::Stream(Box::new(streaming)),
+    });
+    assert_eq!(app.last_turn_usage.map(|u| u.total_tokens), Some(300));
+    assert_eq!(app.steps_seen, 1);
+
+    let second = TokenUsage {
+        input_tokens: 50,
+        output_tokens: 50,
+        total_tokens: 100,
+        ..Default::default()
+    };
+    let next_step = StreamEvent::StepUpdate(StepUpdateEvent {
+        conversation_id: None,
+        step_update: Some(StepUpdateData {
+            step_index: Some(2),
+            usage: Some(second),
+            ..Default::default()
+        }),
+    });
+    app.handle_engine_envelope(SessionEnvelope {
+        session_id: app.active_session.clone(),
+        event: EngineEvent::Stream(Box::new(next_step)),
+    });
+    assert_eq!(app.last_turn_usage.map(|u| u.total_tokens), Some(400));
+    assert_eq!(app.steps_seen, 2);
+
+    app.editor.insert_str("next prompt");
+    app.handle_terminal_event(crate::common::press_key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(app.last_turn_usage.map(|u| u.total_tokens), Some(400));
+
+    let failure = StreamEvent::Error(ErrorEvent {
+        error: Some("engine failure".to_string()),
+        message: None,
+    });
+    app.handle_engine_envelope(SessionEnvelope {
+        session_id: app.active_session.clone(),
+        event: EngineEvent::Stream(Box::new(failure)),
+    });
+    assert_eq!(app.last_turn_usage.map(|u| u.total_tokens), Some(400));
+    assert_eq!(app.turns_completed, 0);
+}

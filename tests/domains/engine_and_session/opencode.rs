@@ -83,8 +83,9 @@ async fn test_opencode_engine_multi_turn_session_persistence() {
         last_step_usage.expect("step usage expected").input_tokens,
         10
     );
-    assert_eq!(tab.last_turn_usage.unwrap().input_tokens, 10);
+    assert_eq!(tab.last_turn_usage.unwrap().input_tokens, 20);
     assert_eq!(tab.accumulated_usage.input_tokens, 20);
+    assert_eq!(tab.turns_completed, 1);
     assert!(std::fs::read_to_string(marker.path())
         .unwrap()
         .trim()
