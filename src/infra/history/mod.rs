@@ -5,13 +5,16 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod agent;
+mod api;
 pub mod messages;
+pub mod telemetry;
 pub mod transcript;
 
 pub use agent::*;
 pub use messages::{
     conversation_messages_at, conversation_title_at, default_history_path, StoredMessage,
 };
+pub use telemetry::TelemetrySnapshot;
 pub use transcript::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,6 +68,10 @@ pub enum HistoryCommand {
     AppendMessages {
         conversation_id: String,
         messages: Vec<StoredMessage>,
+    },
+    RecordTelemetry {
+        conversation_id: String,
+        snapshot: TelemetrySnapshot,
     },
     Flush(Sender<()>),
 }
@@ -157,6 +164,12 @@ impl PromptHistory {
                         } => {
                             messages::insert_messages(&bg_conn, &conversation_id, &messages);
                         }
+                        HistoryCommand::RecordTelemetry {
+                            conversation_id,
+                            snapshot,
+                        } => {
+                            let _ = telemetry::upsert(&bg_conn, &conversation_id, &snapshot);
+                        }
                         HistoryCommand::Flush(done_tx) => {
                             let _ = done_tx.send(());
                         }
@@ -223,6 +236,7 @@ impl PromptHistory {
              CREATE INDEX IF NOT EXISTS idx_messages_conversation
                  ON messages(conversation_id, id);",
         )?;
+        telemetry::ensure_schema(conn)?;
         let _ = conn.execute("ALTER TABLE sessions ADD COLUMN effort TEXT", []);
         let _ = conn.execute("ALTER TABLE sessions ADD COLUMN title TEXT", []);
         Ok(())

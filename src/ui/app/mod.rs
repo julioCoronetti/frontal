@@ -201,7 +201,10 @@ impl App {
         self.session_manager
             .get_metadata(&self.active_session)
             .and_then(|m| m.model.clone())
+            .filter(|model| !model.trim().is_empty())
             .unwrap_or_else(|| self.user_config.model.clone())
+            .trim()
+            .to_string()
     }
 
     pub fn active_mode_name(&self) -> String {

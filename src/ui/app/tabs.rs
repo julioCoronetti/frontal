@@ -92,11 +92,13 @@ impl App {
         let old_id = self.active_session.clone();
         let was_replay = self.session_manager.is_replay_session(&old_id);
         let base_engine_config = self.session_manager.get_engine_config(&old_id);
+        let model = model.filter(|value| !value.trim().is_empty());
         let (prev_conv_id, prev_model, prev_effort, prev_mode) = {
             let meta = self.session_manager.get_metadata(&old_id);
             (
                 meta.and_then(|m| m.conversation_id.clone()),
-                meta.and_then(|m| m.model.clone()),
+                meta.and_then(|m| m.model.clone())
+                    .filter(|value| !value.trim().is_empty()),
                 meta.and_then(|m| m.effort.clone()),
                 meta.and_then(|m| m.mode.clone()),
             )
@@ -202,18 +204,27 @@ impl App {
                 let cid_clone = cid.clone();
                 let db_path = self.history.path().map(|path| path.to_path_buf());
                 let mut hydrated_cache = crate::ui::cache::RenderCache::new();
-                let (hydrated, new_cache, maybe_title) = tokio::task::spawn_blocking(move || {
-                    let ok = crate::ui::history::hydrate_conversation(
-                        &cid_clone,
-                        &mut hydrated_cache,
-                        db_path.as_deref(),
-                    );
-                    let title =
-                        crate::ui::history::conversation_title(&cid_clone, db_path.as_deref());
-                    (ok, hydrated_cache, title)
-                })
-                .await
-                .unwrap_or((false, crate::ui::cache::RenderCache::new(), None));
+                let (hydrated, new_cache, maybe_title, maybe_telemetry) =
+                    tokio::task::spawn_blocking(move || {
+                        let ok = crate::ui::history::hydrate_conversation(
+                            &cid_clone,
+                            &mut hydrated_cache,
+                            db_path.as_deref(),
+                        );
+                        let title =
+                            crate::ui::history::conversation_title(&cid_clone, db_path.as_deref());
+                        let telemetry = db_path.as_deref().and_then(|path| {
+                            crate::infra::history::telemetry::load(path, &cid_clone)
+                        });
+                        (ok, hydrated_cache, title, telemetry)
+                    })
+                    .await
+                    .unwrap_or((
+                        false,
+                        crate::ui::cache::RenderCache::new(),
+                        None,
+                        None,
+                    ));
 
                 if hydrated {
                     self.cache = new_cache;
@@ -223,6 +234,22 @@ impl App {
                 }
                 if let Some(title) = maybe_title {
                     self.tabs[self.active_tab_index].title = title;
+                }
+                if let Some(snapshot) = maybe_telemetry {
+                    self.last_turn_usage = Some(snapshot.last);
+                    self.accumulated_usage = snapshot.accumulated;
+                    self.steps_seen = snapshot.steps;
+                    self.last_step_index = None;
+                    self.turns_completed = snapshot.turns;
+                    self.last_turn_duration_seconds = snapshot
+                        .duration_millis
+                        .map(|millis| millis as f64 / 1000.0);
+                    if let Some(window) = snapshot.context_window {
+                        self.context_window_hint = Some(window);
+                    }
+                    if let Some(model) = snapshot.model.filter(|model| !model.trim().is_empty()) {
+                        self.served_model = Some(model);
+                    }
                 }
             } else if is_different_conv {
                 self.cache.clear();
