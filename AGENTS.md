@@ -32,6 +32,7 @@
 - `.agents/skills/frontal-quality-gate`: Runs the canonical Cargo triad (`fmt`, `clippy`, and 193 tests) and verifies architectural invariants.
 - `.agents/skills/frontal-card-lifecycle`: Manages card closure workflows, SemVer bumping, release tags, and Project Board #8 transitions.
 - `.agents/skills/frontal-wiki-sync`: Audits invariant tokens, prevents extinct legacy terms, and commits to the `.wiki/` mirror.
+- `.agents/docs/multi_harness_architecture.md`: Multi-harness architecture specification and implementation plan (`Agy` and `OpenCode`).
 - `.agents/docs/structure.md`: Comprehensive module layout for core and UI crates.
 - `.agents/docs/sources.md`: GitHub, Wiki, and technical dossier references (`agy`, `OpenCode`).
 - `.agents/docs/subagents.md`: Guidelines, profiles, and anti-patterns for subagent delegation.
@@ -52,7 +53,7 @@
 
 - Why: <technical justification or root cause>
 - What: <concise summary of structural or behavioral changes>
-- Invariants: <preserved invariants: L1/L2 cache, swap App/TabState, POSIX pgid, etc.>
+- Invariants: <preserved invariants: L1/L2 cache, O(1) TabState Deref, POSIX pgid, etc.>
 
 Refs: #<card_or_issue>
 Card-Status: <In Progress | In Review | Done>
