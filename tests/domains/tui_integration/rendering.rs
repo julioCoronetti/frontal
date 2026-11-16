@@ -210,7 +210,7 @@ fn test_opencode_visual_layout_and_symmetry() {
         .collect::<Vec<_>>()
         .join("");
 
-    assert!(rendered_text.contains('●'));
+    assert!(rendered_text.contains('+'));
     assert!(rendered_text.contains("Session 1"));
     assert!(rendered_text.contains(&app.cwd_display));
     assert!(rendered_text.contains("Ctrl+P: Palette"));

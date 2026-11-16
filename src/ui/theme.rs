@@ -9,5 +9,6 @@ pub const BG_SIDEBAR: Color = Color::Rgb(34, 18, 24);
 pub const TEXT_PRIMARY: Color = Color::Rgb(255, 255, 255);
 pub const TEXT_MUTED: Color = Color::Rgb(140, 125, 136);
 pub const TAB_ACTIVE_DOT: Color = Color::Rgb(177, 12, 41);
+pub const TAB_ACTIVE_BG: Color = Color::Rgb(38, 22, 30);
 pub const BACKDROP_BG: Color = Color::Reset;
 pub const BACKDROP_FG: Color = Color::DarkGray;
