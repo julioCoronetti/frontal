@@ -43,7 +43,7 @@ async fn test_app_ui_rendering_and_fixture_flow_with_test_backend() {
         state: KeyEventState::NONE,
     });
     let action = app.handle_terminal_event(enter_event);
-    assert_eq!(action, Some(AppAction::SubmitPrompt("ola".to_string())));
+    assert_eq!(action, Some(AppAction::SubmitPrompt("ola".into())));
 
     app.session_manager
         .send_prompt(&app.active_session, "ola")

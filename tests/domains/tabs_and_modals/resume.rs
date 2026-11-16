@@ -378,7 +378,7 @@ fn test_prompt_failure_unwedges_tab() {
     app.waiting_for_response = true;
     app.cache
         .append_streaming_delta(BlockKind::Assistant, "partial output");
-    app.queued_prompts.push_back("queued".to_string());
+    app.queued_prompts.push_back("queued".into());
     assert!(app.cache.has_unconsolidated_blocks());
 
     app.handle_prompt_failure(&session_id, "opencode binary not found");

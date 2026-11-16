@@ -407,7 +407,10 @@ fn test_staging_queue_during_active_turn_and_auto_drain() {
     let act = app.handle_terminal_event(enter);
     assert_eq!(act, None);
     assert_eq!(app.queued_prompts.len(), 1);
-    assert_eq!(app.queued_prompts[0], "pare");
+    assert_eq!(
+        app.queued_prompts[0],
+        frontal::protocol::PromptPayload::from("pare")
+    );
     assert!(app.status_text.contains("Queued (1 pending)"));
     assert_eq!(app.cache.blocks_count(), 1);
 
@@ -425,7 +428,10 @@ fn test_staging_queue_during_active_turn_and_auto_drain() {
 
     assert_eq!(app.queued_prompts.len(), 0);
     assert_eq!(app.pending_engine_prompts.len(), 1);
-    assert_eq!(app.pending_engine_prompts[0], (sid, "pare".to_string()));
+    assert_eq!(
+        app.pending_engine_prompts[0],
+        (sid, frontal::protocol::PromptPayload::from("pare"))
+    );
     assert_eq!(app.cache.blocks_count(), 2);
     assert!(app.waiting_for_response);
 }

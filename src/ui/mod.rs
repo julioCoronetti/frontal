@@ -80,7 +80,7 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                                 let session_id = app.active_session.clone();
                                 if let Err(err) = app
                                     .session_manager
-                                    .send_prompt(&session_id, &prompt)
+                                    .send_prompt(&session_id, prompt)
                                     .await
                                 {
                                     app.handle_prompt_failure(&session_id, &err.to_string());
@@ -136,7 +136,7 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(envelope) = maybe_envelope {
                     app.handle_engine_envelope(envelope);
                     while let Some((sid, prompt)) = app.pending_engine_prompts.pop_front() {
-                        if let Err(err) = app.session_manager.send_prompt(&sid, &prompt).await {
+                        if let Err(err) = app.session_manager.send_prompt(&sid, prompt).await {
                             app.handle_prompt_failure(&sid, &err.to_string());
                         }
                     }

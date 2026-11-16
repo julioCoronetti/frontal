@@ -107,6 +107,26 @@ impl PromptEditor {
         self.insert_char('\n');
     }
 
+    pub fn insert_media_attachment(
+        &mut self,
+        mime_type: impl Into<String>,
+        uri: impl Into<String>,
+    ) -> ExtmarkId {
+        if self.next_media_id == 0 {
+            self.next_media_id = 1;
+        }
+        let media_id = self.next_media_id;
+        self.next_media_id += 1;
+        let label = format!("[Image #{}]", media_id);
+        self.insert_extmark(
+            ExtmarkKind::Media {
+                mime_type: mime_type.into(),
+                uri: uri.into(),
+            },
+            &label,
+        )
+    }
+
     pub fn insert_extmark(&mut self, kind: ExtmarkKind, display_text: &str) -> ExtmarkId {
         self.record_undo_snapshot();
         if let Some((s, e)) = self.selection {

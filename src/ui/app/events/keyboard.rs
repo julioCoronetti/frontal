@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::ui::app::{App, AppAction};
-use crate::ui::editor::{ExtmarkKind, TriggerKind};
+use crate::ui::editor::{extract_pasted_image_path, ExtmarkKind, TriggerKind};
 use crate::ui::modal::{CommandPaletteModal, Modal};
 
 impl App {
@@ -124,8 +124,40 @@ impl App {
         }
 
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('v') {
+            match self.clipboard.get_image() {
+                Ok(Some(saved)) => {
+                    if self.viewport.selection.is_some() {
+                        self.viewport.clear_selection();
+                    }
+                    self.editor.insert_media_attachment(
+                        saved.mime_type,
+                        saved.path.to_string_lossy().into_owned(),
+                    );
+                    self.status_text = String::from("Attached clipboard image");
+                    self.draft_snapshot = None;
+                    self.dirty = true;
+                    self.update_autocomplete();
+                    return None;
+                }
+                Err(err) => {
+                    self.status_text = format!("Clipboard image error: {}", err);
+                    self.dirty = true;
+                    return None;
+                }
+                Ok(None) => {}
+            }
             if let Some(text) = self.clipboard.get_text() {
-                self.editor.insert_paste(&text);
+                if self.viewport.selection.is_some() {
+                    self.viewport.clear_selection();
+                }
+                if let Some((path, mime)) = extract_pasted_image_path(&text) {
+                    self.editor
+                        .insert_media_attachment(mime, path.to_string_lossy().into_owned());
+                    let label = path.file_name().and_then(|n| n.to_str()).unwrap_or("image");
+                    self.status_text = format!("Attached image: {}", label);
+                } else {
+                    self.editor.insert_paste(&text);
+                }
                 self.draft_snapshot = None;
                 self.dirty = true;
                 self.update_autocomplete();
@@ -257,15 +289,23 @@ impl App {
 
         match key.code {
             KeyCode::Enter => {
-                let prompt = self.editor.take_submitted_expanded();
-                if let Some(p) = prompt {
+                let payload = self.editor.take_submitted_payload();
+                if let Some(p) = payload {
                     self.draft_snapshot = None;
-                    let trimmed = p.trim();
-                    if let Some(cmd_action) = self.execute_local_command(trimmed) {
-                        return cmd_action;
+                    if p.media.is_empty() {
+                        let trimmed = p.text.trim();
+                        if let Some(cmd_action) = self.execute_local_command(trimmed) {
+                            return cmd_action;
+                        }
                     }
 
-                    self.history.record_prompt(&p);
+                    let chat_display = p.display_for_chat();
+                    let history_entry = if !p.text.trim().is_empty() {
+                        p.text.as_str()
+                    } else {
+                        chat_display.as_str()
+                    };
+                    self.history.record_prompt(history_entry);
                     if self.is_turn_active() {
                         self.queued_prompts.push_back(p);
                         self.status_text =
@@ -274,10 +314,11 @@ impl App {
                         return None;
                     }
                     let active_id = self.active_session.clone();
-                    self.session_manager.set_session_prompt(&active_id, &p);
+                    self.session_manager
+                        .set_session_prompt(&active_id, &p.summary_text());
                     self.sync_session_to_history(&active_id);
                     self.history.touch_session_timestamp(active_id.as_str());
-                    self.cache.push_user_message(&p);
+                    self.cache.push_user_message(&chat_display);
                     self.viewport.scroll_to_bottom();
                     self.waiting_for_response = true;
                     self.turn_started_at = Some(std::time::Instant::now());

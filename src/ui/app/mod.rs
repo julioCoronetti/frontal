@@ -40,7 +40,7 @@ impl HitRegion {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AppAction {
-    SubmitPrompt(String),
+    SubmitPrompt(crate::protocol::PromptPayload),
     Interrupt,
     Quit,
     NewTab,
@@ -79,7 +79,8 @@ pub struct App {
     pub hovered_tab_index: Option<usize>,
     pub hovered_new_tab: bool,
     pub last_ctrl_c_at: Option<std::time::Instant>,
-    pub pending_engine_prompts: std::collections::VecDeque<(crate::protocol::SessionId, String)>,
+    pub pending_engine_prompts:
+        std::collections::VecDeque<(crate::protocol::SessionId, crate::protocol::PromptPayload)>,
 }
 
 impl Deref for App {

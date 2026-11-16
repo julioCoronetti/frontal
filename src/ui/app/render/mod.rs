@@ -1,4 +1,5 @@
 mod chrome;
+mod input;
 mod panes;
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};

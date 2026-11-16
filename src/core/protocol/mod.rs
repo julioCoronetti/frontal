@@ -51,6 +51,21 @@ impl PromptPayload {
             format!("[{} attached image(s)]", self.media.len())
         }
     }
+
+    pub fn display_for_chat(&self) -> String {
+        if self.media.is_empty() {
+            return self.text.clone();
+        }
+        let mut parts = Vec::new();
+        if !self.text.trim().is_empty() {
+            parts.push(self.text.trim_end().to_string());
+        }
+        for item in &self.media {
+            let path = media_uri_to_path(&item.uri);
+            parts.push(format!("[Attached Media: {} ({})]", path, item.mime_type));
+        }
+        parts.join("\n")
+    }
 }
 
 impl From<&str> for PromptPayload {

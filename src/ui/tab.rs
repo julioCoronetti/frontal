@@ -33,7 +33,7 @@ pub struct TabState {
     pub last_turn_duration_seconds: Option<f64>,
     pub pending_danger: Option<crate::security::DangerAssessment>,
     pub suspended_events: Vec<StreamEvent>,
-    pub queued_prompts: std::collections::VecDeque<String>,
+    pub queued_prompts: std::collections::VecDeque<crate::protocol::PromptPayload>,
     pub persisted_block_id: u64,
 }
 

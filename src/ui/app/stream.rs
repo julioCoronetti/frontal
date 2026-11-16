@@ -104,7 +104,8 @@ impl App {
                     }
                     Some(StreamOutcome::TurnCompleted { is_result }) => {
                         if let Some(next_prompt) = self.tabs[tab_idx].queued_prompts.pop_front() {
-                            self.tabs[tab_idx].cache.push_user_message(&next_prompt);
+                            let chat_display = next_prompt.display_for_chat();
+                            self.tabs[tab_idx].cache.push_user_message(&chat_display);
                             self.tabs[tab_idx].waiting_for_response = true;
                             self.tabs[tab_idx].turn_started_at = Some(std::time::Instant::now());
                             self.tabs[tab_idx].status_text = format!(

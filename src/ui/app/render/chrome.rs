@@ -1,14 +1,13 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span, Text};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::ui::app::{App, HitAction, HitRegion};
 use crate::ui::editor::TriggerKind;
 use crate::ui::theme::{
-    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BORDER_SUBTLE, TAB_ACTIVE_BG, TEXT_MUTED,
-    TEXT_PRIMARY,
+    ACCENT_HIGHLIGHT, ACCENT_RUBY, BORDER_SUBTLE, TAB_ACTIVE_BG, TEXT_MUTED, TEXT_PRIMARY,
 };
 
 const TARGET_TAB_WIDTH: usize = 28;
@@ -248,107 +247,6 @@ impl App {
             Style::default().fg(BORDER_SUBTLE),
         )]));
         frame.render_widget(divider_widget, divider_area);
-    }
-
-    pub(crate) fn render_input(&self, frame: &mut Frame, input_area: Rect) -> Option<(u16, u16)> {
-        let model_name = crate::ui::labels::model_display_name(&self.active_model_name());
-        let effort_name = self.active_effort_name();
-        let input_title = if model_name.is_empty() {
-            format!(" {} ", effort_name)
-        } else {
-            format!(" {} ({}) ", model_name, effort_name)
-        };
-        let display_content = self.editor.text();
-        let (cur_line, cur_col) = self.editor.cursor_coordinates();
-
-        let max_visible = input_area.height.saturating_sub(2) as usize;
-        let scroll_y = if max_visible > 0 && cur_line >= max_visible {
-            (cur_line + 1 - max_visible) as u16
-        } else {
-            0
-        };
-
-        let input_text = if let Some((sel_start, sel_end)) = self.editor.selection_range() {
-            let full_text = self.editor.text();
-            let mut lines = Vec::new();
-            let mut global_char_idx = 0;
-            for line_str in full_text.split('\n') {
-                let line_chars: Vec<char> = line_str.chars().collect();
-                let line_len = line_chars.len();
-                let line_start = global_char_idx;
-                let line_end = line_start + line_len;
-
-                if sel_end <= line_start || sel_start >= line_end {
-                    lines.push(Line::from(line_str.to_string()));
-                } else {
-                    let mut spans = Vec::new();
-                    let overlap_start = sel_start.max(line_start).saturating_sub(line_start);
-                    let overlap_end = sel_end.min(line_end).saturating_sub(line_start);
-
-                    if overlap_start > 0 {
-                        let before: String = line_chars[..overlap_start].iter().collect();
-                        spans.push(Span::raw(before));
-                    }
-                    if overlap_end > overlap_start {
-                        let selected: String =
-                            line_chars[overlap_start..overlap_end].iter().collect();
-                        spans.push(Span::styled(
-                            selected,
-                            Style::default().add_modifier(Modifier::REVERSED),
-                        ));
-                    }
-                    if overlap_end < line_len {
-                        let after: String = line_chars[overlap_end..].iter().collect();
-                        spans.push(Span::raw(after));
-                    }
-                    lines.push(Line::from(spans));
-                }
-                global_char_idx = line_end + 1;
-            }
-            Text::from(lines)
-        } else {
-            Text::from(display_content)
-        };
-
-        let mut input_widget = Paragraph::new(input_text).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(Line::from(Span::styled(
-                    input_title,
-                    Style::default().fg(ACCENT_PRIMARY),
-                )))
-                .border_style(Style::default().fg(ACCENT_PRIMARY))
-                .padding(ratatui::widgets::Padding::horizontal(1)),
-        );
-        if scroll_y > 0 {
-            input_widget = input_widget.scroll((scroll_y, 0));
-        }
-        frame.render_widget(Clear, input_area);
-        frame.render_widget(input_widget, input_area);
-
-        let cursor_x = input_area
-            .x
-            .saturating_add(2)
-            .saturating_add(cur_col as u16);
-        let cursor_y = input_area
-            .y
-            .saturating_add(1)
-            .saturating_add(cur_line.saturating_sub(scroll_y as usize) as u16);
-        if cursor_x > input_area.x
-            && cursor_x
-                < input_area
-                    .x
-                    .saturating_add(input_area.width.saturating_sub(2))
-            && cursor_y > input_area.y
-            && cursor_y
-                < input_area
-                    .y
-                    .saturating_add(input_area.height.saturating_sub(1))
-        {
-            Some((cursor_x, cursor_y))
-        } else {
-            None
-        }
     }
 
     pub(crate) fn render_footer(&self, frame: &mut Frame, footer_area: Rect) {

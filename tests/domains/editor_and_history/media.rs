@@ -1,4 +1,5 @@
 use frontal::infra::clipboard::{adler32, crc32_ieee, encode_rgba_png, SystemClipboard};
+use frontal::ui::editor::{extract_pasted_image_path, ExtmarkKind, PromptEditor};
 
 use crate::common::TempDirGuard;
 
@@ -88,4 +89,80 @@ fn test_isolated_clipboard_get_image_persists_png_without_collision() {
 
     cb.clear_isolated_image();
     assert!(cb.get_image().unwrap().is_none());
+}
+
+#[test]
+fn test_editor_media_extmark_atomic_deletion_and_payload_submission() {
+    let mut editor = PromptEditor::new();
+    editor.insert_str("analyze ");
+    editor.insert_media_attachment("image/png", "/tmp/first.png");
+    editor.insert_str(" and ");
+    editor.insert_media_attachment("image/jpeg", "/tmp/second.jpg");
+    assert_eq!(editor.extmarks().len(), 2);
+    assert!(editor.text().contains("[Image #1]"));
+    assert!(editor.text().contains("[Image #2]"));
+
+    editor.backspace();
+    assert_eq!(editor.extmarks().len(), 1);
+    assert!(!editor.text().contains("[Image #2]"));
+
+    let payload = editor.take_submitted_payload().expect("payload expected");
+    assert_eq!(payload.text, "analyze  and");
+    assert_eq!(payload.media.len(), 1);
+    assert_eq!(payload.media[0].mime_type, "image/png");
+    assert_eq!(payload.media[0].uri, "/tmp/first.png");
+    assert!(editor.is_empty());
+
+    editor.insert_media_attachment("image/webp", "/tmp/only.webp");
+    let media_only = editor
+        .take_submitted_payload()
+        .expect("image-only prompt allowed");
+    assert_eq!(media_only.text, "");
+    assert_eq!(media_only.media.len(), 1);
+    assert!(editor.extmarks().is_empty());
+
+    let id = editor.insert_media_attachment("image/png", "/tmp/undo_test.png");
+    assert_eq!(editor.extmarks()[0].id, id);
+    assert!(matches!(
+        editor.extmarks()[0].kind,
+        ExtmarkKind::Media { .. }
+    ));
+    editor.backspace();
+    assert!(editor.extmarks().is_empty());
+    assert!(editor.undo());
+    assert_eq!(editor.extmarks().len(), 1);
+}
+
+#[test]
+fn test_extract_pasted_image_path_formats_and_fallback() {
+    let temp = TempDirGuard::new("paste_image_path");
+    let spaced_png = temp.path().join("my shot.PNG");
+    let webp_file = temp.path().join("preview.webp");
+    let text_file = temp.path().join("notes.txt");
+    std::fs::write(&spaced_png, b"fake").unwrap();
+    std::fs::write(&webp_file, b"fake").unwrap();
+    std::fs::write(&text_file, b"hello").unwrap();
+
+    let file_uri = format!(
+        "file://{}\r\n",
+        spaced_png.to_string_lossy().replace(' ', "%20")
+    );
+    let (p1, m1) = extract_pasted_image_path(&file_uri).expect("file:// URI should match");
+    assert_eq!(p1, spaced_png);
+    assert_eq!(m1, "image/png");
+
+    let quoted = format!("'{}'", webp_file.display());
+    let (p2, m2) = extract_pasted_image_path(&quoted).expect("quoted path should match");
+    assert_eq!(p2, webp_file);
+    assert_eq!(m2, "image/webp");
+
+    let escaped = spaced_png.to_string_lossy().replace(' ', "\\ ");
+    let (p3, m3) =
+        extract_pasted_image_path(&escaped).expect("backslash-escaped path should match");
+    assert_eq!(p3, spaced_png);
+    assert_eq!(m3, "image/png");
+
+    assert!(extract_pasted_image_path(&text_file.to_string_lossy()).is_none());
+    assert!(extract_pasted_image_path("/nonexistent/path/img.png").is_none());
+    assert!(extract_pasted_image_path("line1\n/tmp/img.png").is_none());
 }
