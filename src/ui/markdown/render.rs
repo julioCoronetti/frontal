@@ -1,8 +1,11 @@
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::ui::highlight::IncrementalCodeHighlighter;
 use crate::ui::markdown::parse::{parse_markdown_segments, MarkdownSegment};
+use crate::ui::theme::{
+    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY,
+};
 
 pub fn wrap_styled_spans(
     spans: &[Span<'static>],
@@ -17,6 +20,7 @@ pub fn wrap_styled_spans(
     let mut lines = Vec::new();
     let mut current_line = first_prefix.to_vec();
     let mut current_width = first_pw;
+    let mut on_cont = false;
 
     for span in spans {
         let style = span.style;
@@ -48,6 +52,7 @@ pub fn wrap_styled_spans(
                     lines.push(Line::from(current_line));
                     current_line = cont_prefix.to_vec();
                     current_width = cont_pw;
+                    on_cont = true;
                 }
             } else if current_width + token_len <= target_width {
                 current_line.push(Span::styled(token, style));
@@ -58,6 +63,7 @@ pub fn wrap_styled_spans(
                         lines.push(Line::from(current_line));
                         current_line = cont_prefix.to_vec();
                         current_width = cont_pw;
+                        on_cont = true;
                     }
                     current_line.push(Span::styled(ch.to_string(), style));
                     current_width += 1;
@@ -66,13 +72,19 @@ pub fn wrap_styled_spans(
                 lines.push(Line::from(current_line));
                 current_line = cont_prefix.to_vec();
                 current_width = cont_pw;
+                on_cont = true;
                 current_line.push(Span::styled(token, style));
                 current_width += token_len;
             }
         }
     }
 
-    if current_line.len() > first_prefix.len().max(cont_prefix.len()) || lines.is_empty() {
+    let active_prefix_len = if on_cont {
+        cont_prefix.len()
+    } else {
+        first_prefix.len()
+    };
+    if current_line.len() > active_prefix_len || lines.is_empty() {
         lines.push(Line::from(current_line));
     }
 
@@ -97,28 +109,38 @@ pub fn render_segments_to_lines(
     let mut output_lines = Vec::new();
     let mut code_block_idx = 0;
 
-    for segment in segments {
+    for (idx, segment) in segments.iter().enumerate() {
+        if idx > 0
+            && !matches!(
+                (&segments[idx - 1], segment),
+                (
+                    MarkdownSegment::ListItem { .. },
+                    MarkdownSegment::ListItem { .. }
+                )
+            )
+        {
+            output_lines.push(Line::from(""));
+        }
+
         match segment {
             MarkdownSegment::Heading { level, spans } => {
                 let h_style = match level {
                     1 => Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD)
-                        .add_modifier(Modifier::UNDERLINED),
+                        .fg(ACCENT_HIGHLIGHT)
+                        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
                     2 => Style::default()
-                        .fg(Color::Cyan)
+                        .fg(ACCENT_PRIMARY)
                         .add_modifier(Modifier::BOLD),
                     3 => Style::default()
-                        .fg(Color::LightCyan)
+                        .fg(TEXT_PRIMARY)
                         .add_modifier(Modifier::BOLD),
                     _ => Style::default()
-                        .fg(Color::White)
-                        .add_modifier(Modifier::BOLD)
-                        .add_modifier(Modifier::ITALIC),
+                        .fg(TEXT_MUTED)
+                        .add_modifier(Modifier::BOLD | Modifier::ITALIC),
                 };
                 let styled_spans: Vec<Span<'static>> = spans
                     .iter()
-                    .map(|s| Span::styled(s.content.clone(), h_style))
+                    .map(|s| Span::styled(s.content.clone(), h_style.patch(s.style)))
                     .collect();
                 let empty_prefix = vec![];
                 let wrapped = wrap_styled_spans(&styled_spans, width, &empty_prefix, &empty_prefix);
@@ -130,18 +152,21 @@ pub fn render_segments_to_lines(
                 output_lines.extend(wrapped);
             }
             MarkdownSegment::ListItem {
-                depth: _,
+                depth,
                 bullet,
                 spans,
             } => {
-                let first_prefix = vec![Span::styled(
+                let indent = "  ".repeat(depth.saturating_sub(1));
+                let mut first_prefix = Vec::new();
+                if !indent.is_empty() {
+                    first_prefix.push(Span::raw(indent.clone()));
+                }
+                first_prefix.push(Span::styled(
                     bullet.clone(),
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                )];
-                let indent = " ".repeat(bullet.chars().count());
-                let cont_prefix = vec![Span::raw(indent)];
+                    Style::default().fg(TEXT_MUTED),
+                ));
+                let cont_indent = format!("{}{}", indent, " ".repeat(bullet.chars().count()));
+                let cont_prefix = vec![Span::raw(cont_indent)];
                 let wrapped = wrap_styled_spans(spans, width, &first_prefix, &cont_prefix);
                 output_lines.extend(wrapped);
             }
@@ -149,7 +174,7 @@ pub fn render_segments_to_lines(
                 let prefix = vec![Span::styled(
                     "▎ ",
                     Style::default()
-                        .fg(Color::Blue)
+                        .fg(ACCENT_RUBY)
                         .add_modifier(Modifier::BOLD),
                 )];
                 let wrapped = wrap_styled_spans(spans, width, &prefix, &prefix);
@@ -166,7 +191,7 @@ pub fn render_segments_to_lines(
                 let highlighted_lines = highlighters[code_block_idx].highlight_code(language, code);
                 code_block_idx += 1;
 
-                let border_style = Style::default().fg(Color::DarkGray);
+                let border_style = Style::default().fg(BORDER_SUBTLE);
                 let lang_label = if language.is_empty() {
                     String::from("code")
                 } else {
@@ -214,7 +239,7 @@ pub fn render_segments_to_lines(
                         }
                     }
 
-                    let border_style = Style::default().fg(Color::DarkGray);
+                    let border_style = Style::default().fg(BORDER_SUBTLE);
                     if !headers.is_empty() {
                         let mut head_spans = vec![Span::styled("│", border_style)];
                         for (i, h) in headers.iter().enumerate() {
@@ -295,7 +320,7 @@ pub fn render_segments_to_lines(
                 let rule_len = width.clamp(1, 40);
                 output_lines.push(Line::from(vec![Span::styled(
                     "─".repeat(rule_len),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(BORDER_SUBTLE),
                 )]));
             }
         }

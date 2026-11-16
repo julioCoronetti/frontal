@@ -3,9 +3,13 @@ use std::time::Instant;
 use frontal::ui::cache::{wrap_text_utf8, BlockKind, RenderCache};
 use frontal::ui::highlight::IncrementalCodeHighlighter;
 use frontal::ui::markdown::{
-    normalize_streaming_markdown, parse_markdown_segments, MarkdownSegment,
+    normalize_streaming_markdown, parse_markdown_segments, render_markdown_to_lines,
+    MarkdownSegment,
 };
-use frontal::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, BG_SIDEBAR, TEXT_MUTED, TEXT_PRIMARY};
+use frontal::ui::theme::{
+    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BG_SIDEBAR, BORDER_SUBTLE, TEXT_MUTED,
+    TEXT_PRIMARY,
+};
 use ratatui::style::Modifier;
 
 #[test]
@@ -313,4 +317,79 @@ fn test_markdown_nested_list_depth_and_continuation_fallback() {
     assert_eq!(items[2], (3, "▪ ", "Sub B".to_string()));
     assert_eq!(items[3], (1, "  ", "Continuation line".to_string()));
     assert_eq!(items[4], (1, "2. ", "Second".to_string()));
+}
+
+#[test]
+fn test_rendered_vertical_spacing_and_list_compactness() {
+    let md = "# Title\n\nFirst paragraph.\n\n- Item A\n  - Sub B\n- Item C\n\nClosing line.";
+    let mut hl = Vec::new();
+    let lines = render_markdown_to_lines(md, 80, true, &mut hl);
+    let rendered: Vec<String> = lines
+        .iter()
+        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+        .collect();
+
+    assert_eq!(
+        rendered,
+        vec![
+            "Title",
+            "",
+            "First paragraph.",
+            "",
+            "• Item A",
+            "  ◦ Sub B",
+            "• Item C",
+            "",
+            "Closing line.",
+        ]
+    );
+}
+
+#[test]
+fn test_rendered_nested_list_wrapping_keeps_indentation() {
+    let md = "- Parent item\n  - Nested child with long wrapped text";
+    let mut hl = Vec::new();
+    let lines = render_markdown_to_lines(md, 20, true, &mut hl);
+    let rendered: Vec<String> = lines
+        .iter()
+        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+        .collect();
+
+    assert!(rendered.len() >= 3);
+    assert_eq!(rendered[0], "• Parent item");
+    assert!(rendered[1].starts_with("  ◦ "));
+    assert!(rendered[2].starts_with("    "));
+}
+
+#[test]
+fn test_rendered_heading_preserves_inline_code_and_atlas_borders() {
+    let md = "# Heading `inline`\n\n> Quote line\n\n```rust\nlet x = 1;\n```\n\n---";
+    let mut hl = Vec::new();
+    let lines = render_markdown_to_lines(md, 80, true, &mut hl);
+
+    let h_code = lines[0]
+        .spans
+        .iter()
+        .find(|s| s.content.as_ref() == "inline")
+        .expect("inline code preserved in heading");
+    assert_eq!(h_code.style.fg, Some(ACCENT_HIGHLIGHT));
+    assert_eq!(h_code.style.bg, Some(BG_SIDEBAR));
+
+    let quote_line = lines
+        .iter()
+        .find(|l| l.spans.iter().any(|s| s.content.contains("▎ ")))
+        .expect("blockquote bar");
+    assert_eq!(quote_line.spans[0].style.fg, Some(ACCENT_RUBY));
+
+    let code_border = lines
+        .iter()
+        .find(|l| l.spans.iter().any(|s| s.content.contains("┌─ rust")))
+        .expect("code border");
+    assert_eq!(code_border.spans[0].style.fg, Some(BORDER_SUBTLE));
+
+    let rule_line = lines
+        .iter()
+        .find(|l| l.spans.iter().any(|s| s.content.contains("────")))
+        .expect("rule line");
+    assert_eq!(rule_line.spans[0].style.fg, Some(BORDER_SUBTLE));
 }

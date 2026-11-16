@@ -225,10 +225,10 @@ fn test_viewport_granular_character_selection_multiline() {
     viewport.sync_dimensions(cache.total_lines(), 20);
 
     viewport.start_selection(0, 1);
-    viewport.update_selection(2, 5);
+    viewport.update_selection(4, 5);
 
     let slice = viewport.visible_slice(&cache);
-    assert!(slice.len() >= 3);
+    assert!(slice.len() >= 5);
 
     let line0 = &slice[0];
     let mut line0_rev = String::new();
@@ -239,19 +239,19 @@ fn test_viewport_granular_character_selection_multiline() {
     }
     assert_eq!(line0_rev, "irst line");
 
-    let line1 = &slice[1];
-    for span in &line1.spans {
+    let line2 = &slice[2];
+    for span in &line2.spans {
         assert!(span.style.add_modifier.contains(Modifier::REVERSED));
     }
 
-    let line2 = &slice[2];
-    let mut line2_rev = String::new();
-    for span in &line2.spans {
+    let line4 = &slice[4];
+    let mut line4_rev = String::new();
+    for span in &line4.spans {
         if span.style.add_modifier.contains(Modifier::REVERSED) {
-            line2_rev.push_str(&span.content);
+            line4_rev.push_str(&span.content);
         }
     }
-    assert_eq!(line2_rev, "third");
+    assert_eq!(line4_rev, "third");
 }
 
 #[test]
@@ -287,11 +287,11 @@ fn test_viewport_reverse_drag_selection_order() {
     let mut vp_fwd = ConversationViewport::new();
     vp_fwd.sync_dimensions(cache_multi.total_lines(), 20);
     vp_fwd.start_selection(0, 1);
-    vp_fwd.update_selection(2, 5);
+    vp_fwd.update_selection(4, 5);
 
     let mut vp_rev = ConversationViewport::new();
     vp_rev.sync_dimensions(cache_multi.total_lines(), 20);
-    vp_rev.start_selection(2, 5);
+    vp_rev.start_selection(4, 5);
     vp_rev.update_selection(0, 1);
 
     let fwd_slice = vp_fwd.visible_slice(&cache_multi);
