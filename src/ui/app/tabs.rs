@@ -106,6 +106,11 @@ impl App {
         self.hovered_new_tab = false;
 
         if self.tabs[0].cache.blocks_count() == 0 && !self.tabs[0].waiting_for_response {
+            self.tabs[0].title = String::from("New session");
+            self.tabs[0].has_unread = false;
+            self.tabs[0].queued_prompts.clear();
+            self.tabs[0].pending_danger = None;
+            self.tabs[0].suspended_events.clear();
             self.tabs[0].editor.clear();
             self.tabs[0].draft_snapshot = None;
             self.tabs[0].status_text = String::from("Ready");

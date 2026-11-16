@@ -153,6 +153,9 @@ impl App {
                 self.tabs[tab_idx].pending_danger = None;
                 self.tabs[tab_idx].suspended_events.clear();
                 self.tabs[tab_idx].queued_prompts.clear();
+                self.tabs[tab_idx]
+                    .cache
+                    .consolidate_active_turn_with_meta(None, None);
                 if is_active {
                     self.modals.remove_danger_modal();
                 }
