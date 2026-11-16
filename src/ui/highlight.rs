@@ -97,8 +97,8 @@ impl IncrementalCodeHighlighter {
         self.checkpoints.truncate(common_len);
 
         let mut result = Vec::with_capacity(lines.len());
-        for i in 0..common_len {
-            result.push(self.checkpoints[i].spans.clone());
+        for checkpoint in &self.checkpoints {
+            result.push(checkpoint.spans.clone());
         }
 
         let (mut current_parse, mut current_highlight) = if let Some(last) = self.checkpoints.last()
