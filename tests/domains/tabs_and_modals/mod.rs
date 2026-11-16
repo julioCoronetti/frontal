@@ -3,6 +3,7 @@ mod modals;
 mod model_effort;
 mod resume;
 mod select;
+mod tab_bar_mouse;
 mod tabs;
 mod usage;
 mod usage_telemetry;
