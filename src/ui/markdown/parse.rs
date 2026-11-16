@@ -205,6 +205,10 @@ pub fn parse_markdown_segments(markdown_text: &str, consolidated: bool) -> Vec<M
                                 bullet,
                                 spans: std::mem::take(&mut current_spans),
                             });
+                        } else if in_blockquote {
+                            segments.push(MarkdownSegment::BlockQuote(std::mem::take(
+                                &mut current_spans,
+                            )));
                         } else {
                             segments.push(MarkdownSegment::Paragraph(std::mem::take(
                                 &mut current_spans,
