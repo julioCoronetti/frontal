@@ -315,8 +315,13 @@ fn test_markdown_nested_list_depth_and_continuation_fallback() {
     assert_eq!(items[0], (1, "1. ", "First".to_string()));
     assert_eq!(items[1], (2, "◦ ", "Sub A".to_string()));
     assert_eq!(items[2], (3, "▪ ", "Sub B".to_string()));
-    assert_eq!(items[3], (1, "  ", "Continuation line".to_string()));
+    assert_eq!(items[3], (1, "   ", "Continuation line".to_string()));
     assert_eq!(items[4], (1, "2. ", "Second".to_string()));
+
+    let nested_quote = parse_markdown_segments("> outer\n> > inner\n>\n> outer tail", true);
+    assert!(nested_quote
+        .iter()
+        .all(|s| matches!(s, MarkdownSegment::BlockQuote(_))));
 }
 
 #[test]
@@ -359,6 +364,10 @@ fn test_rendered_nested_list_wrapping_keeps_indentation() {
     assert_eq!(rendered[0], "• Parent item");
     assert!(rendered[1].starts_with("  ◦ "));
     assert!(rendered[2].starts_with("    "));
+
+    let narrow = render_markdown_to_lines("- ab", 1, true, &mut hl);
+    let narrow_first: String = narrow[0].spans.iter().map(|s| s.content.as_ref()).collect();
+    assert_ne!(narrow_first.trim(), "•");
 }
 
 #[test]

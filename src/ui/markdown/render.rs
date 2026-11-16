@@ -49,17 +49,29 @@ pub fn wrap_styled_spans(
                     current_line.push(Span::styled(token, style));
                     current_width += token_len;
                 } else {
-                    lines.push(Line::from(current_line));
-                    current_line = cont_prefix.to_vec();
-                    current_width = cont_pw;
-                    on_cont = true;
+                    let active_prefix_len = if on_cont {
+                        cont_prefix.len()
+                    } else {
+                        first_prefix.len()
+                    };
+                    if current_line.len() > active_prefix_len {
+                        lines.push(Line::from(current_line));
+                        current_line = cont_prefix.to_vec();
+                        current_width = cont_pw;
+                        on_cont = true;
+                    }
                 }
             } else if current_width + token_len <= target_width {
                 current_line.push(Span::styled(token, style));
                 current_width += token_len;
             } else if token_len > target_width.saturating_sub(cont_pw) {
                 for ch in token.chars() {
-                    if current_width >= target_width {
+                    let active_prefix_len = if on_cont {
+                        cont_prefix.len()
+                    } else {
+                        first_prefix.len()
+                    };
+                    if current_width >= target_width && current_line.len() > active_prefix_len {
                         lines.push(Line::from(current_line));
                         current_line = cont_prefix.to_vec();
                         current_width = cont_pw;
@@ -69,10 +81,17 @@ pub fn wrap_styled_spans(
                     current_width += 1;
                 }
             } else {
-                lines.push(Line::from(current_line));
-                current_line = cont_prefix.to_vec();
-                current_width = cont_pw;
-                on_cont = true;
+                let active_prefix_len = if on_cont {
+                    cont_prefix.len()
+                } else {
+                    first_prefix.len()
+                };
+                if current_line.len() > active_prefix_len {
+                    lines.push(Line::from(current_line));
+                    current_line = cont_prefix.to_vec();
+                    current_width = cont_pw;
+                    on_cont = true;
+                }
                 current_line.push(Span::styled(token, style));
                 current_width += token_len;
             }
