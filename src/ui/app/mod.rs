@@ -6,6 +6,8 @@ mod tabs;
 
 use std::ops::{Deref, DerefMut};
 
+use ratatui::layout::Rect;
+
 use crate::protocol::SessionId;
 use crate::session::SessionManager;
 use crate::ui::autocomplete::{AutocompletePopover, FileSearchWorker};
@@ -13,6 +15,28 @@ use crate::ui::clipboard::SystemClipboard;
 use crate::ui::history::PromptHistory;
 use crate::ui::modal::ModalStack;
 use crate::ui::tab::TabState;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HitAction {
+    SwitchTab(usize),
+    CloseOrResetTab(usize),
+    NewTab,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HitRegion {
+    pub rect: Rect,
+    pub action: HitAction,
+}
+
+impl HitRegion {
+    pub fn contains(&self, column: u16, row: u16) -> bool {
+        column >= self.rect.x
+            && column < self.rect.right()
+            && row >= self.rect.y
+            && row < self.rect.bottom()
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AppAction {
@@ -22,6 +46,7 @@ pub enum AppAction {
     NewTab,
     SwitchTab(usize),
     CloseTab(usize),
+    CloseOrResetTab(usize),
     RespawnSession {
         conversation_id: Option<String>,
         model: Option<String>,
@@ -50,6 +75,8 @@ pub struct App {
     pub user_config: crate::config::UserConfig,
     pub sidebar_visible: bool,
     pub viewport_bounds: (u16, u16, u16, u16),
+    pub hit_regions: Vec<HitRegion>,
+    pub hovered_tab_index: Option<usize>,
     pub last_ctrl_c_at: Option<std::time::Instant>,
     pub pending_engine_prompts: std::collections::VecDeque<(crate::protocol::SessionId, String)>,
 }
@@ -123,6 +150,8 @@ impl App {
             user_config: crate::config::UserConfig::load(),
             sidebar_visible: true,
             viewport_bounds: (0, 0, 80, 20),
+            hit_regions: Vec::new(),
+            hovered_tab_index: None,
             last_ctrl_c_at: None,
             pending_engine_prompts: std::collections::VecDeque::new(),
         }
@@ -160,6 +189,8 @@ impl App {
             user_config: crate::config::UserConfig::new_isolated(),
             sidebar_visible: true,
             viewport_bounds: (0, 0, 80, 20),
+            hit_regions: Vec::new(),
+            hovered_tab_index: None,
             last_ctrl_c_at: None,
             pending_engine_prompts: std::collections::VecDeque::new(),
         }

@@ -1,6 +1,6 @@
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 
-use crate::ui::app::{App, AppAction};
+use crate::ui::app::{App, AppAction, HitAction};
 
 impl App {
     pub(crate) fn handle_mouse(&mut self, mouse: MouseEvent) -> Option<AppAction> {
@@ -14,6 +14,21 @@ impl App {
         }
         let (column, row) = (mouse.column, mouse.row);
         match mouse.kind {
+            MouseEventKind::Moved => {
+                let hovered = self.hit_regions.iter().find_map(|region| {
+                    if !region.contains(column, row) {
+                        return None;
+                    }
+                    match region.action {
+                        HitAction::SwitchTab(idx) | HitAction::CloseOrResetTab(idx) => Some(idx),
+                        HitAction::NewTab => None,
+                    }
+                });
+                if hovered != self.hovered_tab_index {
+                    self.hovered_tab_index = hovered;
+                    self.dirty = true;
+                }
+            }
             MouseEventKind::ScrollUp => {
                 self.viewport.scroll_up(3);
                 self.dirty = true;
@@ -26,6 +41,35 @@ impl App {
                 if self.editor.has_selection() {
                     self.editor.clear_selection();
                     self.dirty = true;
+                }
+                if let Some(action) = self
+                    .hit_regions
+                    .iter()
+                    .find(|region| region.contains(column, row))
+                    .map(|region| region.action)
+                {
+                    if self.viewport.selection.is_some() {
+                        self.viewport.clear_selection();
+                        self.dirty = true;
+                    }
+                    return match action {
+                        HitAction::SwitchTab(idx) => {
+                            if idx < self.tabs.len() && idx != self.active_tab_index {
+                                self.switch_tab(idx);
+                                Some(AppAction::SwitchTab(idx))
+                            } else {
+                                None
+                            }
+                        }
+                        HitAction::CloseOrResetTab(idx) => {
+                            self.dirty = true;
+                            Some(AppAction::CloseOrResetTab(idx))
+                        }
+                        HitAction::NewTab => {
+                            self.dirty = true;
+                            Some(AppAction::NewTab)
+                        }
+                    };
                 }
                 let (vx, vy, vw, vh) = self.viewport_bounds;
                 if column >= vx && column < vx + vw && row >= vy && row < vy + vh {

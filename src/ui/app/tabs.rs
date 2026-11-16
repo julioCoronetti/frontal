@@ -25,6 +25,7 @@ impl App {
         self.tabs[self.active_tab_index].has_unread = false;
         self.session_manager
             .set_active_session(self.active_session.clone());
+        self.hovered_tab_index = None;
         self.dirty = true;
     }
 
@@ -45,6 +46,7 @@ impl App {
         self.tabs[self.active_tab_index].has_unread = false;
         self.session_manager
             .set_active_session(self.active_session.clone());
+        self.hovered_tab_index = None;
         self.dirty = true;
         self.active_tab_index
     }
@@ -78,8 +80,70 @@ impl App {
         self.tabs[self.active_tab_index].has_unread = false;
         self.session_manager
             .set_active_session(self.active_session.clone());
+        self.hovered_tab_index = None;
         self.dirty = true;
         Some(removed_tab.session_id)
+    }
+
+    pub async fn close_or_reset_tab(&mut self, index: usize) -> Option<SessionId> {
+        if self.tabs.len() > 1 {
+            return self.close_tab(index).await;
+        }
+        if index != 0 || self.tabs.is_empty() {
+            return None;
+        }
+        let old_id = self.tabs[0].session_id.clone();
+        let was_replay = self.session_manager.is_replay_session(&old_id);
+        let base_engine_config = self.session_manager.get_engine_config(&old_id);
+        let prev_backend = base_engine_config
+            .as_ref()
+            .map(|config| config.backend)
+            .unwrap_or(self.tabs[0].backend);
+        let model = Some(self.active_model_name());
+        let effort = Some(self.active_effort_name());
+        let mode = Some(self.active_mode_name());
+
+        self.popover.close();
+        self.modals.remove_danger_modal();
+        self.pending_engine_prompts
+            .retain(|(sid, _)| sid != &old_id);
+        let _ = self
+            .session_manager
+            .shutdown_session(&old_id, std::time::Duration::from_millis(500))
+            .await;
+
+        let new_id = if was_replay {
+            let id = SessionId::new();
+            self.session_manager.register_mock_session(id.clone());
+            self.session_manager
+                .set_session_metadata(&id, None, model, effort, mode);
+            id
+        } else {
+            let mut config = base_engine_config.unwrap_or_default();
+            config.backend = prev_backend;
+            config.conversation_id = None;
+            config.model = model;
+            config.effort = effort;
+            config.mode = mode;
+            match self.session_manager.create_subprocess_session(config).await {
+                Ok(id) => id,
+                Err(_) => {
+                    let id = SessionId::new();
+                    self.session_manager.register_mock_session(id.clone());
+                    id
+                }
+            }
+        };
+
+        let mut fresh_tab = TabState::new(new_id.clone(), String::from("Session 1"));
+        fresh_tab.backend = prev_backend;
+        self.tabs[0] = fresh_tab;
+        self.active_tab_index = 0;
+        self.active_session = new_id.clone();
+        self.session_manager.set_active_session(new_id);
+        self.hovered_tab_index = None;
+        self.dirty = true;
+        Some(old_id)
     }
 
     pub async fn respawn_active_session(

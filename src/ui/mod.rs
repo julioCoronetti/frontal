@@ -112,6 +112,9 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                             AppAction::CloseTab(idx) => {
                                 let _ = app.close_tab(idx).await;
                             }
+                            AppAction::CloseOrResetTab(idx) => {
+                                let _ = app.close_or_reset_tab(idx).await;
+                            }
                             AppAction::RespawnSession {
                                 conversation_id,
                                 model,
