@@ -206,6 +206,13 @@ fn test_table_wrapping_on_narrow_widths() {
 
     let lines_super_narrow = cache.ensure_visual_lines(10);
     assert!(lines_super_narrow > 0);
+    let slice_10 = cache.visible_slice(0, lines_super_narrow);
+    for line in slice_10 {
+        let len: usize = line.spans.iter().map(|s| s.content.chars().count()).sum();
+        assert!(len <= 10);
+    }
+
+    assert!(cache.ensure_visual_lines(1) > 0);
 }
 
 #[test]
@@ -401,4 +408,33 @@ fn test_rendered_heading_preserves_inline_code_and_atlas_borders() {
         .find(|l| l.spans.iter().any(|s| s.content.contains("────")))
         .expect("rule line");
     assert_eq!(rule_line.spans[0].style.fg, Some(BORDER_SUBTLE));
+}
+
+#[test]
+fn test_table_expanded_width_closed_grid_and_header_styling() {
+    let md = "| ID | Item | Status |\n|---|---|---|\n| 1 | Alpha | Active |\n| 2 | Beta | Done |";
+    let mut hl = Vec::new();
+    let lines = render_markdown_to_lines(md, 100, true, &mut hl);
+    let text_lines: Vec<String> = lines
+        .iter()
+        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+        .collect();
+
+    assert_eq!(text_lines.len(), 7);
+    assert!(text_lines[0].starts_with('┌') && text_lines[0].ends_with('┐'));
+    assert!(text_lines[2].starts_with('├') && text_lines[2].ends_with('┤'));
+    assert!(text_lines[4].starts_with('├') && text_lines[4].ends_with('┤'));
+    assert!(text_lines[6].starts_with('└') && text_lines[6].ends_with('┘'));
+
+    let rendered_width = text_lines[0].chars().count();
+    assert!((80..=90).contains(&rendered_width));
+    assert_eq!(lines[0].spans[0].style.fg, Some(TEXT_MUTED));
+
+    let id_span = lines[1]
+        .spans
+        .iter()
+        .find(|s| s.content.as_ref() == "ID")
+        .expect("header cell");
+    assert_eq!(id_span.style.fg, Some(ACCENT_HIGHLIGHT));
+    assert!(id_span.style.add_modifier.contains(Modifier::BOLD));
 }

@@ -234,105 +234,60 @@ pub fn render_segments_to_lines(
                     .len()
                     .max(rows.iter().map(|r| r.len()).max().unwrap_or(0));
                 if col_count > 0 {
-                    let mut col_widths = vec![4usize; col_count];
-                    for (i, h) in headers.iter().enumerate() {
-                        let len: usize = h.iter().map(|s| s.content.chars().count()).sum();
-                        col_widths[i] = col_widths[i].max(len + 2);
-                    }
-                    for row in rows {
-                        for (i, cell) in row.iter().enumerate() {
-                            let len: usize = cell.iter().map(|s| s.content.chars().count()).sum();
-                            if i < col_widths.len() {
-                                col_widths[i] = col_widths[i].max(len + 2);
-                            }
-                        }
-                    }
+                    let col_widths = compute_table_col_widths(headers, rows, col_count, width);
+                    let border_style = Style::default().fg(TEXT_MUTED);
+                    let header_style = Style::default()
+                        .fg(ACCENT_HIGHLIGHT)
+                        .add_modifier(Modifier::BOLD);
 
-                    let avail = width.saturating_sub(col_count + 1);
-                    if avail >= col_count * 2 {
-                        let sum_w: usize = col_widths.iter().sum();
-                        if sum_w > avail {
-                            for w in col_widths.iter_mut() {
-                                *w = ((*w * avail) / sum_w).max(2);
-                            }
-                        }
-                    }
-
-                    let border_style = Style::default().fg(BORDER_SUBTLE);
+                    output_lines.push(build_table_border_line(
+                        &col_widths,
+                        "┌",
+                        "┬",
+                        "┐",
+                        border_style,
+                    ));
                     if !headers.is_empty() {
-                        let mut head_spans = vec![Span::styled("│", border_style)];
-                        for (i, h) in headers.iter().enumerate() {
-                            head_spans.push(Span::raw(" "));
-                            let max_cell_w = col_widths[i].saturating_sub(1);
-                            let cur_len: usize = h.iter().map(|s| s.content.chars().count()).sum();
-                            if cur_len > max_cell_w {
-                                let mut budget = max_cell_w;
-                                for sp in h {
-                                    let sp_len = sp.content.chars().count();
-                                    if sp_len <= budget {
-                                        head_spans.push(sp.clone());
-                                        budget -= sp_len;
-                                    } else if budget > 0 {
-                                        let sub: String = sp.content.chars().take(budget).collect();
-                                        head_spans.push(Span::styled(sub, sp.style));
-                                        budget = 0;
-                                    }
-                                }
-                            } else {
-                                head_spans.extend(h.clone());
-                                let pad = max_cell_w - cur_len;
-                                head_spans.push(Span::raw(" ".repeat(pad)));
-                            }
-                            head_spans.push(Span::styled("│", border_style));
+                        output_lines.push(build_table_row_line(
+                            headers,
+                            &col_widths,
+                            border_style,
+                            Some(header_style),
+                        ));
+                        if !rows.is_empty() {
+                            output_lines.push(build_table_border_line(
+                                &col_widths,
+                                "├",
+                                "┼",
+                                "┤",
+                                border_style,
+                            ));
                         }
-                        output_lines.push(Line::from(head_spans));
-
-                        let mut sep_spans = vec![Span::styled("├", border_style)];
-                        for (i, &w) in col_widths.iter().enumerate() {
-                            sep_spans.push(Span::styled("─".repeat(w), border_style));
-                            if i + 1 < col_widths.len() {
-                                sep_spans.push(Span::styled("┼", border_style));
-                            } else {
-                                sep_spans.push(Span::styled("┤", border_style));
-                            }
-                        }
-                        output_lines.push(Line::from(sep_spans));
                     }
-
-                    for row in rows {
-                        let mut row_spans = vec![Span::styled("│", border_style)];
-                        for (i, &col_w) in col_widths.iter().enumerate().take(col_count) {
-                            let cell = row.get(i);
-                            row_spans.push(Span::raw(" "));
-                            let max_cell_w = col_w.saturating_sub(1);
-                            if let Some(c) = cell {
-                                let len: usize = c.iter().map(|s| s.content.chars().count()).sum();
-                                if len > max_cell_w {
-                                    let mut budget = max_cell_w;
-                                    for sp in c {
-                                        let sp_len = sp.content.chars().count();
-                                        if sp_len <= budget {
-                                            row_spans.push(sp.clone());
-                                            budget -= sp_len;
-                                        } else if budget > 0 {
-                                            let sub: String =
-                                                sp.content.chars().take(budget).collect();
-                                            row_spans.push(Span::styled(sub, sp.style));
-                                            budget = 0;
-                                        }
-                                    }
-                                } else {
-                                    row_spans.extend(c.clone());
-                                    let pad = max_cell_w - len;
-                                    row_spans.push(Span::raw(" ".repeat(pad)));
-                                }
-                            } else {
-                                row_spans.push(Span::raw(" ".repeat(max_cell_w)));
-                            }
-                            row_spans.push(Span::styled("│", border_style));
+                    for (r_idx, row) in rows.iter().enumerate() {
+                        output_lines.push(build_table_row_line(
+                            row,
+                            &col_widths,
+                            border_style,
+                            None,
+                        ));
+                        if r_idx + 1 < rows.len() {
+                            output_lines.push(build_table_border_line(
+                                &col_widths,
+                                "├",
+                                "┼",
+                                "┤",
+                                border_style,
+                            ));
                         }
-                        output_lines.push(Line::from(row_spans));
                     }
+                    output_lines.push(build_table_border_line(
+                        &col_widths,
+                        "└",
+                        "┴",
+                        "┘",
+                        border_style,
+                    ));
                 }
             }
             MarkdownSegment::Rule => {
@@ -346,4 +301,133 @@ pub fn render_segments_to_lines(
     }
 
     output_lines
+}
+
+fn compute_table_col_widths(
+    headers: &[Vec<Span<'static>>],
+    rows: &[Vec<Vec<Span<'static>>>],
+    col_count: usize,
+    width: usize,
+) -> Vec<usize> {
+    let mut col_widths = vec![4usize; col_count];
+    for (i, h) in headers.iter().enumerate().take(col_count) {
+        let len: usize = h.iter().map(|s| s.content.chars().count()).sum();
+        col_widths[i] = col_widths[i].max(len + 2);
+    }
+    for row in rows {
+        for (i, cell) in row.iter().enumerate().take(col_count) {
+            let len: usize = cell.iter().map(|s| s.content.chars().count()).sum();
+            col_widths[i] = col_widths[i].max(len + 2);
+        }
+    }
+
+    let avail = width.saturating_sub(col_count + 1);
+    if avail == 0 {
+        return vec![0; col_count];
+    }
+
+    let sum_w: usize = col_widths.iter().sum();
+    let target_avail = ((avail * 85) / 100).max(col_count.min(avail));
+
+    if sum_w > avail {
+        let min_w = usize::from(avail >= col_count);
+        for w in col_widths.iter_mut() {
+            *w = ((*w * avail) / sum_w).max(min_w);
+        }
+        while col_widths.iter().sum::<usize>() > avail {
+            if let Some(widest) = col_widths.iter_mut().filter(|w| **w > 0).max() {
+                *widest -= 1;
+            } else {
+                break;
+            }
+        }
+    } else if sum_w < target_avail && sum_w > 0 {
+        let orig = col_widths.clone();
+        for (i, w) in col_widths.iter_mut().enumerate() {
+            *w = ((orig[i] * target_avail) / sum_w).max(orig[i]);
+        }
+        let mut cur_sum: usize = col_widths.iter().sum();
+        let mut idx = 0;
+        while cur_sum < target_avail {
+            col_widths[idx % col_count] += 1;
+            cur_sum += 1;
+            idx += 1;
+        }
+    }
+
+    col_widths
+}
+
+fn build_table_border_line(
+    col_widths: &[usize],
+    left: &'static str,
+    mid: &'static str,
+    right: &'static str,
+    border_style: Style,
+) -> Line<'static> {
+    let mut spans = Vec::with_capacity(col_widths.len() * 2 + 1);
+    spans.push(Span::styled(left, border_style));
+    for (i, &w) in col_widths.iter().enumerate() {
+        spans.push(Span::styled("─".repeat(w), border_style));
+        if i + 1 < col_widths.len() {
+            spans.push(Span::styled(mid, border_style));
+        } else {
+            spans.push(Span::styled(right, border_style));
+        }
+    }
+    Line::from(spans)
+}
+
+fn build_table_row_line(
+    cells: &[Vec<Span<'static>>],
+    col_widths: &[usize],
+    border_style: Style,
+    cell_base_style: Option<Style>,
+) -> Line<'static> {
+    let mut spans = vec![Span::styled("│", border_style)];
+    for (i, &col_w) in col_widths.iter().enumerate() {
+        if col_w == 0 {
+            spans.push(Span::styled("│", border_style));
+            continue;
+        }
+        spans.push(Span::raw(" "));
+        let max_cell_w = col_w - 1;
+        if let Some(cell) = cells.get(i) {
+            let len: usize = cell.iter().map(|s| s.content.chars().count()).sum();
+            if len > max_cell_w {
+                let mut budget = max_cell_w;
+                for sp in cell {
+                    let style = match cell_base_style {
+                        Some(base) => sp.style.patch(base),
+                        None => sp.style,
+                    };
+                    let sp_len = sp.content.chars().count();
+                    if sp_len <= budget {
+                        spans.push(Span::styled(sp.content.clone(), style));
+                        budget -= sp_len;
+                    } else if budget > 0 {
+                        let sub: String = sp.content.chars().take(budget).collect();
+                        spans.push(Span::styled(sub, style));
+                        budget = 0;
+                    }
+                }
+            } else {
+                for sp in cell {
+                    let style = match cell_base_style {
+                        Some(base) => sp.style.patch(base),
+                        None => sp.style,
+                    };
+                    spans.push(Span::styled(sp.content.clone(), style));
+                }
+                let pad = max_cell_w - len;
+                if pad > 0 {
+                    spans.push(Span::raw(" ".repeat(pad)));
+                }
+            }
+        } else if max_cell_w > 0 {
+            spans.push(Span::raw(" ".repeat(max_cell_w)));
+        }
+        spans.push(Span::styled("│", border_style));
+    }
+    Line::from(spans)
 }
