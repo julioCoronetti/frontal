@@ -86,8 +86,41 @@ impl From<&String> for PromptPayload {
     }
 }
 
-pub fn media_uri_to_path(uri: &str) -> &str {
-    uri.strip_prefix("file://").unwrap_or(uri)
+pub fn percent_decode_utf8(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(hi), Some(lo)) = (hex_nibble(bytes[i + 1]), hex_nibble(bytes[i + 2])) {
+                out.push((hi << 4) | lo);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn hex_nibble(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
+pub fn media_uri_to_path(uri: &str) -> String {
+    if let Some(rest) = uri.strip_prefix("file://localhost") {
+        percent_decode_utf8(rest)
+    } else if let Some(rest) = uri.strip_prefix("file://") {
+        percent_decode_utf8(rest)
+    } else {
+        uri.to_string()
+    }
 }
 
 pub fn parse_engine_line(line: &str) -> Result<Option<StreamEvent>, ProtocolError> {

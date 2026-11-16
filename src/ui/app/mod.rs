@@ -41,6 +41,8 @@ impl HitRegion {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AppAction {
     SubmitPrompt(crate::protocol::PromptPayload),
+    PasteClipboard,
+    InspectPastedText(String),
     Interrupt,
     Quit,
     NewTab,

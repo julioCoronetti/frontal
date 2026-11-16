@@ -55,7 +55,7 @@ fn test_build_opencode_payload_args_emits_repeatable_file_flags_and_fallback() {
         vec![
             MediaItem {
                 mime_type: "image/png".to_string(),
-                uri: "file:///tmp/a.png".to_string(),
+                uri: "file://localhost/tmp/a%201.png".to_string(),
             },
             MediaItem {
                 mime_type: "image/jpeg".to_string(),
@@ -71,7 +71,7 @@ fn test_build_opencode_payload_args_emits_repeatable_file_flags_and_fallback() {
         .filter(|w| w[0] == "--file")
         .map(|w| w[1].as_str())
         .collect();
-    assert_eq!(file_flags, vec!["/tmp/a.png", "/tmp/b.jpg"]);
+    assert_eq!(file_flags, vec!["/tmp/a 1.png", "/tmp/b.jpg"]);
     assert!(args.windows(2).any(|w| w == ["--session", "ses_123"]));
 }
 

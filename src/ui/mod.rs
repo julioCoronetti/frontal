@@ -59,6 +59,8 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
         let _ = opencode_tx.send(models).await;
     });
 
+    let (paste_tx, mut paste_rx) = tokio::sync::mpsc::channel(8);
+
     guard.terminal_mut().draw(|f| app.render(f))?;
 
     while !app.should_quit {
@@ -71,6 +73,9 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
             }
             Some(catalog) = catalog_rx.recv() => {
                 app.set_model_catalog(catalog);
+            }
+            Some((sid, paste_res)) = paste_rx.recv() => {
+                app.apply_paste_outcome(&sid, paste_res);
             }
             maybe_event = event_stream.next() => {
                 if let Some(Ok(event)) = maybe_event {
@@ -85,6 +90,29 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                                 {
                                     app.handle_prompt_failure(&session_id, &err.to_string());
                                 }
+                            }
+                            AppAction::PasteClipboard => {
+                                let sid = app.active_session.clone();
+                                let cache_dir = app.clipboard.resolve_media_cache_dir();
+                                let tx = paste_tx.clone();
+                                tokio::task::spawn_blocking(move || {
+                                    let res = crate::ui::clipboard::read_system_clipboard_media_or_text(
+                                        cache_dir,
+                                    )
+                                    .map(|(img, txt)| match (img, txt) {
+                                        (Some(saved), _) => (Some(saved), None),
+                                        (None, Some(raw)) => App::resolve_pasted_text(raw),
+                                        (None, None) => (None, None),
+                                    });
+                                    let _ = tx.blocking_send((sid, res));
+                                });
+                            }
+                            AppAction::InspectPastedText(text) => {
+                                let sid = app.active_session.clone();
+                                let tx = paste_tx.clone();
+                                tokio::task::spawn_blocking(move || {
+                                    let _ = tx.blocking_send((sid, Ok(App::resolve_pasted_text(text))));
+                                });
                             }
                             AppAction::Interrupt => {
                                 let _ = app.session_manager.interrupt_active();

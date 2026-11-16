@@ -2,7 +2,7 @@ use ropey::Rope;
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
-use crate::protocol::{MediaItem, PromptPayload};
+use crate::protocol::{media_uri_to_path, MediaItem, PromptPayload};
 
 mod mutations;
 mod navigation;
@@ -231,7 +231,7 @@ impl PromptEditor {
     }
 
     pub fn take_submitted_expanded(&mut self) -> Option<String> {
-        self.take_submitted_payload().map(|p| p.summary_text())
+        self.take_submitted_payload().map(|p| p.display_for_chat())
     }
 
     pub fn take_submitted_payload(&mut self) -> Option<PromptPayload> {
@@ -310,6 +310,7 @@ impl PromptEditor {
         self.cursor_char = 0;
         self.extmarks.clear();
         self.paste_registry.clear();
+        self.next_media_id = 1;
         self.selection = None;
         self.last_edit_group = EditGroup::None;
     }
@@ -363,33 +364,6 @@ pub fn image_mime_for_path(path: &Path) -> Option<&'static str> {
     }
 }
 
-fn percent_decode_utf8(input: &str) -> String {
-    let bytes = input.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(hi), Some(lo)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2])) {
-                out.push((hi << 4) | lo);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(bytes[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-fn hex_val(b: u8) -> Option<u8> {
-    match b {
-        b'0'..=b'9' => Some(b - b'0'),
-        b'a'..=b'f' => Some(b - b'a' + 10),
-        b'A'..=b'F' => Some(b - b'A' + 10),
-        _ => None,
-    }
-}
-
 fn unescape_shell_path(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
@@ -420,10 +394,8 @@ pub fn extract_pasted_image_path(raw: &str) -> Option<(PathBuf, &'static str)> {
     } else {
         trimmed
     };
-    let normalized = if let Some(rest) = unquoted.strip_prefix("file://localhost") {
-        percent_decode_utf8(rest)
-    } else if let Some(rest) = unquoted.strip_prefix("file://") {
-        percent_decode_utf8(rest)
+    let normalized = if unquoted.starts_with("file://") {
+        media_uri_to_path(unquoted)
     } else {
         unescape_shell_path(unquoted)
     };

@@ -70,13 +70,23 @@ fn test_isolated_clipboard_get_image_persists_png_without_collision() {
     let mut cb = SystemClipboard::new_isolated_with_dir(temp.path().to_path_buf());
     assert!(cb.get_image().unwrap().is_none());
 
-    let rgba = vec![
+    let rgba1 = vec![
         10, 20, 30, 255, 40, 50, 60, 255, 70, 80, 90, 255, 1, 2, 3, 255,
     ];
-    cb.set_isolated_image(2, 2, rgba);
+    cb.set_isolated_image(2, 2, rgba1);
 
     let first = cb.get_image().unwrap().expect("first image saved");
-    let second = cb.get_image().unwrap().expect("second image saved");
+    let dedup = cb
+        .get_image()
+        .unwrap()
+        .expect("identical image deduplicated");
+    assert_eq!(first.path, dedup.path);
+
+    let rgba2 = vec![
+        99, 20, 30, 255, 40, 50, 60, 255, 70, 80, 90, 255, 1, 2, 3, 255,
+    ];
+    cb.set_isolated_image(2, 2, rgba2);
+    let second = cb.get_image().unwrap().expect("distinct image saved");
 
     assert_eq!(first.mime_type, "image/png");
     assert_ne!(first.path, second.path);
@@ -114,12 +124,17 @@ fn test_editor_media_extmark_atomic_deletion_and_payload_submission() {
     assert!(editor.is_empty());
 
     editor.insert_media_attachment("image/webp", "/tmp/only.webp");
+    assert!(editor.text().contains("[Image #1]"));
     let media_only = editor
         .take_submitted_payload()
         .expect("image-only prompt allowed");
     assert_eq!(media_only.text, "");
     assert_eq!(media_only.media.len(), 1);
     assert!(editor.extmarks().is_empty());
+
+    editor.insert_media_attachment("image/png", "/tmp/expanded_test.png");
+    let expanded = editor.take_submitted_expanded().expect("expanded text");
+    assert!(expanded.contains("[Attached Media: /tmp/expanded_test.png (image/png)]"));
 
     let id = editor.insert_media_attachment("image/png", "/tmp/undo_test.png");
     assert_eq!(editor.extmarks()[0].id, id);

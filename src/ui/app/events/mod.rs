@@ -3,30 +3,82 @@ mod mouse;
 
 use crossterm::event::Event;
 
+use crate::protocol::SessionId;
 use crate::ui::app::{App, AppAction};
 use crate::ui::autocomplete::AutocompletePopover;
+use crate::ui::clipboard::SavedMediaImage;
 use crate::ui::editor::{extract_pasted_image_path, TriggerKind};
 
 impl App {
+    pub fn resolve_pasted_text(text: String) -> (Option<SavedMediaImage>, Option<String>) {
+        if let Some((path, mime)) = extract_pasted_image_path(&text) {
+            (
+                Some(SavedMediaImage {
+                    path,
+                    mime_type: mime,
+                }),
+                None,
+            )
+        } else {
+            (None, Some(text))
+        }
+    }
+
+    pub fn apply_paste_outcome(
+        &mut self,
+        session_id: &SessionId,
+        outcome: Result<(Option<SavedMediaImage>, Option<String>), String>,
+    ) {
+        let Some(tab_idx) = self.tabs.iter().position(|t| &t.session_id == session_id) else {
+            return;
+        };
+        let is_active = tab_idx == self.active_tab_index;
+        let tab = &mut self.tabs[tab_idx];
+        match outcome {
+            Ok((Some(saved), _)) => {
+                if tab.viewport.selection.is_some() {
+                    tab.viewport.clear_selection();
+                }
+                tab.editor.insert_media_attachment(
+                    saved.mime_type,
+                    saved.path.to_string_lossy().into_owned(),
+                );
+                let label = saved
+                    .path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("image");
+                tab.status_text = format!("Attached image: {}", label);
+                tab.draft_snapshot = None;
+            }
+            Ok((None, Some(text))) => {
+                if tab.viewport.selection.is_some() {
+                    tab.viewport.clear_selection();
+                }
+                tab.editor.insert_paste(&text);
+                tab.draft_snapshot = None;
+            }
+            Ok((None, None)) => return,
+            Err(err) => {
+                tab.status_text = format!("Clipboard image error: {}", err);
+            }
+        }
+        self.dirty = true;
+        if is_active {
+            self.update_autocomplete();
+        }
+    }
+
     pub fn handle_terminal_event(&mut self, event: Event) -> Option<AppAction> {
         match event {
             Event::Key(key) => self.handle_key(key),
             Event::Mouse(mouse) => self.handle_mouse(mouse),
             Event::Paste(text) => {
-                if self.viewport.selection.is_some() {
-                    self.viewport.clear_selection();
+                if !self.clipboard.is_isolated() {
+                    return Some(AppAction::InspectPastedText(text));
                 }
-                if let Some((path, mime)) = extract_pasted_image_path(&text) {
-                    self.editor
-                        .insert_media_attachment(mime, path.to_string_lossy().into_owned());
-                    let label = path.file_name().and_then(|n| n.to_str()).unwrap_or("image");
-                    self.status_text = format!("Attached image: {}", label);
-                } else {
-                    self.editor.insert_paste(&text);
-                }
-                self.draft_snapshot = None;
-                self.dirty = true;
-                self.update_autocomplete();
+                let sid = self.active_session.clone();
+                self.apply_paste_outcome(&sid, Ok(Self::resolve_pasted_text(text)));
                 None
             }
             Event::Resize(_, _) => {

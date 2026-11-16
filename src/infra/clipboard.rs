@@ -1,13 +1,12 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use arboard::Clipboard;
 
 const MAX_RAW_RGBA_BYTES: usize = 32 * 1024 * 1024;
 const PNG_SIGNATURE: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
-static MEDIA_SEQ: AtomicU64 = AtomicU64::new(1);
+static TMP_MEDIA_SEQ: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SavedMediaImage {
@@ -167,6 +166,16 @@ impl SystemClipboard {
         !self.emit_osc52
     }
 
+    pub fn resolve_media_cache_dir(&self) -> Option<PathBuf> {
+        self.media_cache_dir.clone().or_else(|| {
+            if self.is_isolated() {
+                Some(std::env::temp_dir().join("frontal_isolated_media"))
+            } else {
+                default_media_cache_dir()
+            }
+        })
+    }
+
     pub fn get_image(&mut self) -> Result<Option<SavedMediaImage>, String> {
         let (width, height, rgba) = if self.is_isolated() {
             let Some((w, h, bytes)) = self.isolated_image.clone() else {
@@ -188,37 +197,10 @@ impl SystemClipboard {
             return Ok(None);
         };
 
-        let png_bytes = encode_rgba_png(width, height, &rgba)?;
         let cache_dir = self
-            .media_cache_dir
-            .clone()
-            .or_else(|| {
-                if self.is_isolated() {
-                    Some(std::env::temp_dir().join("frontal_isolated_media"))
-                } else {
-                    default_media_cache_dir()
-                }
-            })
+            .resolve_media_cache_dir()
             .ok_or_else(|| "unable to resolve media cache directory".to_string())?;
-
-        fs::create_dir_all(&cache_dir)
-            .map_err(|e| format!("failed to create media cache dir: {}", e))?;
-
-        let timestamp_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0);
-        let hash = crc32_ieee(&rgba);
-        let seq = MEDIA_SEQ.fetch_add(1, Ordering::Relaxed);
-        let file_name = format!("img_{}_{:08x}_{}.png", timestamp_ms, hash, seq);
-        let file_path = cache_dir.join(file_name);
-        fs::write(&file_path, &png_bytes)
-            .map_err(|e| format!("failed to write cached image: {}", e))?;
-
-        Ok(Some(SavedMediaImage {
-            path: file_path,
-            mime_type: "image/png",
-        }))
+        save_rgba_png_dedup(&cache_dir, width, height, &rgba).map(Some)
     }
 
     pub fn get_text(&mut self) -> Option<String> {
@@ -281,4 +263,58 @@ impl Default for SystemClipboard {
     fn default() -> Self {
         Self::new()
     }
+}
+
+pub fn save_rgba_png_dedup(
+    cache_dir: &Path,
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+) -> Result<SavedMediaImage, String> {
+    let hash = crc32_ieee(rgba);
+    let file_name = format!("img_{}x{}_{:08x}.png", width, height, hash);
+    let file_path = cache_dir.join(file_name);
+    if file_path.is_file() {
+        return Ok(SavedMediaImage {
+            path: file_path,
+            mime_type: "image/png",
+        });
+    }
+    let png_bytes = encode_rgba_png(width, height, rgba)?;
+    fs::create_dir_all(cache_dir)
+        .map_err(|e| format!("failed to create media cache dir: {}", e))?;
+    let seq = TMP_MEDIA_SEQ.fetch_add(1, Ordering::Relaxed);
+    let tmp_path = cache_dir.join(format!(
+        ".tmp_{}_{}_{:08x}.png",
+        std::process::id(),
+        seq,
+        hash
+    ));
+    fs::write(&tmp_path, &png_bytes).map_err(|e| format!("failed to write cached image: {}", e))?;
+    if let Err(err) = fs::rename(&tmp_path, &file_path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(format!("failed to finalize cached image: {}", err));
+    }
+    Ok(SavedMediaImage {
+        path: file_path,
+        mime_type: "image/png",
+    })
+}
+
+pub fn read_system_clipboard_media_or_text(
+    cache_dir: Option<PathBuf>,
+) -> Result<(Option<SavedMediaImage>, Option<String>), String> {
+    let mut cb = Clipboard::new().map_err(|e| format!("clipboard unavailable: {}", e))?;
+    if let Ok(img) = cb.get_image() {
+        let w =
+            u32::try_from(img.width).map_err(|_| "clipboard image width overflow".to_string())?;
+        let h =
+            u32::try_from(img.height).map_err(|_| "clipboard image height overflow".to_string())?;
+        let dir = cache_dir
+            .or_else(default_media_cache_dir)
+            .ok_or_else(|| "unable to resolve media cache directory".to_string())?;
+        let saved = save_rgba_png_dedup(&dir, w, h, img.bytes.as_ref())?;
+        return Ok((Some(saved), None));
+    }
+    Ok((None, cb.get_text().ok()))
 }
