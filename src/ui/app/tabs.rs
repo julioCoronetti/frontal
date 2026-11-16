@@ -58,6 +58,8 @@ impl App {
         self.popover.close();
         self.modals.remove_danger_modal();
         let removed_tab = self.tabs.remove(index);
+        self.pending_engine_prompts
+            .retain(|(sid, _)| sid != &removed_tab.session_id);
         let _ = self
             .session_manager
             .shutdown_session(

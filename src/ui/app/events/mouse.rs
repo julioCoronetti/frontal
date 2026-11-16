@@ -96,16 +96,14 @@ impl App {
             MouseEventKind::Up(MouseButton::Left) => {
                 if matches!(self.viewport.selection, Some((s, e)) if s == e) {
                     self.viewport.clear_selection();
+                    self.dirty = true;
                     let (vx, vy, vw, vh) = self.viewport_bounds;
                     if column >= vx && column < vx + vw && row >= vy && row < vy + vh {
                         let offset = self.viewport.effective_offset();
                         let line = offset + (row.saturating_sub(vy) as usize);
-                        if self.cache.toggle_collapsible_at_line(line).is_some() {
-                            self.dirty = true;
-                        }
+                        let _ = self.cache.toggle_collapsible_at_line(line);
                     }
                 }
-                self.dirty = true;
             }
             _ => {}
         }
