@@ -77,6 +77,7 @@ pub struct App {
     pub viewport_bounds: (u16, u16, u16, u16),
     pub hit_regions: Vec<HitRegion>,
     pub hovered_tab_index: Option<usize>,
+    pub hovered_new_tab: bool,
     pub last_ctrl_c_at: Option<std::time::Instant>,
     pub pending_engine_prompts: std::collections::VecDeque<(crate::protocol::SessionId, String)>,
 }
@@ -152,6 +153,7 @@ impl App {
             viewport_bounds: (0, 0, 80, 20),
             hit_regions: Vec::new(),
             hovered_tab_index: None,
+            hovered_new_tab: false,
             last_ctrl_c_at: None,
             pending_engine_prompts: std::collections::VecDeque::new(),
         }
@@ -191,6 +193,7 @@ impl App {
             viewport_bounds: (0, 0, 80, 20),
             hit_regions: Vec::new(),
             hovered_tab_index: None,
+            hovered_new_tab: false,
             last_ctrl_c_at: None,
             pending_engine_prompts: std::collections::VecDeque::new(),
         }

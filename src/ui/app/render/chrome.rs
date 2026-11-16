@@ -11,8 +11,8 @@ use crate::ui::theme::{
     TEXT_PRIMARY,
 };
 
-const MAX_TAB_TITLE_WIDTH: usize = 24;
-const MIN_TAB_TITLE_WIDTH: usize = 8;
+const TARGET_TAB_WIDTH: usize = 28;
+const MIN_TAB_WIDTH: usize = 16;
 const CLOSE_SLOT_WIDTH: usize = 3;
 const NEW_TAB_LABEL: &str = " + ";
 
@@ -53,81 +53,35 @@ impl App {
 
         let total_w = tab_bar_area.width as usize;
         let plus_w = Span::raw(NEW_TAB_LABEL).width();
-        let tabs_budget = total_w.saturating_sub(plus_w);
+        let plus_reserve = plus_w + 1;
+        let tabs_budget = total_w.saturating_sub(plus_reserve);
 
-        let build_tab_body = |i: usize, title_cap: usize| -> String {
-            let tab = &self.tabs[i];
-            let spinner = if tab.waiting_for_response {
-                format!("{} ", spinner_char)
-            } else {
-                String::new()
-            };
-            let unread = if tab.has_unread { "*" } else { "" };
-            let title = truncate_to_display_width(&tab.title, title_cap);
-            format!(" {}{}{}", spinner, title, unread)
+        let count = self.tabs.len();
+        let sep_count = count.saturating_sub(1);
+        let tab_width = if count * TARGET_TAB_WIDTH + sep_count <= tabs_budget {
+            TARGET_TAB_WIDTH
+        } else if count * MIN_TAB_WIDTH + sep_count <= tabs_budget {
+            tabs_budget.saturating_sub(sep_count) / count
+        } else {
+            MIN_TAB_WIDTH.min(tabs_budget.max(CLOSE_SLOT_WIDTH + 4))
         };
 
-        let mut chosen_title_cap = MIN_TAB_TITLE_WIDTH;
-        for cap in (MIN_TAB_TITLE_WIDTH..=MAX_TAB_TITLE_WIDTH).rev() {
-            let mut needed = 0usize;
-            for i in 0..self.tabs.len() {
-                if i > 0 {
-                    needed += 1;
-                }
-                let body = build_tab_body(i, cap);
-                needed += Span::raw(&body).width() + CLOSE_SLOT_WIDTH;
-            }
-            if needed <= tabs_budget {
-                chosen_title_cap = cap;
-                break;
-            }
-        }
-
-        let active_idx = self.active_tab_index.min(self.tabs.len() - 1);
+        let active_idx = self.active_tab_index.min(count - 1);
         let mut start_idx = active_idx;
         let mut end_idx = active_idx;
+        let mut used_w = tab_width;
 
-        let active_body_full = build_tab_body(active_idx, chosen_title_cap);
-        let active_w = Span::raw(&active_body_full).width() + CLOSE_SLOT_WIDTH;
-        let mut active_title_cap = chosen_title_cap;
-        if active_w > tabs_budget {
-            let overhead = active_w.saturating_sub(
-                Span::raw(truncate_to_display_width(
-                    &self.tabs[active_idx].title,
-                    chosen_title_cap,
-                ))
-                .width(),
-            );
-            active_title_cap = tabs_budget.saturating_sub(overhead).max(1);
-        }
-
-        let tab_width_for = |i: usize| -> usize {
-            let cap = if i == active_idx {
-                active_title_cap
-            } else {
-                chosen_title_cap
-            };
-            Span::raw(build_tab_body(i, cap)).width() + CLOSE_SLOT_WIDTH
-        };
-
-        let mut used_w = tab_width_for(active_idx);
         loop {
             let mut expanded = false;
-            if end_idx + 1 < self.tabs.len() {
-                let next_w = 1 + tab_width_for(end_idx + 1);
-                if used_w + next_w <= tabs_budget {
-                    end_idx += 1;
-                    used_w += next_w;
-                    expanded = true;
-                }
+            if end_idx + 1 < count && used_w + 1 + tab_width <= tabs_budget {
+                end_idx += 1;
+                used_w += 1 + tab_width;
+                expanded = true;
             }
-            if start_idx > 0 {
-                let prev_w = 1 + tab_width_for(start_idx - 1);
-                if used_w + prev_w <= tabs_budget {
-                    start_idx -= 1;
-                    used_w += prev_w;
-                    expanded = true;
-                }
+            if start_idx > 0 && used_w + 1 + tab_width <= tabs_budget {
+                start_idx -= 1;
+                used_w += 1 + tab_width;
+                expanded = true;
             }
             if !expanded {
                 break;
@@ -143,34 +97,56 @@ impl App {
             let tab = &self.tabs[i];
             let is_active = i == active_idx;
             let is_hovered = self.hovered_tab_index == Some(i);
-            let cap = if is_active {
-                active_title_cap
-            } else {
-                chosen_title_cap
-            };
-            let body_text = build_tab_body(i, cap);
 
-            let mut body_style = Style::default().fg(if is_active {
-                TEXT_PRIMARY
-            } else if tab.has_unread {
-                ACCENT_HIGHLIGHT
+            let body_target_w = tab_width.saturating_sub(CLOSE_SLOT_WIDTH);
+            let spinner = if tab.waiting_for_response {
+                format!("{} ", spinner_char)
             } else {
-                TEXT_MUTED
-            });
+                String::new()
+            };
+            let unread = if tab.has_unread { "*" } else { "" };
+            let prefix_w = 2 + Span::raw(&spinner).width() + Span::raw(unread).width();
+            let title_cap = body_target_w.saturating_sub(prefix_w + 1);
+            let title = truncate_to_display_width(&tab.title, title_cap);
+            let mut body_text = format!("  {}{}{}", spinner, title, unread);
+            let current_w = Span::raw(&body_text).width();
+            if current_w < body_target_w {
+                body_text.push_str(&" ".repeat(body_target_w - current_w));
+            }
+
+            let mut body_style = Style::default()
+                .fg(if is_active {
+                    TEXT_PRIMARY
+                } else if tab.has_unread {
+                    ACCENT_HIGHLIGHT
+                } else {
+                    TEXT_MUTED
+                })
+                .bg(if is_active {
+                    TAB_ACTIVE_BG
+                } else {
+                    Color::Reset
+                });
             if is_active {
-                body_style = body_style.bg(TAB_ACTIVE_BG).add_modifier(Modifier::BOLD);
+                body_style = body_style.add_modifier(Modifier::BOLD);
             }
 
             let close_text = if is_hovered { " × " } else { "   " };
-            let mut close_style = Style::default().fg(if is_hovered {
-                ACCENT_HIGHLIGHT
-            } else if is_active {
-                TEXT_PRIMARY
-            } else {
-                TEXT_MUTED
-            });
+            let mut close_style = Style::default()
+                .fg(if is_hovered {
+                    ACCENT_HIGHLIGHT
+                } else if is_active {
+                    TEXT_PRIMARY
+                } else {
+                    TEXT_MUTED
+                })
+                .bg(if is_active {
+                    TAB_ACTIVE_BG
+                } else {
+                    Color::Reset
+                });
             if is_active {
-                close_style = close_style.bg(TAB_ACTIVE_BG).add_modifier(Modifier::BOLD);
+                close_style = close_style.add_modifier(Modifier::BOLD);
             }
 
             let body_span = Span::styled(body_text, body_style);
@@ -228,13 +204,27 @@ impl App {
             }
         }
 
+        if cursor_x.saturating_add(1 + plus_w as u16) <= max_x {
+            tab_spans.push(Span::raw(" "));
+            cursor_x = cursor_x.saturating_add(1);
+        }
+
         if cursor_x.saturating_add(plus_w as u16) <= max_x {
-            let plus_span = Span::styled(
-                NEW_TAB_LABEL,
-                Style::default()
-                    .fg(TEXT_PRIMARY)
-                    .add_modifier(Modifier::BOLD),
-            );
+            let mut plus_style = Style::default()
+                .fg(if self.hovered_new_tab {
+                    TEXT_PRIMARY
+                } else {
+                    TEXT_MUTED
+                })
+                .bg(if self.hovered_new_tab {
+                    TAB_ACTIVE_BG
+                } else {
+                    Color::Reset
+                });
+            if self.hovered_new_tab {
+                plus_style = plus_style.add_modifier(Modifier::BOLD);
+            }
+            let plus_span = Span::styled(NEW_TAB_LABEL, plus_style);
             self.hit_regions.push(HitRegion {
                 rect: Rect {
                     x: cursor_x,

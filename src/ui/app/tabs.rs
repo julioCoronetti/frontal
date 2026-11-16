@@ -26,6 +26,7 @@ impl App {
         self.session_manager
             .set_active_session(self.active_session.clone());
         self.hovered_tab_index = None;
+        self.hovered_new_tab = false;
         self.dirty = true;
     }
 
@@ -46,7 +47,9 @@ impl App {
         self.tabs[self.active_tab_index].has_unread = false;
         self.session_manager
             .set_active_session(self.active_session.clone());
+        self.hit_regions.clear();
         self.hovered_tab_index = None;
+        self.hovered_new_tab = false;
         self.dirty = true;
         self.active_tab_index
     }
@@ -82,7 +85,9 @@ impl App {
         self.tabs[self.active_tab_index].has_unread = false;
         self.session_manager
             .set_active_session(self.active_session.clone());
+        self.hit_regions.clear();
         self.hovered_tab_index = None;
+        self.hovered_new_tab = false;
         self.dirty = true;
         Some(removed_tab.session_id)
     }
@@ -94,6 +99,20 @@ impl App {
         if index != 0 || self.tabs.is_empty() {
             return None;
         }
+        self.popover.close();
+        self.modals.remove_danger_modal();
+        self.hit_regions.clear();
+        self.hovered_tab_index = None;
+        self.hovered_new_tab = false;
+
+        if self.tabs[0].cache.blocks_count() == 0 && !self.tabs[0].waiting_for_response {
+            self.tabs[0].editor.clear();
+            self.tabs[0].draft_snapshot = None;
+            self.tabs[0].status_text = String::from("Ready");
+            self.dirty = true;
+            return Some(self.tabs[0].session_id.clone());
+        }
+
         let old_id = self.tabs[0].session_id.clone();
         let was_replay = self.session_manager.is_replay_session(&old_id);
         let base_engine_config = self.session_manager.get_engine_config(&old_id);
@@ -105,8 +124,6 @@ impl App {
         let effort = Some(self.active_effort_name());
         let mode = Some(self.active_mode_name());
 
-        self.popover.close();
-        self.modals.remove_danger_modal();
         self.pending_engine_prompts
             .retain(|(sid, _)| sid != &old_id);
         let _ = self
@@ -143,7 +160,6 @@ impl App {
         self.active_tab_index = 0;
         self.active_session = new_id.clone();
         self.session_manager.set_active_session(new_id);
-        self.hovered_tab_index = None;
         self.dirty = true;
         Some(old_id)
     }

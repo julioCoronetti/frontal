@@ -15,17 +15,26 @@ impl App {
         let (column, row) = (mouse.column, mouse.row);
         match mouse.kind {
             MouseEventKind::Moved => {
-                let hovered = self.hit_regions.iter().find_map(|region| {
+                let mut hovered_tab = None;
+                let mut hovered_new = false;
+                for region in &self.hit_regions {
                     if !region.contains(column, row) {
-                        return None;
+                        continue;
                     }
                     match region.action {
-                        HitAction::SwitchTab(idx) | HitAction::CloseOrResetTab(idx) => Some(idx),
-                        HitAction::NewTab => None,
+                        HitAction::SwitchTab(idx) | HitAction::CloseOrResetTab(idx) => {
+                            hovered_tab = Some(idx);
+                            break;
+                        }
+                        HitAction::NewTab => {
+                            hovered_new = true;
+                            break;
+                        }
                     }
-                });
-                if hovered != self.hovered_tab_index {
-                    self.hovered_tab_index = hovered;
+                }
+                if hovered_tab != self.hovered_tab_index || hovered_new != self.hovered_new_tab {
+                    self.hovered_tab_index = hovered_tab;
+                    self.hovered_new_tab = hovered_new;
                     self.dirty = true;
                 }
             }
