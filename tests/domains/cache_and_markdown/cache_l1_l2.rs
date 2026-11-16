@@ -1,5 +1,7 @@
 use frontal::protocol::StepState;
 use frontal::ui::cache::{BlockKind, RenderCache};
+use frontal::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, BORDER_SUBTLE, TEXT_MUTED};
+use ratatui::style::Color;
 
 #[test]
 fn test_render_cache_l1_and_l2_o1_invariance() {
@@ -276,4 +278,38 @@ fn test_render_cache_60fps_latency_and_zero_reallocation() {
         "Per frame latency {:?} exceeds 2ms threshold",
         per_frame_latency
     );
+}
+
+#[test]
+fn test_thought_and_tool_blocks_use_atlas_crimson_palette() {
+    let mut cache = RenderCache::new();
+    let tid = cache.append_streaming_delta(BlockKind::Thought, "reasoning line");
+    cache.consolidate_active_turn(None);
+    cache.toggle_block_collapsed(tid);
+    cache.upsert_tool_call(Some(1), "run_cmd", StepState::Active, None, Some("running"));
+    cache.upsert_tool_call(Some(2), "read_file", StepState::Done, None, None);
+    cache.upsert_tool_call(Some(3), "write_file", StepState::Error, None, Some("err"));
+
+    let total = cache.ensure_visual_lines(80);
+    let lines = cache.visible_slice(0, total);
+    assert_eq!(lines[0].spans[0].style.fg, Some(TEXT_MUTED));
+    assert_eq!(lines[2].spans[0].style.fg, Some(BORDER_SUBTLE));
+
+    let active = lines
+        .iter()
+        .find(|l| l.spans.iter().any(|s| s.content.contains("run_cmd")))
+        .unwrap();
+    assert_eq!(active.spans[0].style.fg, Some(ACCENT_HIGHLIGHT));
+
+    let done = lines
+        .iter()
+        .find(|l| l.spans.iter().any(|s| s.content.contains("read_file")))
+        .unwrap();
+    assert_eq!(done.spans[0].style.fg, Some(ACCENT_PRIMARY));
+
+    let err = lines
+        .iter()
+        .find(|l| l.spans.iter().any(|s| s.content.contains("write_file")))
+        .unwrap();
+    assert_eq!(err.spans[0].style.fg, Some(Color::Red));
 }

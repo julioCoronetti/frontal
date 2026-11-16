@@ -8,7 +8,7 @@ use frontal::ui::app::{App, AppAction};
 use frontal::ui::cache::{BlockKind, RenderCache, TurnMeta};
 use frontal::ui::modal::{CommandPaletteModal, DiffModal, Modal, ModelEffortModal};
 use frontal::ui::theme::{
-    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BG_USER_CONTAINER, BORDER_SUBTLE,
+    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BG_SIDEBAR, BG_USER_CONTAINER, BORDER_SUBTLE,
     TAB_ACTIVE_DOT, TEXT_MUTED, TEXT_PRIMARY,
 };
 use ratatui::style::Color;
@@ -474,4 +474,25 @@ fn test_atlas_crimson_theme_constants_and_rendering() {
         }
     }
     assert!(found_popover_sel_ruby);
+}
+
+#[test]
+fn test_markdown_output_rendering_no_backticks_and_nested_indent() {
+    let (mut app, _) = test_app();
+    app.cache.push_user_message("check output");
+    app.cache.append_streaming_delta(
+        BlockKind::Assistant,
+        "# Title\n\nRun `cargo test`\n\n- Outer\n  - Inner",
+    );
+    app.cache.consolidate_active_turn(None);
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    terminal.draw(|f| app.render(f)).unwrap();
+    let buf = terminal.backend().buffer();
+    let rendered: String = buf.content().iter().map(|c| c.symbol()).collect();
+    assert!(rendered.contains("cargo test") && !rendered.contains("`cargo test`"));
+    assert!(rendered.contains("• Outer") && rendered.contains("  ◦ Inner"));
+    assert!(buf
+        .content()
+        .iter()
+        .any(|c| c.bg == BG_SIDEBAR && c.fg == ACCENT_HIGHLIGHT));
 }

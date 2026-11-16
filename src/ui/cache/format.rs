@@ -6,7 +6,9 @@ use crate::ui::cache::{BlockKind, CachedBlockLines, MessageBlock, RenderCache};
 use crate::ui::markdown::{
     parse_markdown_segments, render_markdown_to_lines, render_segments_to_lines,
 };
-use crate::ui::theme::{ACCENT_PRIMARY, BG_USER_CONTAINER, TEXT_MUTED, TEXT_PRIMARY};
+use crate::ui::theme::{
+    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, BG_USER_CONTAINER, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY,
+};
 
 pub fn sanitize_terminal_line(line: &str) -> String {
     let mut raw = line.trim_end_matches('\r');
@@ -205,18 +207,18 @@ impl RenderCache {
                 if block.collapsed {
                     result.push(Line::from(vec![Span::styled(
                         "+ Thought",
-                        Style::default().fg(Color::Yellow),
+                        Style::default().fg(TEXT_MUTED),
                     )]));
                 } else {
                     result.push(Line::from(vec![Span::styled(
                         "- Thought",
-                        Style::default().fg(Color::Yellow),
+                        Style::default().fg(TEXT_MUTED),
                     )]));
                     result.push(Line::from(""));
                     let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
                     for row in wrapped {
                         result.push(Line::from(vec![
-                            Span::styled("│ ", Style::default().fg(TEXT_MUTED)),
+                            Span::styled("│ ", Style::default().fg(BORDER_SUBTLE)),
                             Span::styled(
                                 row,
                                 Style::default()
@@ -252,7 +254,8 @@ impl RenderCache {
                 let mut header_spans = Vec::new();
                 match state {
                     StepState::Active => {
-                        header_spans.push(Span::styled("● ", Style::default().fg(Color::Yellow)));
+                        header_spans
+                            .push(Span::styled("● ", Style::default().fg(ACCENT_HIGHLIGHT)));
                         header_spans
                             .push(Span::styled("Running ", Style::default().fg(TEXT_MUTED)));
                         header_spans.push(Span::styled(
@@ -265,7 +268,7 @@ impl RenderCache {
                         ));
                     }
                     StepState::Done => {
-                        header_spans.push(Span::styled("● ", Style::default().fg(Color::Green)));
+                        header_spans.push(Span::styled("● ", Style::default().fg(ACCENT_PRIMARY)));
                         header_spans.push(Span::styled(
                             name.clone(),
                             Style::default().fg(TEXT_PRIMARY),
@@ -309,7 +312,7 @@ impl RenderCache {
                             Style::default().fg(TEXT_MUTED)
                         };
                         result.push(Line::from(vec![
-                            Span::styled("│ ", Style::default().fg(TEXT_MUTED)),
+                            Span::styled("│ ", Style::default().fg(BORDER_SUBTLE)),
                             Span::styled(row, text_style),
                         ]));
                     }
