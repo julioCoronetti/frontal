@@ -33,7 +33,7 @@ impl App {
     pub fn add_tab(&mut self, session_id: SessionId, title: Option<String>) -> usize {
         self.popover.close();
         self.modals.remove_danger_modal();
-        let title = title.unwrap_or_else(|| format!("Session {}", self.tabs.len() + 1));
+        let title = title.unwrap_or_else(|| String::from("New session"));
         let backend = self
             .session_manager
             .get_engine_config(&session_id)
@@ -154,7 +154,7 @@ impl App {
             }
         };
 
-        let mut fresh_tab = TabState::new(new_id.clone(), String::from("Session 1"));
+        let mut fresh_tab = TabState::new(new_id.clone(), String::from("New session"));
         fresh_tab.backend = prev_backend;
         self.tabs[0] = fresh_tab;
         self.active_tab_index = 0;

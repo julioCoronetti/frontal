@@ -9,7 +9,9 @@ impl App {
                 .iter()
                 .find(|t| &t.session_id == session_id)
                 .map(|t| t.title.clone())
-                .filter(|t| !t.starts_with("Session ") && !t.trim().is_empty());
+                .filter(|t| {
+                    !t.starts_with("Session ") && t != "New session" && !t.trim().is_empty()
+                });
 
             let agent_title = if self.history.is_in_memory() {
                 None
@@ -28,7 +30,10 @@ impl App {
 
             if let Some(ref t) = final_title {
                 if let Some(tab) = self.tabs.iter_mut().find(|tb| &tb.session_id == session_id) {
-                    if tab.title.starts_with("Session ") || tab.title.trim().is_empty() {
+                    if tab.title.starts_with("Session ")
+                        || tab.title == "New session"
+                        || tab.title.trim().is_empty()
+                    {
                         tab.title = t.clone();
                     }
                 }
@@ -69,7 +74,7 @@ impl App {
 
         for (idx, tab) in self.tabs.iter().enumerate() {
             let display_title = if tab.title.trim().is_empty() {
-                format!("Session {}", idx + 1)
+                String::from("New session")
             } else {
                 tab.title.clone()
             };

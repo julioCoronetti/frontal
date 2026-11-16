@@ -116,7 +116,7 @@ impl App {
             .get_engine_config(&active_session)
             .map(|config| config.backend)
             .unwrap_or(crate::config::BackendKind::Agy);
-        let mut initial_tab = TabState::new(active_session.clone(), String::from("Session 1"));
+        let mut initial_tab = TabState::new(active_session.clone(), String::from("New session"));
         initial_tab.backend = backend;
         let cwd_path = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
         let cwd_display = if let Ok(home) = std::env::var("HOME") {
@@ -166,7 +166,7 @@ impl App {
             .get_engine_config(&active_session)
             .map(|config| config.backend)
             .unwrap_or(crate::config::BackendKind::Agy);
-        let mut initial_tab = TabState::new(active_session.clone(), String::from("Session 1"));
+        let mut initial_tab = TabState::new(active_session.clone(), String::from("New session"));
         initial_tab.backend = backend;
         let cwd_display = String::from("~/test");
         let available_models = crate::transport::EngineConfig::default_fallback_models();

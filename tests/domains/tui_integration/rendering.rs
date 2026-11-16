@@ -124,7 +124,7 @@ fn test_multisession_tabs_ui_rendering_on_test_backend() {
         .collect::<Vec<_>>()
         .join("");
 
-    assert!(rendered.contains("Session 1"));
+    assert!(rendered.contains("New session"));
     assert!(rendered.contains("Secondary*"));
     assert!(rendered.contains("Ctrl+P: Palette"));
 
@@ -211,7 +211,7 @@ fn test_opencode_visual_layout_and_symmetry() {
         .join("");
 
     assert!(rendered_text.contains('+'));
-    assert!(rendered_text.contains("Session 1"));
+    assert!(rendered_text.contains("New session"));
     assert!(rendered_text.contains(&app.cwd_display));
     assert!(rendered_text.contains("Ctrl+P: Palette"));
     assert!(!rendered_text.contains("#hex"));
