@@ -49,9 +49,18 @@ fn test_tab_bar_active_pill_background_and_hover_x_layout_stability() {
         .find(|r| r.action == HitAction::SwitchTab(1))
         .copied()
         .expect("SwitchTab(1) hitbox");
+    let plus = app
+        .hit_regions
+        .iter()
+        .find(|r| r.action == HitAction::NewTab)
+        .copied()
+        .expect("NewTab hitbox");
 
+    assert_eq!(tab0.rect.width, 28);
+    assert_eq!(tab1.rect.width, 28);
     assert_eq!(buf0.cell((tab0.rect.x, 0)).unwrap().bg, TAB_ACTIVE_BG);
     assert_eq!(buf0.cell((tab1.rect.x, 0)).unwrap().bg, Color::Reset);
+    assert_eq!(buf0.cell((plus.rect.x, 0)).unwrap().bg, Color::Reset);
 
     app.handle_terminal_event(Event::Mouse(MouseEvent {
         kind: MouseEventKind::Moved,
@@ -66,6 +75,19 @@ fn test_tab_bar_active_pill_background_and_hover_x_layout_stability() {
     assert!(row0_after.contains('×'));
     assert_eq!(find_cell_x(buf1, "Secondary"), Some(sec_x_before));
     assert_eq!(find_cell_x(buf1, "+"), Some(plus_x_before));
+
+    app.handle_terminal_event(Event::Mouse(MouseEvent {
+        kind: MouseEventKind::Moved,
+        column: plus.rect.x + 1,
+        row: 0,
+        modifiers: KeyModifiers::NONE,
+    }));
+    assert!(app.hovered_new_tab);
+    assert_eq!(app.hovered_tab_index, None);
+
+    let (term2, _) = render_app(&mut app, 100, 24);
+    let buf2 = term2.backend().buffer();
+    assert_eq!(buf2.cell((plus.rect.x, 0)).unwrap().bg, TAB_ACTIVE_BG);
 }
 
 #[test]
