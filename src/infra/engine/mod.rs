@@ -17,7 +17,8 @@ pub use opencode::OpenCodeEngine;
 pub type SubprocessEngine = AgyEngine;
 
 use crate::protocol::{
-    format_user_message, parse_stream_line, EngineEvent, SessionEnvelope, SessionId, StreamEvent,
+    format_user_payload, parse_stream_line, EngineEvent, PromptPayload, SessionEnvelope, SessionId,
+    StreamEvent,
 };
 use crate::transport::{EngineConfig, EngineError};
 
@@ -240,8 +241,11 @@ impl AgyEngine {
         &self.config
     }
 
-    pub async fn send_prompt(&mut self, prompt: &str) -> Result<(), EngineError> {
-        let payload = format_user_message(prompt)?;
+    pub async fn send_prompt(
+        &mut self,
+        prompt: impl Into<PromptPayload>,
+    ) -> Result<(), EngineError> {
+        let payload = format_user_payload(&prompt.into())?;
         if let Some(stdin) = self.stdin.as_mut() {
             stdin.write_all(payload.as_bytes()).await?;
             stdin.flush().await?;

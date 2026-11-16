@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::EngineConfig;
+use crate::protocol::{media_uri_to_path, PromptPayload};
 
 pub fn resolve_opencode_binary() -> PathBuf {
     if let Ok(path_str) = env::var("FRONTAL_OPENCODE_BIN") {
@@ -39,6 +40,14 @@ pub fn build_opencode_args(
     session_id: Option<&str>,
     prompt: &str,
 ) -> Vec<String> {
+    build_opencode_payload_args(config, session_id, &PromptPayload::from_text(prompt))
+}
+
+pub fn build_opencode_payload_args(
+    config: &EngineConfig,
+    session_id: Option<&str>,
+    payload: &PromptPayload,
+) -> Vec<String> {
     let mut args = vec![
         "run".to_string(),
         "--format".to_string(),
@@ -54,8 +63,20 @@ pub fn build_opencode_args(
         args.push("--session".to_string());
         args.push(sid.to_string());
     }
+    for item in &payload.media {
+        let path = media_uri_to_path(&item.uri);
+        if !path.is_empty() {
+            args.push("--file".to_string());
+            args.push(path.to_string());
+        }
+    }
+    let prompt_arg = if payload.text.trim().is_empty() && !payload.media.is_empty() {
+        "See attached media."
+    } else {
+        payload.text.as_str()
+    };
     args.push("--".to_string());
-    args.push(prompt.to_string());
+    args.push(prompt_arg.to_string());
     args
 }
 

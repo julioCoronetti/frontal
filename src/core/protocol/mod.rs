@@ -7,8 +7,73 @@ use std::fs;
 use std::io::Read;
 use std::path::Path;
 
-pub use agy::{format_user_message, parse_stream_line, AgyStreamParser};
+pub use agy::{format_user_message, format_user_payload, parse_stream_line, AgyStreamParser};
 pub use opencode::{extract_opencode_session_id, fnv1a_64, OpenCodeStreamParser};
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MediaItem {
+    pub mime_type: String,
+    pub uri: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PromptPayload {
+    pub text: String,
+    #[serde(default)]
+    pub media: Vec<MediaItem>,
+}
+
+impl PromptPayload {
+    pub fn new(text: impl Into<String>, media: Vec<MediaItem>) -> Self {
+        Self {
+            text: text.into(),
+            media,
+        }
+    }
+
+    pub fn from_text(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            media: Vec::new(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.text.trim().is_empty() && self.media.is_empty()
+    }
+
+    pub fn summary_text(&self) -> String {
+        if !self.text.trim().is_empty() {
+            self.text.clone()
+        } else if self.media.is_empty() {
+            String::new()
+        } else {
+            format!("[{} attached image(s)]", self.media.len())
+        }
+    }
+}
+
+impl From<&str> for PromptPayload {
+    fn from(value: &str) -> Self {
+        Self::from_text(value)
+    }
+}
+
+impl From<String> for PromptPayload {
+    fn from(value: String) -> Self {
+        Self::from_text(value)
+    }
+}
+
+impl From<&String> for PromptPayload {
+    fn from(value: &String) -> Self {
+        Self::from_text(value.as_str())
+    }
+}
+
+pub fn media_uri_to_path(uri: &str) -> &str {
+    uri.strip_prefix("file://").unwrap_or(uri)
+}
 
 pub fn parse_engine_line(line: &str) -> Result<Option<StreamEvent>, ProtocolError> {
     if OpenCodeStreamParser::matches(line) {

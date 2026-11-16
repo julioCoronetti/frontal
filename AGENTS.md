@@ -1,6 +1,6 @@
 ## Project Context
 - Project: Frontal — asynchronous, decoupled Terminal User Interface (TUI) harness in Rust for Antigravity CLI (`agy`) and `stream-json` compatible engines.
-- Status: Production architecture at version `0.13.0`, verified by 211 tests across 8 hermetic domains on branch `main`, evolving via GitHub Project Board #8.
+- Status: Production architecture at version `0.13.0`, verified by 215 tests across 8 hermetic domains on branch `main`, evolving via GitHub Project Board #8.
 - Stack: `tokio`, `tokio-util`, `bytes`, `futures-util`, `serde`, `serde_json`, `libc`, `ratatui` (0.29), `crossterm` (0.28), `pulldown-cmark` (0.12), `syntect` (5.2), `ropey` (1.6), `rusqlite` (0.32), `arboard` (3.4).
 - Branches: `main` (active) and `origin/legacy` (Python/Textual prototype).
 - Do not add external dependencies to this single-crate repository without explicit operator authorization.
@@ -8,7 +8,7 @@
 ## Engineering Standards
 - Never write comments in source files; place all documentation in git commit messages, GitHub Wiki, or `.agents/docs/`.
 - Enforce a strict ceiling of 500 lines per `.rs` file; partition larger files into cohesive submodules with public re-exports.
-- Pass `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` with zero warnings, and all 211 tests cleanly.
+- Pass `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` with zero warnings, and all 215 tests cleanly.
 
 ## Architectural Invariants
 - Store immutable AST (`MessageBlock` with styled spans) in Level 1 of the 2-level render cache and formatted visual lines indexed by `(width, revision)` in Level 2; invalidate only Level 2 on resizes or block toggles and emit streaming deltas at 60 FPS without re-parsing history.
@@ -21,7 +21,7 @@
 - `tests/suite.rs`: Canonical single-crate test harness validating all 8 architectural domains.
 - `tests/domains/architecture.rs`: Architectural mechanical invariants (4 tests).
 - `tests/domains/protocol_and_cli.rs`: Protocol `stream-json`, NDJSON, and CLI (21 tests).
-- `tests/domains/engine_and_session/`: Subprocess `agy`, fixtures, POSIX isolation, and `OpenCodeEngine` turns (25 tests).
+- `tests/domains/engine_and_session/`: Subprocess `agy`, fixtures, POSIX isolation, `OpenCodeEngine` turns, and multimodal payloads (29 tests).
 - `tests/domains/cache_and_markdown/`: RenderCache L1/L2 and Markdown (24 tests).
 - `tests/domains/viewport_and_clipboard.rs`: Sticky scroll, clean selection, and clipboard (16 tests).
 - `tests/domains/editor_and_history/`: Editor `ropey`, media clipboard PNG, and SQLite WAL history (19 tests).
@@ -29,7 +29,7 @@
 - `tests/domains/tui_integration/`: End-to-end TUI integration (23 tests).
 
 ## On-Demand Resources
-- `.agents/skills/frontal-quality-gate`: Runs the canonical Cargo triad (`fmt`, `clippy`, and 211 tests) and verifies architectural invariants.
+- `.agents/skills/frontal-quality-gate`: Runs the canonical Cargo triad (`fmt`, `clippy`, and 215 tests) and verifies architectural invariants.
 - `.agents/skills/frontal-card-lifecycle`: Manages card closure workflows, SemVer bumping, release tags, and Project Board #8 transitions.
 - `.agents/skills/frontal-wiki-sync`: Audits invariant tokens, prevents extinct legacy terms, and commits to the `.wiki/` mirror.
 - `.agents/docs/multi_harness_architecture.md`: Multi-harness architecture specification and implementation plan (`Agy` and `OpenCode`).
@@ -38,7 +38,7 @@
 - `.agents/docs/subagents.md`: Guidelines, profiles, and anti-patterns for subagent delegation.
 
 ## Quality Gate
-- Run `.agents/skills/frontal-quality-gate/scripts/quality_gate.sh` before every commit to enforce `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test --quiet` (211 tests passing).
+- Run `.agents/skills/frontal-quality-gate/scripts/quality_gate.sh` before every commit to enforce `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test --quiet` (215 tests passing).
 - Limit each commit to 1 indivisible logical change touching at most 5 modified files (unless `ATOMIC_OVERRIDE=1`).
 
 ## Commit Governance

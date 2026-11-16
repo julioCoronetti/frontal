@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 
 use crate::config::BackendKind;
 use crate::engine::{AgyEngine, OpenCodeEngine};
-use crate::protocol::{EngineEvent, SessionEnvelope, SessionId, StreamEvent};
+use crate::protocol::{EngineEvent, PromptPayload, SessionEnvelope, SessionId, StreamEvent};
 use crate::transport::{EngineConfig, EngineError, FixtureReplayEngine, ReplayMode};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -263,21 +263,25 @@ impl SessionManager {
     pub async fn send_prompt(
         &mut self,
         session_id: &SessionId,
-        prompt: &str,
+        prompt: impl Into<PromptPayload>,
     ) -> Result<(), EngineError> {
+        let payload = prompt.into();
         let handle = self
             .sessions
             .get_mut(session_id)
             .ok_or(EngineError::ProcessNotRunning)?;
         if handle.metadata.last_prompt.is_none() {
-            handle.metadata.last_prompt = Some(prompt.to_string());
+            let summary = payload.summary_text();
+            if !summary.is_empty() {
+                handle.metadata.last_prompt = Some(summary);
+            }
         }
         let prev_status = handle.metadata.status;
         handle.metadata.status = SessionStatus::RunningTurn;
         let res = match &mut handle.engine {
-            FrontalEngine::Agy(engine) => engine.send_prompt(prompt).await,
-            FrontalEngine::OpenCode(engine) => engine.send_prompt(prompt).await,
-            FrontalEngine::Replay(engine) => engine.send_prompt(prompt).await,
+            FrontalEngine::Agy(engine) => engine.send_prompt(payload).await,
+            FrontalEngine::OpenCode(engine) => engine.send_prompt(payload).await,
+            FrontalEngine::Replay(engine) => engine.send_prompt(payload).await,
         };
         if res.is_err() {
             handle.metadata.status = prev_status;

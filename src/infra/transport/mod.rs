@@ -11,14 +11,14 @@ use tokio::time::sleep;
 mod opencode;
 
 pub use opencode::{
-    build_opencode_args, fetch_opencode_models, model_with_variant, opencode_variant,
-    parse_opencode_models_output, resolve_opencode_binary,
+    build_opencode_args, build_opencode_payload_args, fetch_opencode_models, model_with_variant,
+    opencode_variant, parse_opencode_models_output, resolve_opencode_binary,
 };
 
 use crate::config::BackendKind;
 use crate::protocol::{
-    format_user_message, parse_stream_line, EngineEvent, ProtocolError, SessionEnvelope, SessionId,
-    StreamEvent,
+    format_user_payload, parse_stream_line, EngineEvent, PromptPayload, ProtocolError,
+    SessionEnvelope, SessionId, StreamEvent,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -369,8 +369,12 @@ impl FixtureReplayEngine {
         Ok(())
     }
 
-    pub async fn send_prompt(&mut self, prompt: &str) -> Result<(), EngineError> {
-        let _ = format_user_message(prompt)?;
+    pub async fn send_prompt(
+        &mut self,
+        prompt: impl Into<PromptPayload>,
+    ) -> Result<(), EngineError> {
+        let payload = prompt.into();
+        let _ = format_user_payload(&payload)?;
         self.interrupted.store(false, Ordering::Relaxed);
         let lines = self.lines.clone();
         let cursor = self.cursor.clone();

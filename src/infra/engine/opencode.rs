@@ -10,10 +10,10 @@ use tokio_util::codec::{FramedRead, LinesCodec};
 
 use super::{register_child_pgid, unregister_child_pgid};
 use crate::protocol::{
-    parse_engine_line, EngineEvent, ErrorEvent, InitEvent, ResultData, ResultEvent, ResultStatus,
-    SessionEnvelope, SessionId, StreamEvent, TokenUsage,
+    parse_engine_line, EngineEvent, ErrorEvent, InitEvent, PromptPayload, ProtocolError,
+    ResultData, ResultEvent, ResultStatus, SessionEnvelope, SessionId, StreamEvent, TokenUsage,
 };
-use crate::transport::{build_opencode_args, EngineConfig, EngineError};
+use crate::transport::{build_opencode_payload_args, EngineConfig, EngineError};
 
 pub struct OpenCodeEngine {
     session_id: SessionId,
@@ -59,7 +59,14 @@ impl OpenCodeEngine {
         self.conversation_id.read().await.clone()
     }
 
-    pub async fn send_prompt(&mut self, prompt: &str) -> Result<(), EngineError> {
+    pub async fn send_prompt(
+        &mut self,
+        prompt: impl Into<PromptPayload>,
+    ) -> Result<(), EngineError> {
+        let payload = prompt.into();
+        if payload.is_empty() {
+            return Err(EngineError::from(ProtocolError::EmptyPrompt));
+        }
         if self.active_pgid.load(Ordering::Relaxed) > 0 {
             for _ in 0..50 {
                 if self.active_pgid.load(Ordering::Relaxed) == 0 {
@@ -72,7 +79,8 @@ impl OpenCodeEngine {
             return Err(EngineError::Io("turn already running".to_string()));
         }
         let current_conversation = self.conversation_id.read().await.clone();
-        let args = build_opencode_args(&self.config, current_conversation.as_deref(), prompt);
+        let args =
+            build_opencode_payload_args(&self.config, current_conversation.as_deref(), &payload);
         let parent_pid = unsafe { libc::getpid() };
         let mut cmd = Command::new(&self.config.opencode_bin);
         cmd.args(&args)
