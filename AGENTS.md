@@ -22,7 +22,7 @@
 - `tests/domains/architecture.rs`: Architectural mechanical invariants (4 tests).
 - `tests/domains/protocol_and_cli.rs`: Protocol `stream-json`, NDJSON, and CLI (21 tests).
 - `tests/domains/engine_and_session/`: Subprocess `agy`, fixtures, POSIX isolation, and `OpenCodeEngine` turns (25 tests).
-- `tests/domains/cache_and_markdown.rs`: RenderCache L1/L2 and Markdown (16 tests).
+- `tests/domains/cache_and_markdown/`: RenderCache L1/L2 and Markdown (16 tests).
 - `tests/domains/viewport_and_clipboard.rs`: Sticky scroll, clean selection, and clipboard (16 tests).
 - `tests/domains/editor_and_history.rs`: Editor `ropey` and SQLite WAL history (16 tests).
 - `tests/domains/tabs_and_modals/`: Multi-session and modal dialogs (75 tests).
