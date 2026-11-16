@@ -91,9 +91,6 @@ impl TabState {
                 if let Some(conv_id) = &ev.conversation_id {
                     self.status_text = format!("Conversation: {}", conv_id);
                 }
-                if !is_active {
-                    self.has_unread = true;
-                }
             }
             StreamEvent::StepUpdate(update) => {
                 if let Some(data) = &update.step_update {

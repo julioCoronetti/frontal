@@ -1,5 +1,8 @@
 use crossterm::event::{Event, KeyModifiers, MouseEvent, MouseEventKind};
-use frontal::protocol::SessionId;
+use frontal::protocol::{
+    EngineEvent, InitEvent, SessionEnvelope, SessionId, StepUpdateData, StepUpdateEvent,
+    StreamEvent,
+};
 use frontal::ui::app::HitAction;
 use frontal::ui::theme::TAB_ACTIVE_BG;
 use ratatui::style::Color;
@@ -88,6 +91,31 @@ fn test_tab_bar_active_pill_background_and_hover_x_layout_stability() {
     let (term2, _) = render_app(&mut app, 100, 24);
     let buf2 = term2.backend().buffer();
     assert_eq!(buf2.cell((plus.rect.x, 0)).unwrap().bg, TAB_ACTIVE_BG);
+
+    let bg_id = app.tabs[1].session_id.clone();
+    app.handle_engine_envelope(SessionEnvelope {
+        session_id: bg_id.clone(),
+        event: EngineEvent::Stream(Box::new(StreamEvent::Init(InitEvent {
+            conversation_id: Some("conv-init-only".to_string()),
+            init: None,
+        }))),
+    });
+    assert!(!app.tabs[1].has_unread);
+
+    app.handle_engine_envelope(SessionEnvelope {
+        session_id: bg_id,
+        event: EngineEvent::Stream(Box::new(StreamEvent::StepUpdate(StepUpdateEvent {
+            conversation_id: None,
+            step_update: Some(StepUpdateData {
+                step_index: Some(1),
+                text_delta: Some("streaming...".to_string()),
+                ..Default::default()
+            }),
+        }))),
+    });
+    assert!(app.tabs[1].has_unread);
+    let (term3, _) = render_app(&mut app, 100, 24);
+    assert!(row_zero_string(term3.backend().buffer()).contains('⠋'));
 }
 
 #[test]
