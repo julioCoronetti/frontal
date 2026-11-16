@@ -1,6 +1,6 @@
 ## Project Context
 - Project: Frontal — asynchronous, decoupled Terminal User Interface (TUI) harness in Rust for Antigravity CLI (`agy`) and `stream-json` compatible engines.
-- Status: Production architecture at version `0.12.0`, verified by 208 tests across 8 hermetic domains on branch `main`, evolving via GitHub Project Board #8.
+- Status: Production architecture at version `0.13.0`, verified by 208 tests across 8 hermetic domains on branch `main`, evolving via GitHub Project Board #8.
 - Stack: `tokio`, `tokio-util`, `bytes`, `futures-util`, `serde`, `serde_json`, `libc`, `ratatui` (0.29), `crossterm` (0.28), `pulldown-cmark` (0.12), `syntect` (5.2), `ropey` (1.6), `rusqlite` (0.32), `arboard` (3.4).
 - Branches: `main` (active) and `origin/legacy` (Python/Textual prototype).
 - Do not add external dependencies to this single-crate repository without explicit operator authorization.
@@ -61,9 +61,9 @@ Reviewed-By: Argon-Advisor <mode:none|review|design|troubleshoot|deep-dive|refin
 ```
 
 ## SemVer Policy
-- Maintain SemVer `0.y.z`; version `0.12.0` represents production consolidation.
+- Maintain SemVer `0.y.z`; version `0.13.0` represents production consolidation.
 - Never modify `version` in `Cargo.toml` during intermediate commits (`Card-Status: In Progress`).
-- Bump `version` exclusively in the closing commit (`Card-Status: Done`) after explicit authorization from the Senhor: patch (`0.12.x`) for `fix(...)` or pure `refactor(...)`, minor (`0.x.0`) for structural feature cards.
+- Bump `version` exclusively in the closing commit (`Card-Status: Done`) after explicit authorization from the Senhor: patch (`0.13.x`) for `fix(...)` or pure `refactor(...)`, minor (`0.x.0`) for structural feature cards.
 - Tag every closing commit immediately with an annotated Git tag (`git tag -a vX.Y.Z -m "Release vX.Y.Z"`).
 - Keep CLI (`frontal --version` / `frontal -V`) and TUI (`/help`) versions identical.
 
