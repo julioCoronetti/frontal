@@ -129,7 +129,11 @@ pub fn render_segments_to_lines(
                 let wrapped = wrap_styled_spans(spans, width, &empty_prefix, &empty_prefix);
                 output_lines.extend(wrapped);
             }
-            MarkdownSegment::ListItem { bullet, spans } => {
+            MarkdownSegment::ListItem {
+                depth: _,
+                bullet,
+                spans,
+            } => {
                 let first_prefix = vec![Span::styled(
                     bullet.clone(),
                     Style::default()

@@ -3,6 +3,15 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
 
 use crate::ui::markdown::normalize::normalize_streaming_markdown;
+use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, BG_SIDEBAR, TEXT_MUTED, TEXT_PRIMARY};
+
+fn unordered_bullet_for_depth(depth: usize) -> String {
+    match depth {
+        0 | 1 => String::from("• "),
+        2 => String::from("◦ "),
+        _ => String::from("▪ "),
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum MarkdownSegment {
@@ -12,6 +21,7 @@ pub enum MarkdownSegment {
     },
     Paragraph(Vec<Span<'static>>),
     ListItem {
+        depth: usize,
         bullet: String,
         spans: Vec<Span<'static>>,
     },
@@ -39,7 +49,7 @@ pub fn parse_markdown_segments(markdown_text: &str, consolidated: bool) -> Vec<M
     let mut segments: Vec<MarkdownSegment> = Vec::new();
 
     let mut current_spans: Vec<Span<'static>> = Vec::new();
-    let mut active_styles: Vec<Style> = vec![Style::default().fg(Color::White)];
+    let mut active_styles: Vec<Style> = vec![Style::default().fg(TEXT_PRIMARY)];
     let mut current_heading_level: Option<u8> = None;
     let mut in_code_block: Option<(String, String)> = None;
     let mut list_depth: usize = 0;
@@ -69,15 +79,17 @@ pub fn parse_markdown_segments(markdown_text: &str, consolidated: bool) -> Vec<M
                     current_spans.clear();
                     let h_style = match lvl {
                         1 => Style::default()
-                            .fg(Color::Cyan)
-                            .add_modifier(Modifier::BOLD)
-                            .add_modifier(Modifier::UNDERLINED),
+                            .fg(ACCENT_HIGHLIGHT)
+                            .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
                         2 => Style::default()
-                            .fg(Color::Cyan)
+                            .fg(ACCENT_PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                        3 => Style::default()
+                            .fg(TEXT_PRIMARY)
                             .add_modifier(Modifier::BOLD),
                         _ => Style::default()
-                            .fg(Color::LightCyan)
-                            .add_modifier(Modifier::BOLD),
+                            .fg(TEXT_MUTED)
+                            .add_modifier(Modifier::BOLD | Modifier::ITALIC),
                     };
                     active_styles.push(h_style);
                 }
@@ -104,6 +116,7 @@ pub fn parse_markdown_segments(markdown_text: &str, consolidated: bool) -> Vec<M
                             .and_then(|b| b.take())
                             .unwrap_or_else(|| String::from("  "));
                         segments.push(MarkdownSegment::ListItem {
+                            depth: list_depth,
                             bullet,
                             spans: std::mem::take(&mut current_spans),
                         });
@@ -122,6 +135,7 @@ pub fn parse_markdown_segments(markdown_text: &str, consolidated: bool) -> Vec<M
                             .and_then(|b| b.take())
                             .unwrap_or_else(|| String::from("  "));
                         segments.push(MarkdownSegment::ListItem {
+                            depth: list_depth,
                             bullet,
                             spans: std::mem::take(&mut current_spans),
                         });
@@ -132,10 +146,10 @@ pub fn parse_markdown_segments(markdown_text: &str, consolidated: bool) -> Vec<M
                             *order += 1;
                             b
                         } else {
-                            String::from("• ")
+                            unordered_bullet_for_depth(list_depth)
                         }
                     } else {
-                        String::from("• ")
+                        unordered_bullet_for_depth(list_depth)
                     };
                     pending_item_bullets.push(Some(bullet));
                     current_spans.clear();
@@ -187,6 +201,7 @@ pub fn parse_markdown_segments(markdown_text: &str, consolidated: bool) -> Vec<M
                                 .and_then(|b| b.take())
                                 .unwrap_or_else(|| String::from("  "));
                             segments.push(MarkdownSegment::ListItem {
+                                depth: list_depth,
                                 bullet,
                                 spans: std::mem::take(&mut current_spans),
                             });
@@ -221,13 +236,15 @@ pub fn parse_markdown_segments(markdown_text: &str, consolidated: bool) -> Vec<M
                 TagEnd::Item => {
                     let rem_bullet = pending_item_bullets.pop().flatten();
                     if !current_spans.is_empty() {
-                        let bullet = rem_bullet.unwrap_or_else(|| String::from("• "));
+                        let bullet = rem_bullet.unwrap_or_else(|| String::from("  "));
                         segments.push(MarkdownSegment::ListItem {
+                            depth: list_depth,
                             bullet,
                             spans: std::mem::take(&mut current_spans),
                         });
                     } else if let Some(bullet) = rem_bullet {
                         segments.push(MarkdownSegment::ListItem {
+                            depth: list_depth,
                             bullet,
                             spans: Vec::new(),
                         });
@@ -270,10 +287,9 @@ pub fn parse_markdown_segments(markdown_text: &str, consolidated: bool) -> Vec<M
                 }
             }
             Event::Code(code_txt) => {
-                let code_style = Style::default()
-                    .fg(Color::Yellow)
-                    .bg(Color::Rgb(30, 30, 45));
-                current_spans.push(Span::styled(format!("`{}`", code_txt), code_style));
+                let base = *active_styles.last().unwrap_or(&Style::default());
+                let code_style = base.fg(ACCENT_HIGHLIGHT).bg(BG_SIDEBAR);
+                current_spans.push(Span::styled(code_txt.to_string(), code_style));
             }
             Event::SoftBreak | Event::HardBreak => {
                 if in_code_block.is_none() && !in_table {
@@ -286,11 +302,7 @@ pub fn parse_markdown_segments(markdown_text: &str, consolidated: bool) -> Vec<M
             Event::TaskListMarker(checked) => {
                 let marker = if checked { "[x] " } else { "[ ] " };
                 let marker_style = Style::default()
-                    .fg(if checked {
-                        Color::Green
-                    } else {
-                        Color::DarkGray
-                    })
+                    .fg(if checked { Color::Green } else { TEXT_MUTED })
                     .add_modifier(Modifier::BOLD);
                 current_spans.insert(0, Span::styled(marker, marker_style));
             }

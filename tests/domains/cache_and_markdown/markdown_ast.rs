@@ -2,7 +2,11 @@ use std::time::Instant;
 
 use frontal::ui::cache::{wrap_text_utf8, BlockKind, RenderCache};
 use frontal::ui::highlight::IncrementalCodeHighlighter;
-use frontal::ui::markdown::normalize_streaming_markdown;
+use frontal::ui::markdown::{
+    normalize_streaming_markdown, parse_markdown_segments, MarkdownSegment,
+};
+use frontal::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, BG_SIDEBAR, TEXT_MUTED, TEXT_PRIMARY};
+use ratatui::style::Modifier;
 
 #[test]
 fn test_markdown_streaming_fuzzing_and_unclosed_fences() {
@@ -210,4 +214,103 @@ fn test_utf8_word_wrap_safety() {
 
     let wrapped_1 = wrap_text_utf8("ação", 1);
     assert_eq!(wrapped_1, vec!["a", "ç", "ã", "o"]);
+}
+
+#[test]
+fn test_markdown_inline_code_strips_backticks_and_uses_atlas_crimson() {
+    let segs = parse_markdown_segments("Use `cargo test` here", true);
+    assert_eq!(segs.len(), 1);
+    let MarkdownSegment::Paragraph(spans) = &segs[0] else {
+        panic!("expected paragraph");
+    };
+    let code_span = spans
+        .iter()
+        .find(|s| s.content.as_ref() == "cargo test")
+        .expect("inline code span without backticks");
+    assert_eq!(code_span.style.fg, Some(ACCENT_HIGHLIGHT));
+    assert_eq!(code_span.style.bg, Some(BG_SIDEBAR));
+    assert!(!spans.iter().any(|s| s.content.contains('`')));
+}
+
+#[test]
+fn test_markdown_heading_levels_and_inline_code_inheritance() {
+    let segs = parse_markdown_segments("# H1 `cmd`\n## H2\n### H3\n#### H4", true);
+    assert_eq!(segs.len(), 4);
+
+    let MarkdownSegment::Heading {
+        level: 1,
+        spans: h1,
+    } = &segs[0]
+    else {
+        panic!("expected H1");
+    };
+    assert_eq!(h1[0].style.fg, Some(ACCENT_HIGHLIGHT));
+    assert!(h1[0]
+        .style
+        .add_modifier
+        .contains(Modifier::BOLD | Modifier::UNDERLINED));
+    let h1_code = h1.iter().find(|s| s.content.as_ref() == "cmd").unwrap();
+    assert_eq!(h1_code.style.fg, Some(ACCENT_HIGHLIGHT));
+    assert_eq!(h1_code.style.bg, Some(BG_SIDEBAR));
+    assert!(h1_code.style.add_modifier.contains(Modifier::BOLD));
+
+    let MarkdownSegment::Heading {
+        level: 2,
+        spans: h2,
+    } = &segs[1]
+    else {
+        panic!("expected H2");
+    };
+    assert_eq!(h2[0].style.fg, Some(ACCENT_PRIMARY));
+    assert!(h2[0].style.add_modifier.contains(Modifier::BOLD));
+
+    let MarkdownSegment::Heading {
+        level: 3,
+        spans: h3,
+    } = &segs[2]
+    else {
+        panic!("expected H3");
+    };
+    assert_eq!(h3[0].style.fg, Some(TEXT_PRIMARY));
+    assert!(h3[0].style.add_modifier.contains(Modifier::BOLD));
+
+    let MarkdownSegment::Heading {
+        level: 4,
+        spans: h4,
+    } = &segs[3]
+    else {
+        panic!("expected H4");
+    };
+    assert_eq!(h4[0].style.fg, Some(TEXT_MUTED));
+    assert!(h4[0]
+        .style
+        .add_modifier
+        .contains(Modifier::BOLD | Modifier::ITALIC));
+}
+
+#[test]
+fn test_markdown_nested_list_depth_and_continuation_fallback() {
+    let md = "1. First\n   - Sub A\n     - Sub B\n\n   Continuation line\n2. Second";
+    let segs = parse_markdown_segments(md, true);
+    let items: Vec<(usize, &str, String)> = segs
+        .iter()
+        .filter_map(|s| match s {
+            MarkdownSegment::ListItem {
+                depth,
+                bullet,
+                spans,
+            } => {
+                let txt: String = spans.iter().map(|sp| sp.content.as_ref()).collect();
+                Some((*depth, bullet.as_str(), txt))
+            }
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(items.len(), 5);
+    assert_eq!(items[0], (1, "1. ", "First".to_string()));
+    assert_eq!(items[1], (2, "◦ ", "Sub A".to_string()));
+    assert_eq!(items[2], (3, "▪ ", "Sub B".to_string()));
+    assert_eq!(items[3], (1, "  ", "Continuation line".to_string()));
+    assert_eq!(items[4], (1, "2. ", "Second".to_string()));
 }
