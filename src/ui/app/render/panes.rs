@@ -65,33 +65,40 @@ impl App {
                 .sync_dimensions(total_with_spinner, chat_area.height as usize);
             let mut visible_lines = self.viewport.visible_slice(&self.cache);
 
+            let status_margin = if chat_area.width > 4 { "  " } else { "" };
             if self.waiting_for_response {
-                visible_lines.push(Line::from(vec![
-                    Span::styled(
-                        format!("{} ", spinner_char),
-                        Style::default()
-                            .fg(ACCENT_PRIMARY)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(
-                        "Thinking / Waiting for response...",
-                        Style::default()
-                            .fg(TEXT_MUTED)
-                            .add_modifier(Modifier::ITALIC),
-                    ),
-                ]));
+                let mut spans = Vec::new();
+                if !status_margin.is_empty() {
+                    spans.push(Span::raw(status_margin));
+                }
+                spans.push(Span::styled(
+                    format!("{} ", spinner_char),
+                    Style::default()
+                        .fg(ACCENT_PRIMARY)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                spans.push(Span::styled(
+                    "Thinking / Waiting for response...",
+                    Style::default()
+                        .fg(TEXT_MUTED)
+                        .add_modifier(Modifier::ITALIC),
+                ));
+                visible_lines.push(Line::from(spans));
             }
 
             if queued_count > 0 {
-                visible_lines.push(Line::from(vec![
-                    Span::styled("⏳ ", Style::default().fg(ACCENT_PRIMARY)),
-                    Span::styled(
-                        format!("Queued ({} pending)...", queued_count),
-                        Style::default()
-                            .fg(TEXT_MUTED)
-                            .add_modifier(Modifier::ITALIC),
-                    ),
-                ]));
+                let mut spans = Vec::new();
+                if !status_margin.is_empty() {
+                    spans.push(Span::raw(status_margin));
+                }
+                spans.push(Span::styled("⏳ ", Style::default().fg(ACCENT_PRIMARY)));
+                spans.push(Span::styled(
+                    format!("Queued ({} pending)...", queued_count),
+                    Style::default()
+                        .fg(TEXT_MUTED)
+                        .add_modifier(Modifier::ITALIC),
+                ));
+                visible_lines.push(Line::from(spans));
             }
 
             frame.render_widget(Clear, chat_area);

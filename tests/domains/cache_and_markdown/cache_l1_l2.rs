@@ -292,24 +292,29 @@ fn test_thought_and_tool_blocks_use_atlas_crimson_palette() {
 
     let total = cache.ensure_visual_lines(80);
     let lines = cache.visible_slice(0, total);
-    assert_eq!(lines[0].spans[0].style.fg, Some(TEXT_MUTED));
-    assert_eq!(lines[2].spans[0].style.fg, Some(BORDER_SUBTLE));
+    assert_eq!(lines[0].spans[0].content.as_ref(), "  ");
+    assert_eq!(lines[0].spans[1].style.fg, Some(TEXT_MUTED));
+    assert_eq!(lines[2].spans[0].content.as_ref(), "  ");
+    assert_eq!(lines[2].spans[1].style.fg, Some(BORDER_SUBTLE));
 
     let active = lines
         .iter()
         .find(|l| l.spans.iter().any(|s| s.content.contains("run_cmd")))
         .unwrap();
-    assert_eq!(active.spans[0].style.fg, Some(ACCENT_HIGHLIGHT));
+    assert_eq!(active.spans[0].content.as_ref(), "  ");
+    assert_eq!(active.spans[1].style.fg, Some(ACCENT_HIGHLIGHT));
 
     let done = lines
         .iter()
         .find(|l| l.spans.iter().any(|s| s.content.contains("read_file")))
         .unwrap();
-    assert_eq!(done.spans[0].style.fg, Some(ACCENT_PRIMARY));
+    assert_eq!(done.spans[0].content.as_ref(), "  ");
+    assert_eq!(done.spans[1].style.fg, Some(ACCENT_PRIMARY));
 
     let err = lines
         .iter()
         .find(|l| l.spans.iter().any(|s| s.content.contains("write_file")))
         .unwrap();
-    assert_eq!(err.spans[0].style.fg, Some(Color::Red));
+    assert_eq!(err.spans[0].content.as_ref(), "  ");
+    assert_eq!(err.spans[1].style.fg, Some(Color::Red));
 }

@@ -86,17 +86,32 @@ fn test_clipboard_selection_no_padding_or_indent_pollution() {
     assert!(!user_selected.starts_with("▌ "));
     assert!(!user_selected.ends_with(' '));
 
-    viewport.start_selection(4, 0);
-    viewport.update_selection(4, 23);
+    viewport.start_selection(4, 2);
+    viewport.update_selection(4, 25);
     let assistant_selected = viewport.selected_text(&cache).unwrap();
     assert_eq!(assistant_selected, "assistant markdown text");
 
     let total = cache.total_lines();
     assert!(total >= 7);
-    viewport.start_selection(total - 2, 2);
-    viewport.update_selection(total - 2, 28);
+    viewport.start_selection(total - 2, 4);
+    viewport.update_selection(total - 2, 30);
     let thought_selected = viewport.selected_text(&cache).unwrap();
     assert_eq!(thought_selected, "internal thought reasoning");
+
+    let mut clean_cache = RenderCache::new();
+    let tid = clean_cache.append_streaming_delta(BlockKind::Thought, "step one\n\nstep two");
+    clean_cache.append_streaming_delta(BlockKind::Assistant, "[ERROR] kept\n\n[DONE] kept");
+    clean_cache.consolidate_active_turn(None);
+    clean_cache.toggle_block_collapsed(tid);
+    clean_cache.ensure_visual_lines(80);
+    let mut clean_vp = ConversationViewport::new();
+    clean_vp.sync_dimensions(clean_cache.total_lines(), 20);
+    clean_vp.start_selection(0, 0);
+    clean_vp.update_selection(clean_cache.total_lines().saturating_sub(1), 40);
+    let copied = clean_vp.selected_text(&clean_cache).unwrap();
+    assert!(!copied.contains('│'));
+    assert!(copied.contains("step one\n\nstep two"));
+    assert!(copied.contains("[ERROR] kept\n\n[DONE] kept"));
 }
 
 #[test]
@@ -190,8 +205,8 @@ fn test_viewport_granular_character_selection_single_line() {
     let mut viewport = ConversationViewport::new();
     viewport.sync_dimensions(cache.total_lines(), 20);
 
-    viewport.start_selection(0, 0);
-    viewport.update_selection(0, 5);
+    viewport.start_selection(0, 2);
+    viewport.update_selection(0, 7);
 
     let slice = viewport.visible_slice(&cache);
     assert!(!slice.is_empty());
@@ -208,7 +223,7 @@ fn test_viewport_granular_character_selection_single_line() {
     }
 
     assert_eq!(reversed_chars, "alpha");
-    assert_eq!(unreversed_chars, " bravo charlie");
+    assert_eq!(unreversed_chars, "   bravo charlie");
 }
 
 #[test]
@@ -224,8 +239,8 @@ fn test_viewport_granular_character_selection_multiline() {
     let mut viewport = ConversationViewport::new();
     viewport.sync_dimensions(cache.total_lines(), 20);
 
-    viewport.start_selection(0, 1);
-    viewport.update_selection(4, 5);
+    viewport.start_selection(0, 3);
+    viewport.update_selection(4, 7);
 
     let slice = viewport.visible_slice(&cache);
     assert!(slice.len() >= 5);
@@ -251,7 +266,11 @@ fn test_viewport_granular_character_selection_multiline() {
             line4_rev.push_str(&span.content);
         }
     }
-    assert_eq!(line4_rev, "third");
+    assert_eq!(line4_rev, "  third");
+    assert_eq!(
+        viewport.selected_text(&cache).as_deref(),
+        Some("irst line\n\nsecond line\n\nthird")
+    );
 }
 
 #[test]
@@ -264,8 +283,8 @@ fn test_viewport_reverse_drag_selection_order() {
     let mut viewport = ConversationViewport::new();
     viewport.sync_dimensions(cache.total_lines(), 20);
 
-    viewport.start_selection(0, 7);
-    viewport.update_selection(0, 0);
+    viewport.start_selection(0, 9);
+    viewport.update_selection(0, 2);
 
     let slice = viewport.visible_slice(&cache);
     let mut reversed = String::new();
@@ -286,13 +305,13 @@ fn test_viewport_reverse_drag_selection_order() {
 
     let mut vp_fwd = ConversationViewport::new();
     vp_fwd.sync_dimensions(cache_multi.total_lines(), 20);
-    vp_fwd.start_selection(0, 1);
-    vp_fwd.update_selection(4, 5);
+    vp_fwd.start_selection(0, 3);
+    vp_fwd.update_selection(4, 7);
 
     let mut vp_rev = ConversationViewport::new();
     vp_rev.sync_dimensions(cache_multi.total_lines(), 20);
-    vp_rev.start_selection(4, 5);
-    vp_rev.update_selection(0, 1);
+    vp_rev.start_selection(4, 7);
+    vp_rev.update_selection(0, 3);
 
     let fwd_slice = vp_fwd.visible_slice(&cache_multi);
     let rev_slice = vp_rev.visible_slice(&cache_multi);
@@ -322,15 +341,15 @@ fn test_viewport_selection_utf8_multibyte_and_out_of_bounds_safety() {
     let mut viewport = ConversationViewport::new();
     viewport.sync_dimensions(cache.total_lines(), 20);
 
-    viewport.start_selection(0, 2);
-    viewport.update_selection(0, 2);
+    viewport.start_selection(0, 4);
+    viewport.update_selection(0, 4);
 
     let slice_eq = viewport.visible_slice(&cache);
     for span in &slice_eq[0].spans {
         assert!(!span.style.add_modifier.contains(Modifier::REVERSED));
     }
 
-    viewport.start_selection(0, 1);
+    viewport.start_selection(0, 3);
     viewport.update_selection(0, 9999);
     let slice_oob = viewport.visible_slice(&cache);
     let mut rev_oob = String::new();

@@ -81,12 +81,23 @@ impl RenderCache {
                 (start_line, start_col, end_line, end_col)
             };
 
+        let has_margin = self.last_width > 4;
         let mut extracted = Vec::new();
         for l in s_line..=e_line {
             if let Some((kind, text)) = self.line_info_at(l) {
                 let trimmed = text.trim_end();
                 let (stripped, prefix_len) = match kind {
-                    crate::ui::cache::BlockKind::Assistant => (trimmed.to_string(), 0),
+                    crate::ui::cache::BlockKind::Assistant => {
+                        if has_margin {
+                            if let Some(rest) = trimmed.strip_prefix("  ") {
+                                (rest.to_string(), 2)
+                            } else {
+                                (trimmed.to_string(), 0)
+                            }
+                        } else {
+                            (trimmed.to_string(), 0)
+                        }
+                    }
                     crate::ui::cache::BlockKind::User => {
                         if trimmed.starts_with("▌ ") {
                             (trimmed.replacen("▌ ", "", 1), 2)
@@ -97,25 +108,49 @@ impl RenderCache {
                         }
                     }
                     _ => {
-                        if trimmed.starts_with("│ ") {
-                            (trimmed.replacen("│ ", "", 1), 2)
-                        } else if trimmed.starts_with("● Error: ") {
-                            (trimmed.replacen("● Error: ", "", 1), 9)
-                        } else if trimmed.starts_with("   ▎ ") {
-                            (trimmed.replacen("   ▎ ", "", 1), 5)
-                        } else if trimmed.starts_with("   ! ") {
-                            (trimmed.replacen("   ! ", "", 1), 5)
-                        } else if trimmed.starts_with("     ") {
-                            (trimmed.replacen("     ", "", 1), 5)
-                        } else if trimmed.starts_with("   ") {
-                            (trimmed.replacen("   ", "", 1), 3)
+                        if has_margin && trimmed == "  │" {
+                            (String::new(), 4)
+                        } else if trimmed == "│" {
+                            (String::new(), 2)
+                        } else if has_margin && trimmed == "  ● Error:" {
+                            (String::new(), 11)
+                        } else if trimmed == "● Error:" {
+                            (String::new(), 9)
+                        } else if has_margin {
+                            if let Some(rest) = trimmed.strip_prefix("  │ ") {
+                                (rest.to_string(), 4)
+                            } else if let Some(rest) = trimmed.strip_prefix("  ● Error: ") {
+                                (rest.to_string(), 11)
+                            } else if let Some(rest) = trimmed.strip_prefix("  ") {
+                                (rest.to_string(), 2)
+                            } else {
+                                (trimmed.to_string(), 0)
+                            }
+                        } else if let Some(rest) = trimmed.strip_prefix("│ ") {
+                            (rest.to_string(), 2)
+                        } else if let Some(rest) = trimmed.strip_prefix("● Error: ") {
+                            (rest.to_string(), 9)
+                        } else if let Some(rest) = trimmed.strip_prefix("   ▎ ") {
+                            (rest.to_string(), 5)
+                        } else if let Some(rest) = trimmed.strip_prefix("   ! ") {
+                            (rest.to_string(), 5)
+                        } else if let Some(rest) = trimmed.strip_prefix("     ") {
+                            (rest.to_string(), 5)
+                        } else if let Some(rest) = trimmed.strip_prefix("   ") {
+                            (rest.to_string(), 3)
                         } else {
                             (trimmed.to_string(), 0)
                         }
                     }
                 };
 
-                if is_structural_metadata(trimmed, &stripped) {
+                if matches!(
+                    kind,
+                    crate::ui::cache::BlockKind::Thought | crate::ui::cache::BlockKind::Tool { .. }
+                ) && !trimmed.starts_with("  │")
+                    && !trimmed.starts_with('│')
+                    && is_structural_metadata(trimmed, &stripped)
+                {
                     continue;
                 }
 
@@ -176,15 +211,16 @@ impl RenderCache {
 }
 
 fn is_structural_metadata(trimmed: &str, stripped: &str) -> bool {
+    let check = stripped.trim_start();
     trimmed.starts_with("▣ ")
-        || stripped.starts_with("+ Thought")
-        || stripped.starts_with("- Thought")
-        || stripped.starts_with("▸ Thought")
-        || stripped == "▾ Thought"
-        || stripped.starts_with("● ")
-        || stripped.starts_with("◌ ")
-        || stripped.contains("[RUNNING]")
-        || stripped.contains("[DONE]")
-        || stripped.contains("[ERROR]")
-        || stripped.contains("[PENDING]")
+        || check.starts_with("+ Thought")
+        || check.starts_with("- Thought")
+        || check.starts_with("▸ Thought")
+        || check == "▾ Thought"
+        || check.starts_with("● ")
+        || check.starts_with("◌ ")
+        || check.contains("[RUNNING]")
+        || check.contains("[DONE]")
+        || check.contains("[ERROR]")
+        || check.contains("[PENDING]")
 }

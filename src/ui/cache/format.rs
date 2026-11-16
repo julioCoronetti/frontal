@@ -43,6 +43,16 @@ pub fn sanitize_terminal_line(line: &str) -> String {
     expanded
 }
 
+fn with_left_margin(margin: &'static str, spans: Vec<Span<'static>>) -> Line<'static> {
+    if margin.is_empty() || spans.iter().all(|s| s.content.is_empty()) {
+        return Line::from(spans);
+    }
+    let mut out = Vec::with_capacity(spans.len() + 1);
+    out.push(Span::raw(margin));
+    out.extend(spans);
+    Line::from(out)
+}
+
 fn format_duration(seconds: f64) -> String {
     if seconds >= 60.0 {
         let total = seconds.round() as u64;
@@ -117,6 +127,7 @@ impl RenderCache {
 
     pub(crate) fn format_block_lines(block: &mut MessageBlock, width: u16) -> Vec<Line<'static>> {
         let mut result = Vec::new();
+        let margin = if width > 4 { "  " } else { "" };
         match &block.kind {
             BlockKind::User => {
                 let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
@@ -156,7 +167,7 @@ impl RenderCache {
                 result.push(Line::from(""));
             }
             BlockKind::Assistant => {
-                let content_width = width.saturating_sub(2) as usize;
+                let content_width = (width as usize).saturating_sub(margin.len());
                 let lines = if block.consolidated {
                     if block.markdown_ast.is_none() {
                         block.markdown_ast = Some(parse_markdown_segments(&block.content, true));
@@ -174,7 +185,9 @@ impl RenderCache {
                         &mut block.code_highlighters,
                     )
                 };
-                result.extend(lines);
+                for line in lines {
+                    result.push(with_left_margin(margin, line.spans));
+                }
                 if block.consolidated {
                     if let Some(meta) = &block.turn_meta {
                         let display = crate::ui::labels::model_display_name(&meta.model);
@@ -195,43 +208,53 @@ impl RenderCache {
                             }
                         }
                         result.push(Line::from(""));
-                        result.push(Line::from(vec![Span::styled(
-                            meta_parts.join(" · "),
-                            Style::default().fg(TEXT_MUTED),
-                        )]));
+                        result.push(with_left_margin(
+                            margin,
+                            vec![Span::styled(
+                                meta_parts.join(" · "),
+                                Style::default().fg(TEXT_MUTED),
+                            )],
+                        ));
                     }
                     result.push(Line::from(""));
                 }
             }
             BlockKind::Thought => {
                 if block.collapsed {
-                    result.push(Line::from(vec![Span::styled(
-                        "+ Thought",
-                        Style::default().fg(TEXT_MUTED),
-                    )]));
+                    result.push(with_left_margin(
+                        margin,
+                        vec![Span::styled("+ Thought", Style::default().fg(TEXT_MUTED))],
+                    ));
                 } else {
-                    result.push(Line::from(vec![Span::styled(
-                        "- Thought",
-                        Style::default().fg(TEXT_MUTED),
-                    )]));
+                    result.push(with_left_margin(
+                        margin,
+                        vec![Span::styled("- Thought", Style::default().fg(TEXT_MUTED))],
+                    ));
                     result.push(Line::from(""));
-                    let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
+                    let wrapped = wrap_text_utf8(
+                        &block.content,
+                        (width as usize).saturating_sub(4 + margin.len()),
+                    );
                     for row in wrapped {
-                        result.push(Line::from(vec![
-                            Span::styled("│ ", Style::default().fg(BORDER_SUBTLE)),
-                            Span::styled(
-                                row,
-                                Style::default()
-                                    .fg(TEXT_MUTED)
-                                    .add_modifier(Modifier::ITALIC),
-                            ),
-                        ]));
+                        result.push(with_left_margin(
+                            margin,
+                            vec![
+                                Span::styled("│ ", Style::default().fg(BORDER_SUBTLE)),
+                                Span::styled(
+                                    row,
+                                    Style::default()
+                                        .fg(TEXT_MUTED)
+                                        .add_modifier(Modifier::ITALIC),
+                                ),
+                            ],
+                        ));
                     }
                 }
                 result.push(Line::from(""));
             }
             BlockKind::Tool { name, state } => {
-                let max_args_len = (width as usize).saturating_sub(name.chars().count() + 25);
+                let max_args_len =
+                    (width as usize).saturating_sub(name.chars().count() + 25 + margin.len());
                 let clean_args = block
                     .tool_args
                     .as_deref()
@@ -301,35 +324,47 @@ impl RenderCache {
                         }
                     }
                 }
-                result.push(Line::from(header_spans));
+                result.push(with_left_margin(margin, header_spans));
 
                 if !block.collapsed && !block.content.is_empty() {
-                    let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
+                    let wrapped = wrap_text_utf8(
+                        &block.content,
+                        (width as usize).saturating_sub(4 + margin.len()),
+                    );
                     for row in wrapped {
                         let text_style = if matches!(state, StepState::Error) {
                             Style::default().fg(Color::LightRed)
                         } else {
                             Style::default().fg(TEXT_MUTED)
                         };
-                        result.push(Line::from(vec![
-                            Span::styled("│ ", Style::default().fg(BORDER_SUBTLE)),
-                            Span::styled(row, text_style),
-                        ]));
+                        result.push(with_left_margin(
+                            margin,
+                            vec![
+                                Span::styled("│ ", Style::default().fg(BORDER_SUBTLE)),
+                                Span::styled(row, text_style),
+                            ],
+                        ));
                     }
                 }
                 result.push(Line::from(""));
             }
             BlockKind::Error => {
-                let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
+                let wrapped = wrap_text_utf8(
+                    &block.content,
+                    (width as usize).saturating_sub(9 + margin.len()),
+                );
                 for (i, row) in wrapped.into_iter().enumerate() {
                     let prefix = if i == 0 { "● Error: " } else { "│ " };
-                    result.push(Line::from(vec![
-                        Span::styled(
-                            prefix.to_string(),
-                            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                        ),
-                        Span::styled(row, Style::default().fg(Color::LightRed)),
-                    ]));
+                    result.push(with_left_margin(
+                        margin,
+                        vec![
+                            Span::styled(
+                                prefix.to_string(),
+                                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                            ),
+                            Span::styled(row, Style::default().fg(Color::LightRed)),
+                        ],
+                    ));
                 }
                 result.push(Line::from(""));
             }
