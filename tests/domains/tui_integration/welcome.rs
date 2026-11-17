@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 use frontal::config::BackendKind;
-use frontal::ui::theme::{ACCENT_PRIMARY, ACCENT_RUBY, TEXT_PRIMARY};
+use frontal::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_RUBY, TAB_ACTIVE_BG, TEXT_PRIMARY};
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::Terminal;
@@ -19,38 +19,50 @@ fn find_row_containing(buf: &Buffer, needle: &str) -> Option<u16> {
 }
 
 #[test]
-fn test_hero_welcome_centered_layout_and_pills() {
+fn test_hero_welcome_centered_layout_and_version_footer() {
     let (mut app, _) = test_app();
     let (term, text) = render_app(&mut app, 100, 30);
     let buf = term.backend().buffer();
+    let version_badge = format!("v{}", env!("CARGO_PKG_VERSION"));
 
-    assert!(text.contains("frontal"));
-    assert!(text.contains(env!("CARGO_PKG_VERSION")));
-    assert!(text.contains("agy"));
-    assert!(text.contains("Async TUI for Antigravity"));
-    for shortcut in ["/resume", "/model", "/new", "/quota", "/diff", "Ctrl+P"] {
-        assert!(text.contains(shortcut), "missing shortcut {}", shortcut);
-    }
+    assert!(text.contains("▄▀▀"));
+    assert!(text.contains(&version_badge));
+    assert!(!text.contains("Async TUI for Antigravity"));
+    assert!(!text.contains("/resume"));
     assert!(text.contains(&app.cwd_display));
     assert!(text.contains("Ctrl+P: Palette"));
 
-    let logo_y = find_row_containing(buf, "frontal").expect("logo row");
+    let logo_y = find_row_containing(buf, "▄▀▀").expect("logo row");
     let input_y = find_row_containing(buf, "Gemini 3.8 Flash").expect("input row");
-    let pills_y = find_row_containing(buf, "/resume").expect("pills row");
-    let footer_y = find_row_containing(buf, "Ctrl+P: Palette").expect("footer row");
+    let meta_y = find_row_containing(buf, "Ctrl+P: Palette").expect("meta bar row");
+    let footer_y = find_row_containing(buf, &version_badge).expect("version footer row");
 
     assert!(logo_y > 2 && logo_y < input_y);
     assert!(input_y > 6 && input_y < 22);
-    assert!(pills_y > input_y && pills_y < footer_y);
+    assert!(meta_y > input_y && meta_y < footer_y);
     assert_eq!(footer_y, 29);
 
     let logo_x = (0..buf.area.width)
         .find(|&x| {
-            buf.cell((x, logo_y)).unwrap().symbol() == "f"
-                && buf.cell((x, logo_y)).unwrap().fg == ACCENT_PRIMARY
+            let cell = buf.cell((x, logo_y)).unwrap();
+            cell.symbol() == "▄" && cell.fg == ACCENT_RUBY
         })
-        .expect("logo accent x");
-    assert!(logo_x > 30 && logo_x < 70);
+        .expect("logo left accent x");
+    assert!(logo_x > 25 && logo_x < 55);
+
+    let has_right_highlight = (0..buf.area.width).any(|x| {
+        let cell = buf.cell((x, logo_y)).unwrap();
+        cell.symbol() == "▄" && cell.fg == ACCENT_HIGHLIGHT
+    });
+    assert!(has_right_highlight);
+
+    let has_shading = (logo_y..=logo_y + 2).any(|y| {
+        (0..buf.area.width).any(|x| {
+            let cell = buf.cell((x, y)).unwrap();
+            cell.fg == TAB_ACTIVE_BG || cell.bg == TAB_ACTIVE_BG
+        })
+    });
+    assert!(has_shading);
 }
 
 #[test]
@@ -62,7 +74,7 @@ fn test_hero_welcome_popover_anchored_below_and_clamped() {
 
     let (term, _) = render_app(&mut app, 100, 26);
     let buf = term.backend().buffer();
-    let logo_y = find_row_containing(buf, "frontal").expect("logo row");
+    let logo_y = find_row_containing(buf, "▄▀▀").expect("logo row");
     let input_y = find_row_containing(buf, "Gemini 3.8 Flash").expect("input row");
     let popover_y = find_row_containing(buf, "Commands (Tab/Enter: apply, Esc: close)")
         .expect("popover title row");
@@ -92,15 +104,15 @@ fn test_hero_welcome_transition_on_first_prompt_both_backends() {
         app.backend = backend_kind;
 
         let (_term_before, text_before) = render_app(&mut app, 120, 30);
-        assert!(text_before.contains(backend_kind.as_str()));
-        assert!(text_before.contains("/resume"));
+        assert!(text_before.contains("▄▀▀"));
+        assert!(text_before.contains(&app.cwd_display));
 
         app.cache.push_user_message("first prompt");
         app.waiting_for_response = true;
 
         let (term_after, text_after) = render_app(&mut app, 120, 30);
         let buf_after = term_after.backend().buffer();
-        assert!(!text_after.contains("Async TUI for Antigravity"));
+        assert!(!text_after.contains("▄▀▀"));
         assert!(text_after.contains("first prompt"));
         assert!(text_after.contains("Context"));
 
@@ -114,7 +126,7 @@ fn test_hero_welcome_small_terminal_fallback_and_adversarial_sizes() {
     for (w, h) in [(49, 20), (80, 15)] {
         let (mut app, _) = test_app();
         let (_term_plain, text_plain) = render_app(&mut app, w, h);
-        assert!(text_plain.contains("frontal"));
+        assert!(text_plain.contains("▄▀▀"));
 
         app.editor.insert_str("/");
         app.update_autocomplete();
@@ -133,10 +145,16 @@ fn test_hero_welcome_small_terminal_fallback_and_adversarial_sizes() {
     for _ in 0..10 {
         app.editor.insert_str("line\n");
     }
+    let version_badge = format!("v{}", env!("CARGO_PKG_VERSION"));
     let (tight_hero, tight_text) = render_app(&mut app, 80, 16);
-    assert!(tight_text.contains("frontal"));
-    assert!(tight_text.contains("Ctrl+P: Palette"));
-    assert!(find_row_containing(tight_hero.backend().buffer(), "Ctrl+P: Palette").is_some());
+    assert!(tight_text.contains("▄▀▀"));
+    assert!(tight_text.contains(&version_badge));
+    assert!(find_row_containing(tight_hero.backend().buffer(), &version_badge).is_some());
+
+    let (mut narrow_app, _) = test_app();
+    let (_narrow_term, narrow_text) = render_app(&mut narrow_app, 34, 12);
+    assert!(narrow_text.contains("frontal"));
+    assert!(narrow_text.contains(&version_badge));
 
     for (w, h) in [(50, 16), (40, 14), (20, 8), (1, 1)] {
         let backend = TestBackend::new(w, h);
