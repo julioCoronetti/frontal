@@ -124,6 +124,8 @@ fn test_editor_media_extmark_atomic_deletion_and_payload_submission() {
     assert_eq!(payload.media.len(), 1);
     assert_eq!(payload.media[0].mime_type, "image/png");
     assert_eq!(payload.media[0].uri, "/tmp/first.png");
+    let chat_display = payload.display_for_chat();
+    assert_eq!(chat_display, "analyze [Image 1] and\n\n[file] first.png");
     assert!(editor.is_empty());
 
     editor.insert_media_attachment("image/webp", "/tmp/only.webp");
@@ -133,11 +135,24 @@ fn test_editor_media_extmark_atomic_deletion_and_payload_submission() {
         .expect("image-only prompt allowed");
     assert_eq!(media_only.text, "");
     assert_eq!(media_only.media.len(), 1);
+    assert_eq!(
+        media_only.display_for_chat(),
+        "[Image 1]\n\n[file] only.webp"
+    );
     assert!(editor.extmarks().is_empty());
 
-    editor.insert_media_attachment("image/png", "/tmp/expanded_test.png");
+    editor.insert_str("look ");
+    editor.insert_media_attachment(
+        "image/png",
+        "/home/user/.frontal/cache/media/img_500x500_caa4ffb2.png",
+    );
+    editor.insert_str(" vs ");
+    editor.insert_media_attachment("image/png", "file:///tmp/my%20shot.png");
     let expanded = editor.take_submitted_expanded().expect("expanded text");
-    assert!(expanded.contains("[Attached Media: /tmp/expanded_test.png (image/png)]"));
+    assert_eq!(
+        expanded,
+        "look [Image 1] vs [Image 2]\n\n[file] clipboard\n[file] my shot.png"
+    );
 
     let id = editor.insert_media_attachment("image/png", "/tmp/undo_test.png");
     assert_eq!(editor.extmarks()[0].id, id);

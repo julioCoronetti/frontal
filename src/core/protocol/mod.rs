@@ -24,6 +24,8 @@ pub struct PromptPayload {
     pub text: String,
     #[serde(default)]
     pub media: Vec<MediaItem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_text: Option<String>,
 }
 
 impl PromptPayload {
@@ -31,6 +33,7 @@ impl PromptPayload {
         Self {
             text: text.into(),
             media,
+            chat_text: None,
         }
     }
 
@@ -38,7 +41,13 @@ impl PromptPayload {
         Self {
             text: text.into(),
             media: Vec::new(),
+            chat_text: None,
         }
+    }
+
+    pub fn with_chat_text(mut self, chat_text: impl Into<String>) -> Self {
+        self.chat_text = Some(chat_text.into());
+        self
     }
 
     pub fn is_empty(&self) -> bool {
@@ -59,15 +68,25 @@ impl PromptPayload {
         if self.media.is_empty() {
             return self.text.clone();
         }
-        let mut parts = Vec::new();
-        if !self.text.trim().is_empty() {
-            parts.push(self.text.trim_end().to_string());
-        }
-        for item in &self.media {
-            let path = media_uri_to_path(&item.uri);
-            parts.push(format!("[Attached Media: {} ({})]", path, item.mime_type));
-        }
-        parts.join("\n")
+        let body = match &self.chat_text {
+            Some(chat) if !chat.trim().is_empty() => chat.trim_end().to_string(),
+            _ => {
+                let markers: Vec<String> = (1..=self.media.len())
+                    .map(|idx| format!("[Image {}]", idx))
+                    .collect();
+                if self.text.trim().is_empty() {
+                    markers.join(" ")
+                } else {
+                    format!("{} {}", self.text.trim_end(), markers.join(" "))
+                }
+            }
+        };
+        let footer: Vec<String> = self
+            .media
+            .iter()
+            .map(|item| format!("[file] {}", media_source_label(&item.uri)))
+            .collect();
+        format!("{}\n\n{}", body, footer.join("\n"))
     }
 }
 
@@ -124,6 +143,31 @@ pub fn media_uri_to_path(uri: &str) -> String {
     } else {
         uri.to_string()
     }
+}
+
+pub fn media_source_label(uri: &str) -> String {
+    let decoded = media_uri_to_path(uri);
+    let path = Path::new(&decoded);
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty());
+    let is_clipboard_cache = file_name.is_some_and(|name| name.starts_with("img_"))
+        && path.parent().is_some_and(|parent| {
+            let dir_name = parent.file_name().and_then(|n| n.to_str());
+            let grandparent_name = parent
+                .parent()
+                .and_then(|gp| gp.file_name())
+                .and_then(|n| n.to_str());
+            dir_name == Some("frontal_isolated_media")
+                || (dir_name == Some("media") && grandparent_name == Some("cache"))
+        });
+    if is_clipboard_cache {
+        return String::from("clipboard");
+    }
+    file_name
+        .map(ToString::to_string)
+        .unwrap_or_else(|| decoded)
 }
 
 pub fn parse_engine_line(line: &str) -> Result<Option<StreamEvent>, ProtocolError> {

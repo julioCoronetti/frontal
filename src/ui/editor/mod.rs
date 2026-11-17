@@ -261,6 +261,7 @@ impl PromptEditor {
         }
 
         let mut cloned_rope = self.rope.clone();
+        let mut chat_rope = (!media.is_empty()).then(|| self.rope.clone());
         let mut sorted_extmarks: Vec<Extmark> = self
             .extmarks
             .iter()
@@ -280,10 +281,24 @@ impl PromptEditor {
                     if let Some(payload) = self.paste_registry.get(&id) {
                         cloned_rope.remove(ext.start_char..ext.end_char);
                         cloned_rope.insert(ext.start_char, payload);
+                        if let Some(ref mut cr) = chat_rope {
+                            cr.remove(ext.start_char..ext.end_char);
+                            cr.insert(ext.start_char, payload);
+                        }
                     }
                 }
                 ExtmarkKind::Media { .. } => {
                     cloned_rope.remove(ext.start_char..ext.end_char);
+                    if let Some(ref mut cr) = chat_rope {
+                        let ordinal = media_exts
+                            .iter()
+                            .position(|m| m.id == ext.id)
+                            .map(|i| i + 1)
+                            .unwrap_or(1);
+                        let marker = format!("[Image {}]", ordinal);
+                        cr.remove(ext.start_char..ext.end_char);
+                        cr.insert(ext.start_char, &marker);
+                    }
                 }
                 _ => {}
             }
@@ -300,9 +315,15 @@ impl PromptEditor {
             return None;
         }
 
+        let payload = PromptPayload::new(final_text, media);
+        let payload = match chat_rope {
+            Some(cr) => payload.with_chat_text(cr.to_string().trim().to_string()),
+            None => payload,
+        };
+
         self.clear();
         self.undo_stack.clear();
-        Some(PromptPayload::new(final_text, media))
+        Some(payload)
     }
 
     pub fn clear(&mut self) {

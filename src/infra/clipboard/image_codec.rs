@@ -228,7 +228,7 @@ pub fn decode_bmp_to_rgba(bmp: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
     }
 
     if bpp == 32 && !any_non_zero_alpha {
-        for chunk in rgba.chunks_exact_mut(4) {
+        for chunk in rgba.as_chunks_mut::<4>().0 {
             chunk[3] = 255;
         }
     }
