@@ -259,6 +259,15 @@ impl EngineConfig {
         args.extend(self.extra_args.clone());
         args
     }
+
+    pub fn build_acp_args(&self) -> Vec<String> {
+        let mut args = vec!["acp".to_string(), "--stdio".to_string()];
+        if self.dangerously_skip_permissions {
+            args.push("--dangerously-skip-permissions".to_string());
+        }
+        args.extend(self.extra_args.clone());
+        args
+    }
 }
 
 impl Default for EngineConfig {
