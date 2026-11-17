@@ -269,15 +269,29 @@ impl App {
         frame.render_widget(shortcuts_widget, footer_chunks[1]);
     }
 
-    pub(crate) fn render_popover(&self, frame: &mut Frame, input_area: Rect, screen_area: Rect) {
+    pub(crate) fn render_popover(
+        &self,
+        frame: &mut Frame,
+        input_area: Rect,
+        screen_area: Rect,
+        anchor_below: bool,
+    ) {
         if !self.popover.is_visible() {
             return;
         }
 
         let item_count = self.popover.items.len().min(8) as u16;
-        let popover_height = item_count + 2;
+        let desired_height = item_count + 2;
         let popover_width = (input_area.width.saturating_sub(4)).min(60);
-        let popover_y = input_area.y.saturating_sub(popover_height);
+        let below_avail = screen_area.bottom().saturating_sub(input_area.bottom());
+        let (popover_y, popover_height) = if anchor_below && below_avail >= 3 {
+            (input_area.bottom(), desired_height.min(below_avail))
+        } else {
+            (
+                input_area.y.saturating_sub(desired_height),
+                desired_height.min(input_area.y.saturating_sub(screen_area.y)),
+            )
+        };
         let popover_rect = Rect {
             x: input_area.x.saturating_add(2),
             y: popover_y,
@@ -286,9 +300,13 @@ impl App {
         }
         .intersection(screen_area);
 
+        if popover_rect.height < 3 || popover_rect.width < 4 {
+            return;
+        }
+
         frame.render_widget(Clear, popover_rect);
 
-        let max_visible = 8usize;
+        let max_visible = (popover_rect.height.saturating_sub(2) as usize).max(1);
         let total = self.popover.items.len();
         let sel = self.popover.selected_idx;
         let start_idx = if total <= max_visible || sel < max_visible {
@@ -325,15 +343,16 @@ impl App {
                     Style::default().fg(TEXT_MUTED),
                 )
             };
+            let label_w = Span::raw(&item.label).width();
             let mut spans = vec![Span::styled(prefix, desc_style)];
-            let mut row_len = 3 + item.label.chars().count();
+            let mut row_len = 3 + label_w;
             if let Some(desc) = &item.description {
                 let cmd_col_w: usize = 14;
-                let pad_count = cmd_col_w.saturating_sub(item.label.chars().count()).max(1);
+                let pad_count = cmd_col_w.saturating_sub(label_w).max(1);
                 spans.push(Span::styled(&item.label, cmd_style));
                 spans.push(Span::styled(" ".repeat(pad_count), desc_style));
                 spans.push(Span::styled(desc, desc_style));
-                row_len += pad_count + desc.chars().count();
+                row_len += pad_count + Span::raw(desc).width();
             } else {
                 spans.push(Span::styled(&item.label, cmd_style));
             }

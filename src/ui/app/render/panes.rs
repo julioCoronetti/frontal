@@ -5,7 +5,7 @@ use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::ui::app::App;
-use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, BG_SIDEBAR, TEXT_MUTED, TEXT_PRIMARY};
+use crate::ui::theme::{ACCENT_PRIMARY, BG_SIDEBAR, TEXT_MUTED, TEXT_PRIMARY};
 
 impl App {
     pub(crate) fn render_chat(
@@ -16,45 +16,7 @@ impl App {
         spinner_char: &str,
     ) {
         if is_welcome {
-            let bold_hl = Style::default()
-                .fg(ACCENT_HIGHLIGHT)
-                .add_modifier(Modifier::BOLD);
-            let welcome_lines = vec![
-                Line::from(""),
-                Line::from(vec![
-                    Span::styled(
-                        "frontal",
-                        Style::default()
-                            .fg(ACCENT_PRIMARY)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(
-                        format!(" v{}", env!("CARGO_PKG_VERSION")),
-                        Style::default().fg(TEXT_MUTED),
-                    ),
-                ]),
-                Line::from(vec![Span::styled(
-                    "Async TUI for Antigravity & stream-json engines",
-                    Style::default().fg(TEXT_MUTED),
-                )]),
-                Line::from(""),
-                Line::from(vec![Span::styled(
-                    "Type a prompt below or use slash commands:",
-                    Style::default().fg(TEXT_PRIMARY),
-                )]),
-                Line::from(vec![
-                    Span::styled("/help", bold_hl),
-                    Span::styled(" · ", Style::default().fg(TEXT_MUTED)),
-                    Span::styled("/model", bold_hl),
-                    Span::styled(" · ", Style::default().fg(TEXT_MUTED)),
-                    Span::styled("/diff", bold_hl),
-                    Span::styled(" · ", Style::default().fg(TEXT_MUTED)),
-                    Span::styled("Ctrl+P", bold_hl),
-                ]),
-            ];
-            let welcome_widget =
-                Paragraph::new(welcome_lines).alignment(ratatui::layout::Alignment::Center);
-            frame.render_widget(welcome_widget, chat_area);
+            self.render_welcome_compact(frame, chat_area);
         } else {
             let total_lines = self.cache.ensure_visual_lines(chat_area.width);
             let queued_count = self.queued_prompts.len();
