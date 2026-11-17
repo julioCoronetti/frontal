@@ -1,105 +1,21 @@
+mod image_codec;
+mod platform;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use arboard::Clipboard;
 
-const MAX_RAW_RGBA_BYTES: usize = 32 * 1024 * 1024;
-const PNG_SIGNATURE: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
+pub use image_codec::{adler32, crc32_ieee, decode_base64, decode_bmp_to_rgba, encode_rgba_png};
+pub use platform::windows_path_to_wsl;
+
 static TMP_MEDIA_SEQ: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SavedMediaImage {
     pub path: PathBuf,
     pub mime_type: &'static str,
-}
-
-pub fn crc32_ieee(data: &[u8]) -> u32 {
-    let mut crc = 0xFFFF_FFFFu32;
-    for &byte in data {
-        crc ^= byte as u32;
-        for _ in 0..8 {
-            let mask = (crc & 1).wrapping_neg();
-            crc = (crc >> 1) ^ (0xEDB8_8320u32 & mask);
-        }
-    }
-    !crc
-}
-
-pub fn adler32(data: &[u8]) -> u32 {
-    const MOD_ADLER: u32 = 65_521;
-    let mut s1: u32 = 1;
-    let mut s2: u32 = 0;
-    for &byte in data {
-        s1 = (s1 + byte as u32) % MOD_ADLER;
-        s2 = (s2 + s1) % MOD_ADLER;
-    }
-    (s2 << 16) | s1
-}
-
-fn write_png_chunk(out: &mut Vec<u8>, chunk_type: &[u8; 4], data: &[u8]) {
-    out.extend_from_slice(&(data.len() as u32).to_be_bytes());
-    out.extend_from_slice(chunk_type);
-    out.extend_from_slice(data);
-    let mut crc_input = Vec::with_capacity(4 + data.len());
-    crc_input.extend_from_slice(chunk_type);
-    crc_input.extend_from_slice(data);
-    out.extend_from_slice(&crc32_ieee(&crc_input).to_be_bytes());
-}
-
-pub fn encode_rgba_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
-    if width == 0 || height == 0 {
-        return Err("image dimensions must be non-zero".to_string());
-    }
-    let row_bytes = (width as usize)
-        .checked_mul(4)
-        .ok_or_else(|| "image row width overflow".to_string())?;
-    let expected_len = row_bytes
-        .checked_mul(height as usize)
-        .ok_or_else(|| "image byte size overflow".to_string())?;
-    if expected_len > MAX_RAW_RGBA_BYTES {
-        return Err("image exceeds 32 MiB limit".to_string());
-    }
-    if rgba.len() != expected_len {
-        return Err(format!(
-            "rgba buffer length mismatch: expected {}, got {}",
-            expected_len,
-            rgba.len()
-        ));
-    }
-
-    let mut filtered = Vec::with_capacity((row_bytes + 1) * (height as usize));
-    for row in rgba.chunks_exact(row_bytes) {
-        filtered.push(0);
-        filtered.extend_from_slice(row);
-    }
-
-    let mut zlib = Vec::with_capacity(filtered.len() + 64);
-    zlib.push(0x78);
-    zlib.push(0x01);
-    let total_chunks = filtered.len().div_ceil(65_535);
-    for (idx, chunk) in filtered.chunks(65_535).enumerate() {
-        let is_last = idx + 1 == total_chunks;
-        zlib.push(u8::from(is_last));
-        let len = chunk.len() as u16;
-        zlib.extend_from_slice(&len.to_le_bytes());
-        zlib.extend_from_slice(&(!len).to_le_bytes());
-        zlib.extend_from_slice(chunk);
-    }
-    zlib.extend_from_slice(&adler32(&filtered).to_be_bytes());
-
-    let mut ihdr = [0u8; 13];
-    ihdr[0..4].copy_from_slice(&width.to_be_bytes());
-    ihdr[4..8].copy_from_slice(&height.to_be_bytes());
-    ihdr[8] = 8;
-    ihdr[9] = 6;
-
-    let mut out = Vec::with_capacity(PNG_SIGNATURE.len() + 25 + zlib.len() + 24);
-    out.extend_from_slice(&PNG_SIGNATURE);
-    write_png_chunk(&mut out, b"IHDR", &ihdr);
-    write_png_chunk(&mut out, b"IDAT", &zlib);
-    write_png_chunk(&mut out, b"IEND", &[]);
-    Ok(out)
 }
 
 fn default_media_cache_dir() -> Option<PathBuf> {
@@ -177,39 +93,37 @@ impl SystemClipboard {
     }
 
     pub fn get_image(&mut self) -> Result<Option<SavedMediaImage>, String> {
-        let (width, height, rgba) = if self.is_isolated() {
-            let Some((w, h, bytes)) = self.isolated_image.clone() else {
-                return Ok(None);
-            };
-            (w, h, bytes)
-        } else if let Some(ref mut cb) = self.internal {
-            match cb.get_image() {
-                Ok(img) => {
-                    let w = u32::try_from(img.width)
-                        .map_err(|_| "clipboard image width overflow".to_string())?;
-                    let h = u32::try_from(img.height)
-                        .map_err(|_| "clipboard image height overflow".to_string())?;
-                    (w, h, img.bytes.into_owned())
-                }
-                Err(_) => return Ok(None),
-            }
-        } else {
-            return Ok(None);
-        };
-
         let cache_dir = self
             .resolve_media_cache_dir()
             .ok_or_else(|| "unable to resolve media cache directory".to_string())?;
-        save_rgba_png_dedup(&cache_dir, width, height, &rgba).map(Some)
+        if self.is_isolated() {
+            let Some((w, h, bytes)) = self.isolated_image.clone() else {
+                return Ok(None);
+            };
+            return save_rgba_png_dedup(&cache_dir, w, h, &bytes).map(Some);
+        }
+        if let Some(ref mut cb) = self.internal {
+            if let Ok(img) = cb.get_image() {
+                let w = u32::try_from(img.width)
+                    .map_err(|_| "clipboard image width overflow".to_string())?;
+                let h = u32::try_from(img.height)
+                    .map_err(|_| "clipboard image height overflow".to_string())?;
+                return save_rgba_png_dedup(&cache_dir, w, h, img.bytes.as_ref()).map(Some);
+            }
+        }
+        platform::read_system_clipboard_image(&cache_dir)
     }
 
     pub fn get_text(&mut self) -> Option<String> {
         if self.is_isolated() {
             self.isolated_buffer.clone()
         } else if let Some(ref mut cb) = self.internal {
-            cb.get_text().ok()
+            cb.get_text()
+                .ok()
+                .filter(|s| !s.is_empty())
+                .or_else(platform::read_system_clipboard_text)
         } else {
-            None
+            platform::read_system_clipboard_text()
         }
     }
 
@@ -265,6 +179,38 @@ impl Default for SystemClipboard {
     }
 }
 
+fn write_atomic_dedup<F>(
+    cache_dir: &Path,
+    file_name: String,
+    mime_type: &'static str,
+    build_bytes: F,
+) -> Result<SavedMediaImage, String>
+where
+    F: FnOnce() -> Result<Vec<u8>, String>,
+{
+    let file_path = cache_dir.join(file_name);
+    if file_path.is_file() {
+        return Ok(SavedMediaImage {
+            path: file_path,
+            mime_type,
+        });
+    }
+    let bytes = build_bytes()?;
+    fs::create_dir_all(cache_dir)
+        .map_err(|e| format!("failed to create media cache dir: {}", e))?;
+    let seq = TMP_MEDIA_SEQ.fetch_add(1, Ordering::Relaxed);
+    let tmp_path = cache_dir.join(format!(".tmp_{}_{}.part", std::process::id(), seq));
+    fs::write(&tmp_path, &bytes).map_err(|e| format!("failed to write cached image: {}", e))?;
+    if let Err(err) = fs::rename(&tmp_path, &file_path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(format!("failed to finalize cached image: {}", err));
+    }
+    Ok(SavedMediaImage {
+        path: file_path,
+        mime_type,
+    })
+}
+
 pub fn save_rgba_png_dedup(
     cache_dir: &Path,
     width: u32,
@@ -273,48 +219,33 @@ pub fn save_rgba_png_dedup(
 ) -> Result<SavedMediaImage, String> {
     let hash = crc32_ieee(rgba);
     let file_name = format!("img_{}x{}_{:08x}.png", width, height, hash);
-    let file_path = cache_dir.join(file_name);
-    if file_path.is_file() {
-        return Ok(SavedMediaImage {
-            path: file_path,
-            mime_type: "image/png",
-        });
-    }
-    let png_bytes = encode_rgba_png(width, height, rgba)?;
-    fs::create_dir_all(cache_dir)
-        .map_err(|e| format!("failed to create media cache dir: {}", e))?;
-    let seq = TMP_MEDIA_SEQ.fetch_add(1, Ordering::Relaxed);
-    let tmp_path = cache_dir.join(format!(
-        ".tmp_{}_{}_{:08x}.png",
-        std::process::id(),
-        seq,
-        hash
-    ));
-    fs::write(&tmp_path, &png_bytes).map_err(|e| format!("failed to write cached image: {}", e))?;
-    if let Err(err) = fs::rename(&tmp_path, &file_path) {
-        let _ = fs::remove_file(&tmp_path);
-        return Err(format!("failed to finalize cached image: {}", err));
-    }
-    Ok(SavedMediaImage {
-        path: file_path,
-        mime_type: "image/png",
+    write_atomic_dedup(cache_dir, file_name, "image/png", || {
+        encode_rgba_png(width, height, rgba)
     })
+}
+
+pub fn save_encoded_media_dedup(
+    cache_dir: &Path,
+    bytes: &[u8],
+    extension: &str,
+    mime_type: &'static str,
+) -> Result<SavedMediaImage, String> {
+    if bytes.is_empty() {
+        return Err("image payload is empty".to_string());
+    }
+    let hash = crc32_ieee(bytes);
+    let file_name = format!("img_{:08x}_{}.{}", hash, bytes.len(), extension);
+    write_atomic_dedup(cache_dir, file_name, mime_type, || Ok(bytes.to_vec()))
 }
 
 pub fn read_system_clipboard_media_or_text(
     cache_dir: Option<PathBuf>,
 ) -> Result<(Option<SavedMediaImage>, Option<String>), String> {
-    let mut cb = Clipboard::new().map_err(|e| format!("clipboard unavailable: {}", e))?;
-    if let Ok(img) = cb.get_image() {
-        let w =
-            u32::try_from(img.width).map_err(|_| "clipboard image width overflow".to_string())?;
-        let h =
-            u32::try_from(img.height).map_err(|_| "clipboard image height overflow".to_string())?;
-        let dir = cache_dir
-            .or_else(default_media_cache_dir)
-            .ok_or_else(|| "unable to resolve media cache directory".to_string())?;
-        let saved = save_rgba_png_dedup(&dir, w, h, img.bytes.as_ref())?;
+    let dir = cache_dir
+        .or_else(default_media_cache_dir)
+        .ok_or_else(|| "unable to resolve media cache directory".to_string())?;
+    if let Some(saved) = platform::read_system_clipboard_image(&dir)? {
         return Ok((Some(saved), None));
     }
-    Ok((None, cb.get_text().ok()))
+    Ok((None, platform::read_system_clipboard_text()))
 }

@@ -1,4 +1,7 @@
-use frontal::infra::clipboard::{adler32, crc32_ieee, encode_rgba_png, SystemClipboard};
+use frontal::infra::clipboard::{
+    adler32, crc32_ieee, decode_base64, decode_bmp_to_rgba, encode_rgba_png,
+    save_encoded_media_dedup, windows_path_to_wsl, SystemClipboard,
+};
 use frontal::ui::editor::{extract_pasted_image_path, ExtmarkKind, PromptEditor};
 
 use crate::common::TempDirGuard;
@@ -180,4 +183,78 @@ fn test_extract_pasted_image_path_formats_and_fallback() {
     assert!(extract_pasted_image_path(&text_file.to_string_lossy()).is_none());
     assert!(extract_pasted_image_path("/nonexistent/path/img.png").is_none());
     assert!(extract_pasted_image_path("line1\n/tmp/img.png").is_none());
+}
+
+#[test]
+fn test_decode_bmp_to_rgba_32bpp_bitfields_and_24bpp_rgb() {
+    let mut bmp32 = Vec::new();
+    bmp32.extend_from_slice(b"BM");
+    bmp32.extend_from_slice(&(66u32 + 16).to_le_bytes());
+    bmp32.extend_from_slice(&0u32.to_le_bytes());
+    bmp32.extend_from_slice(&66u32.to_le_bytes());
+    bmp32.extend_from_slice(&40u32.to_le_bytes());
+    bmp32.extend_from_slice(&2i32.to_le_bytes());
+    bmp32.extend_from_slice(&2i32.to_le_bytes());
+    bmp32.extend_from_slice(&1u16.to_le_bytes());
+    bmp32.extend_from_slice(&32u16.to_le_bytes());
+    bmp32.extend_from_slice(&3u32.to_le_bytes());
+    bmp32.extend_from_slice(&16u32.to_le_bytes());
+    bmp32.extend_from_slice(&[0u8; 16]);
+    bmp32.extend_from_slice(&0x00FF_0000u32.to_le_bytes());
+    bmp32.extend_from_slice(&0x0000_FF00u32.to_le_bytes());
+    bmp32.extend_from_slice(&0x0000_00FFu32.to_le_bytes());
+    bmp32.extend_from_slice(&[0, 0, 255, 0, 0, 255, 0, 0]);
+    bmp32.extend_from_slice(&[255, 0, 0, 0, 255, 255, 255, 0]);
+
+    let (w, h, rgba) = decode_bmp_to_rgba(&bmp32).expect("32bpp BI_BITFIELDS should decode");
+    assert_eq!((w, h), (2, 2));
+    assert_eq!(
+        rgba,
+        vec![0, 0, 255, 255, 255, 255, 255, 255, 255, 0, 0, 255, 0, 255, 0, 255]
+    );
+
+    let mut bmp24 = Vec::new();
+    bmp24.extend_from_slice(b"BM");
+    bmp24.extend_from_slice(&(54u32 + 8).to_le_bytes());
+    bmp24.extend_from_slice(&0u32.to_le_bytes());
+    bmp24.extend_from_slice(&54u32.to_le_bytes());
+    bmp24.extend_from_slice(&40u32.to_le_bytes());
+    bmp24.extend_from_slice(&1i32.to_le_bytes());
+    bmp24.extend_from_slice(&(-2i32).to_le_bytes());
+    bmp24.extend_from_slice(&1u16.to_le_bytes());
+    bmp24.extend_from_slice(&24u16.to_le_bytes());
+    bmp24.extend_from_slice(&0u32.to_le_bytes());
+    bmp24.extend_from_slice(&8u32.to_le_bytes());
+    bmp24.extend_from_slice(&[0u8; 16]);
+    bmp24.extend_from_slice(&[10, 20, 30, 0, 40, 50, 60, 0]);
+
+    let (w24, h24, rgba24) = decode_bmp_to_rgba(&bmp24).expect("24bpp top-down should decode");
+    assert_eq!((w24, h24), (1, 2));
+    assert_eq!(rgba24, vec![30, 20, 10, 255, 60, 50, 40, 255]);
+}
+
+#[test]
+fn test_decode_base64_encoded_dedup_and_wsl_path_translation() {
+    let decoded = decode_base64("SGVs\nbG8h\r\n").unwrap();
+    assert_eq!(decoded, b"Hello!");
+    assert!(decode_base64("@@@").is_err());
+
+    let temp = TempDirGuard::new("encoded_media_dedup");
+    let first = save_encoded_media_dedup(temp.path(), b"png-data", "png", "image/png").unwrap();
+    let second = save_encoded_media_dedup(temp.path(), b"png-data", "png", "image/png").unwrap();
+    assert_eq!(first.path, second.path);
+    assert_eq!(std::fs::read(&first.path).unwrap(), b"png-data");
+
+    assert_eq!(
+        windows_path_to_wsl(r#"C:\Users\Julio\Pictures\shot.png"#),
+        std::path::PathBuf::from("/mnt/c/Users/Julio/Pictures/shot.png")
+    );
+    assert_eq!(
+        windows_path_to_wsl(r#"\\wsl$\Ubuntu\tmp\img.png"#),
+        std::path::PathBuf::from("/tmp/img.png")
+    );
+    assert_eq!(
+        windows_path_to_wsl(r#"\\WSL.LOCALHOST\Ubuntu\tmp\img.png"#),
+        std::path::PathBuf::from("/tmp/img.png")
+    );
 }

@@ -86,3 +86,31 @@ fn test_ctrl_v_image_backspace_drops_attachment_before_submit() {
     let submit = app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(submit, None);
 }
+
+#[test]
+fn test_alt_v_and_empty_bracketed_paste_trigger_image_attachment() {
+    let temp = TempDirGuard::new("tui_alt_v_empty_paste");
+    let (mut app, _) = test_app();
+    app.clipboard.set_media_cache_dir(temp.path().to_path_buf());
+
+    let empty_alt = app.handle_terminal_event(press_key(KeyCode::Char('v'), KeyModifiers::ALT));
+    assert_eq!(empty_alt, None);
+    assert!(app.editor.is_empty());
+
+    app.clipboard
+        .set_isolated_image(1, 1, vec![12, 34, 56, 255]);
+    app.handle_terminal_event(press_key(KeyCode::Char('v'), KeyModifiers::ALT));
+    assert_eq!(app.editor.extmarks().len(), 1);
+    assert!(app.editor.text().contains("[Image #1]"));
+
+    app.editor.clear();
+    app.handle_terminal_event(Event::Paste(String::new()));
+    assert_eq!(app.editor.extmarks().len(), 1);
+    assert!(app.editor.text().contains("[Image #1]"));
+
+    app.clipboard = frontal::ui::clipboard::SystemClipboard::new();
+    let live_alt = app.handle_terminal_event(press_key(KeyCode::Char('v'), KeyModifiers::ALT));
+    assert_eq!(live_alt, Some(AppAction::PasteClipboard));
+    let live_empty_paste = app.handle_terminal_event(Event::Paste(String::new()));
+    assert_eq!(live_empty_paste, Some(AppAction::PasteClipboard));
+}

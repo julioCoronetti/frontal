@@ -69,11 +69,36 @@ impl App {
         }
     }
 
+    pub fn handle_clipboard_paste_trigger(&mut self) -> Option<AppAction> {
+        if !self.clipboard.is_isolated() {
+            return Some(AppAction::PasteClipboard);
+        }
+        let sid = self.active_session.clone();
+        match self.clipboard.get_image() {
+            Ok(Some(saved)) => {
+                self.apply_paste_outcome(&sid, Ok((Some(saved), None)));
+                return None;
+            }
+            Err(err) => {
+                self.apply_paste_outcome(&sid, Err(err));
+                return None;
+            }
+            Ok(None) => {}
+        }
+        if let Some(text) = self.clipboard.get_text() {
+            self.apply_paste_outcome(&sid, Ok(Self::resolve_pasted_text(text)));
+        }
+        None
+    }
+
     pub fn handle_terminal_event(&mut self, event: Event) -> Option<AppAction> {
         match event {
             Event::Key(key) => self.handle_key(key),
             Event::Mouse(mouse) => self.handle_mouse(mouse),
             Event::Paste(text) => {
+                if text.is_empty() {
+                    return self.handle_clipboard_paste_trigger();
+                }
                 if !self.clipboard.is_isolated() {
                     return Some(AppAction::InspectPastedText(text));
                 }

@@ -96,22 +96,23 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                                 let cache_dir = app.clipboard.resolve_media_cache_dir();
                                 let tx = paste_tx.clone();
                                 tokio::task::spawn_blocking(move || {
-                                    let res = crate::ui::clipboard::read_system_clipboard_media_or_text(
-                                        cache_dir,
-                                    )
-                                    .map(|(img, txt)| match (img, txt) {
-                                        (Some(saved), _) => (Some(saved), None),
-                                        (None, Some(raw)) => App::resolve_pasted_text(raw),
-                                        (None, None) => (None, None),
-                                    });
-                                    let _ = tx.blocking_send((sid, res));
+                                    let _ = tx.blocking_send((
+                                        sid,
+                                        resolve_clipboard_paste(cache_dir),
+                                    ));
                                 });
                             }
                             AppAction::InspectPastedText(text) => {
                                 let sid = app.active_session.clone();
+                                let cache_dir = app.clipboard.resolve_media_cache_dir();
                                 let tx = paste_tx.clone();
                                 tokio::task::spawn_blocking(move || {
-                                    let _ = tx.blocking_send((sid, Ok(App::resolve_pasted_text(text))));
+                                    let res = if text.is_empty() {
+                                        resolve_clipboard_paste(cache_dir)
+                                    } else {
+                                        Ok(App::resolve_pasted_text(text))
+                                    };
+                                    let _ = tx.blocking_send((sid, res));
                                 });
                             }
                             AppAction::Interrupt => {
@@ -194,4 +195,22 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
         .shutdown_all(Duration::from_millis(500))
         .await;
     Ok(())
+}
+
+fn resolve_clipboard_paste(
+    cache_dir: Option<std::path::PathBuf>,
+) -> Result<
+    (
+        Option<crate::ui::clipboard::SavedMediaImage>,
+        Option<String>,
+    ),
+    String,
+> {
+    crate::ui::clipboard::read_system_clipboard_media_or_text(cache_dir).map(|(img, txt)| {
+        match (img, txt) {
+            (Some(saved), _) => (Some(saved), None),
+            (None, Some(raw)) => App::resolve_pasted_text(raw),
+            (None, None) => (None, None),
+        }
+    })
 }

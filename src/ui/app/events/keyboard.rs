@@ -123,26 +123,11 @@ impl App {
             return Some(AppAction::Quit);
         }
 
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('v') {
-            if !self.clipboard.is_isolated() {
-                return Some(AppAction::PasteClipboard);
-            }
-            let sid = self.active_session.clone();
-            match self.clipboard.get_image() {
-                Ok(Some(saved)) => {
-                    self.apply_paste_outcome(&sid, Ok((Some(saved), None)));
-                    return None;
-                }
-                Err(err) => {
-                    self.apply_paste_outcome(&sid, Err(err));
-                    return None;
-                }
-                Ok(None) => {}
-            }
-            if let Some(text) = self.clipboard.get_text() {
-                self.apply_paste_outcome(&sid, Ok(Self::resolve_pasted_text(text)));
-                return None;
-            }
+        let is_paste_shortcut = (key.modifiers.contains(KeyModifiers::CONTROL)
+            || key.modifiers.contains(KeyModifiers::ALT))
+            && matches!(key.code, KeyCode::Char('v') | KeyCode::Char('V'));
+        if is_paste_shortcut {
+            return self.handle_clipboard_paste_trigger();
         }
 
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('a') {
