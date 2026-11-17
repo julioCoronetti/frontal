@@ -1,7 +1,10 @@
-use frontal::protocol::StepState;
+use frontal::protocol::{MediaItem, PromptPayload, StepState};
 use frontal::ui::cache::{BlockKind, RenderCache};
-use frontal::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, BORDER_SUBTLE, TEXT_MUTED};
-use ratatui::style::Color;
+use frontal::ui::theme::{
+    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BG_USER_CONTAINER, BORDER_SUBTLE, TEXT_MUTED,
+    TEXT_PRIMARY,
+};
+use ratatui::style::{Color, Modifier};
 
 #[test]
 fn test_render_cache_l1_and_l2_o1_invariance() {
@@ -230,6 +233,78 @@ fn test_user_message_accent_bar_styling() {
     assert_eq!(spans[0].content.as_ref(), "▌ ");
     assert_eq!(spans[1].content.as_ref(), "test message");
     assert_eq!(slice[2].spans[0].content.as_ref(), "▌ ");
+
+    let payload = PromptPayload::new(
+        "eae me diz a resposta dessa questao aqui:",
+        vec![MediaItem {
+            mime_type: "image/png".to_string(),
+            uri: "/home/julio/.frontal/cache/media/img_500x500_caa4ffb2.png".to_string(),
+        }],
+    )
+    .with_chat_text("eae me diz a resposta dessa questao aqui: [Image 1]");
+    let display = payload.display_for_chat();
+    assert_eq!(
+        display,
+        "eae me diz a resposta dessa questao aqui: [Image 1]\n\n[file] clipboard"
+    );
+
+    let mut media_cache = RenderCache::new();
+    media_cache.push_user_message(&display);
+    let total = media_cache.ensure_visual_lines(60);
+    let lines = media_cache.visible_slice(0, total);
+
+    let marker_line = lines
+        .iter()
+        .find(|l| l.spans.iter().any(|s| s.content.as_ref() == "[Image 1]"))
+        .expect("expected intact [Image 1] span");
+    let marker_span = marker_line
+        .spans
+        .iter()
+        .find(|s| s.content.as_ref() == "[Image 1]")
+        .unwrap();
+    assert_eq!(marker_span.style.fg, Some(ACCENT_HIGHLIGHT));
+    assert_eq!(marker_span.style.bg, Some(BG_USER_CONTAINER));
+    assert!(marker_span.style.add_modifier.contains(Modifier::BOLD));
+
+    let badge_line = lines
+        .iter()
+        .find(|l| l.spans.iter().any(|s| s.content.as_ref() == " file "))
+        .expect("expected file badge span");
+    let badge_span = badge_line
+        .spans
+        .iter()
+        .find(|s| s.content.as_ref() == " file ")
+        .unwrap();
+    assert_eq!(badge_span.style.fg, Some(TEXT_PRIMARY));
+    assert_eq!(badge_span.style.bg, Some(ACCENT_RUBY));
+    assert!(badge_span.style.add_modifier.contains(Modifier::BOLD));
+
+    let source_span = badge_line
+        .spans
+        .iter()
+        .find(|s| s.content.as_ref() == " clipboard")
+        .unwrap();
+    assert_eq!(source_span.style.fg, Some(TEXT_MUTED));
+    assert_eq!(source_span.style.bg, Some(BG_USER_CONTAINER));
+
+    let narrow_total = media_cache.ensure_visual_lines(46);
+    let narrow_lines = media_cache.visible_slice(0, narrow_total);
+    assert!(narrow_lines
+        .iter()
+        .any(|l| l.spans.iter().any(|s| s.content.as_ref() == "[Image 1]")));
+
+    let copied = media_cache.extract_text_range(1, 0, narrow_total.saturating_sub(2), 100);
+    assert!(copied.contains("[Image 1]"));
+    assert!(copied.contains("file  clipboard"));
+    assert!(!copied.contains("▌"));
+
+    let mut plain_cache = RenderCache::new();
+    plain_cache.push_user_message("please inspect this\n\nfile readme.md");
+    let plain_total = plain_cache.ensure_visual_lines(60);
+    let plain_lines = plain_cache.visible_slice(0, plain_total);
+    assert!(!plain_lines
+        .iter()
+        .any(|l| l.spans.iter().any(|s| s.content.as_ref() == " file ")));
 }
 
 #[test]

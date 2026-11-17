@@ -2,13 +2,12 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::protocol::StepState;
+use crate::ui::cache::user_format::format_user_block_lines;
 use crate::ui::cache::{BlockKind, CachedBlockLines, MessageBlock, RenderCache};
 use crate::ui::markdown::{
     parse_markdown_segments, render_markdown_to_lines, render_segments_to_lines,
 };
-use crate::ui::theme::{
-    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, BG_USER_CONTAINER, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY,
-};
+use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY};
 
 pub fn sanitize_terminal_line(line: &str) -> String {
     let mut raw = line.trim_end_matches('\r');
@@ -130,41 +129,7 @@ impl RenderCache {
         let margin = if width > 4 { "  " } else { "" };
         match &block.kind {
             BlockKind::User => {
-                let wrapped = wrap_text_utf8(&block.content, width.saturating_sub(4) as usize);
-                let pad_empty = (width as usize).saturating_sub(2);
-                let bar_style = Style::default()
-                    .fg(ACCENT_PRIMARY)
-                    .bg(BG_USER_CONTAINER)
-                    .add_modifier(Modifier::BOLD);
-                let top_line = Line::from(vec![
-                    Span::styled("▌ ", bar_style),
-                    Span::styled(
-                        " ".repeat(pad_empty),
-                        Style::default().bg(BG_USER_CONTAINER),
-                    ),
-                ]);
-                result.push(top_line);
-
-                for row in wrapped.into_iter() {
-                    let row_len = row.chars().count();
-                    let pad_len = (width as usize).saturating_sub(2 + row_len);
-                    let line = Line::from(vec![
-                        Span::styled("▌ ", bar_style),
-                        Span::styled(row, Style::default().fg(TEXT_PRIMARY).bg(BG_USER_CONTAINER)),
-                        Span::styled(" ".repeat(pad_len), Style::default().bg(BG_USER_CONTAINER)),
-                    ]);
-                    result.push(line);
-                }
-
-                let bottom_line = Line::from(vec![
-                    Span::styled("▌ ", bar_style),
-                    Span::styled(
-                        " ".repeat(pad_empty),
-                        Style::default().bg(BG_USER_CONTAINER),
-                    ),
-                ]);
-                result.push(bottom_line);
-                result.push(Line::from(""));
+                result.extend(format_user_block_lines(&block.content, width));
             }
             BlockKind::Assistant => {
                 let content_width = (width as usize).saturating_sub(margin.len());

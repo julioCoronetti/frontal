@@ -8,6 +8,7 @@ use crate::ui::markdown::MarkdownSegment;
 
 pub mod format;
 pub mod slice;
+mod user_format;
 
 pub use format::wrap_text_utf8;
 
