@@ -261,12 +261,21 @@ impl App {
         )]));
         frame.render_widget(cwd_widget, footer_chunks[0]);
 
-        let shortcuts_widget = Paragraph::new(Line::from(vec![Span::styled(
-            "Ctrl+P: Palette",
+        let shortcuts_widget = Paragraph::new(Line::from(vec![
+            Span::styled("Ctrl+P", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(": Palette", Style::default().fg(TEXT_MUTED)),
+        ]))
+        .alignment(ratatui::layout::Alignment::Right);
+        frame.render_widget(shortcuts_widget, footer_chunks[1]);
+    }
+
+    pub(crate) fn render_version_footer(&self, frame: &mut Frame, footer_area: Rect) {
+        let version_widget = Paragraph::new(Line::from(vec![Span::styled(
+            format!("v{}", env!("CARGO_PKG_VERSION")),
             Style::default().fg(TEXT_MUTED),
         )]))
         .alignment(ratatui::layout::Alignment::Right);
-        frame.render_widget(shortcuts_widget, footer_chunks[1]);
+        frame.render_widget(version_widget, footer_area);
     }
 
     pub(crate) fn render_popover(

@@ -1,76 +1,85 @@
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::ui::app::App;
-use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, TAB_ACTIVE_BG, TEXT_MUTED, TEXT_PRIMARY};
+use crate::ui::theme::{
+    ACCENT_HIGHLIGHT, ACCENT_RUBY, BG_USER_CONTAINER, TAB_ACTIVE_BG, TEXT_MUTED, TEXT_PRIMARY,
+};
 
 const HERO_INPUT_MAX_WIDTH: u16 = 76;
-const HERO_SHORTCUTS: [(&str, &str); 6] = [
-    ("/resume", "Sessions"),
-    ("/model", "Model"),
-    ("/new", "New tab"),
-    ("/quota", "Usage"),
-    ("/diff", "Diff"),
-    ("Ctrl+P", "Palette"),
-];
 
-fn build_pill_spans(cmd: &'static str, desc: Option<&'static str>) -> Vec<Span<'static>> {
-    let pill_style = Style::default()
-        .bg(TAB_ACTIVE_BG)
-        .fg(ACCENT_HIGHLIGHT)
-        .add_modifier(Modifier::BOLD);
-    let mut spans = vec![Span::styled(format!(" {} ", cmd), pill_style)];
-    if let Some(label) = desc {
-        spans.push(Span::styled(
-            format!(" {}", label),
-            Style::default().fg(TEXT_MUTED),
-        ));
-    }
-    spans
-}
+fn build_logo_lines() -> Vec<Line<'static>> {
+    let left = Style::default().fg(ACCENT_RUBY);
+    let right = Style::default().fg(ACCENT_HIGHLIGHT);
+    let gap = Span::raw("  ");
+    let shade = Style::default().fg(TAB_ACTIVE_BG);
+    let left_on_shade = Style::default().fg(ACCENT_RUBY).bg(TAB_ACTIVE_BG);
+    let right_on_shade = Style::default().fg(ACCENT_HIGHLIGHT).bg(TAB_ACTIVE_BG);
+    let right_on_deep = Style::default().fg(ACCENT_HIGHLIGHT).bg(BG_USER_CONTAINER);
 
-fn spans_display_width(spans: &[Span<'_>]) -> usize {
-    spans.iter().map(|s| s.width()).sum()
-}
-
-fn build_pill_lines(max_width: u16) -> Vec<Line<'static>> {
-    let width_budget = max_width as usize;
-    let include_desc = width_budget >= 56;
-    let gap = "   ";
-    let gap_w = gap.len();
-
-    let mut rows: Vec<Vec<Span<'static>>> = Vec::new();
-    let mut current_row: Vec<Span<'static>> = Vec::new();
-    let mut current_w = 0usize;
-
-    for &(cmd, desc) in &HERO_SHORTCUTS {
-        let mut pill = build_pill_spans(cmd, if include_desc { Some(desc) } else { None });
-        let pill_w = spans_display_width(&pill);
-        let needed = if current_row.is_empty() {
-            pill_w
-        } else {
-            gap_w + pill_w
-        };
-        if !current_row.is_empty() && current_w + needed > width_budget {
-            rows.push(std::mem::take(&mut current_row));
-            current_w = 0;
-        }
-        if !current_row.is_empty() {
-            current_row.push(Span::raw(gap));
-            current_w += gap_w;
-        }
-        current_w += pill_w;
-        current_row.append(&mut pill);
-    }
-
-    if !current_row.is_empty() {
-        rows.push(current_row);
-    }
-
-    rows.into_iter().map(Line::from).collect()
+    vec![
+        Line::from(vec![
+            Span::styled("▄▀▀", left),
+            gap.clone(),
+            Span::styled("▄▄▄", left),
+            gap.clone(),
+            Span::styled("▄▄▄▄", left),
+            gap.clone(),
+            Span::styled("▄▄▄ ", left),
+            gap.clone(),
+            Span::styled("▄█▄", right),
+            gap.clone(),
+            Span::styled("▄▄▄ ", right),
+            gap.clone(),
+            Span::styled("█ ", right),
+        ]),
+        Line::from(vec![
+            Span::styled("█▀ ", left),
+            gap.clone(),
+            Span::styled("█", left),
+            Span::styled("▄", shade),
+            Span::styled("▀", left_on_shade),
+            gap.clone(),
+            Span::styled("█", left),
+            Span::styled("▄▄", shade),
+            Span::styled("█", left),
+            gap.clone(),
+            Span::styled("█", left),
+            Span::styled("▄▄", shade),
+            Span::styled("█", left),
+            gap.clone(),
+            Span::styled(" █ ", right),
+            gap.clone(),
+            Span::styled("▄▄▄", right_on_deep),
+            Span::styled("█", right),
+            gap.clone(),
+            Span::styled("█ ", right),
+        ]),
+        Line::from(vec![
+            Span::styled("█  ", left),
+            gap.clone(),
+            Span::styled("█  ", left),
+            gap.clone(),
+            Span::styled("█", left),
+            Span::styled("▄▄", left_on_shade),
+            Span::styled("█", left),
+            gap.clone(),
+            Span::styled("█", left),
+            Span::styled("▀▀", shade),
+            Span::styled("█", left),
+            gap.clone(),
+            Span::styled(" █▄", right),
+            gap.clone(),
+            Span::styled("█", right),
+            Span::styled("▄▄", right_on_shade),
+            Span::styled("█", right),
+            gap.clone(),
+            Span::styled("█▄", right),
+        ]),
+    ]
 }
 
 impl App {
@@ -82,41 +91,15 @@ impl App {
     }
 
     pub(crate) fn render_welcome_hero(&self, frame: &mut Frame, body_area: Rect) -> Rect {
-        let header_lines = vec![
-            Line::from(vec![
-                Span::styled(
-                    "frontal",
-                    Style::default()
-                        .fg(ACCENT_PRIMARY)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    format!("  v{} ", env!("CARGO_PKG_VERSION")),
-                    Style::default().fg(TEXT_MUTED),
-                ),
-                Span::styled(
-                    format!(" {} ", self.backend.as_str()),
-                    Style::default()
-                        .bg(TAB_ACTIVE_BG)
-                        .fg(TEXT_PRIMARY)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]),
-            Line::from(vec![Span::styled(
-                "Async TUI for Antigravity & stream-json engines",
-                Style::default().fg(TEXT_MUTED),
-            )]),
-        ];
-
-        let pill_lines = build_pill_lines(body_area.width);
-        let header_h = header_lines.len() as u16;
-        let pills_h = pill_lines.len() as u16;
-        let gap_h: u16 = if body_area.height >= header_h + pills_h + 7 {
+        let logo_lines = build_logo_lines();
+        let logo_h = logo_lines.len() as u16;
+        let meta_h: u16 = 1;
+        let gap_h: u16 = if body_area.height >= logo_h + meta_h + 6 {
             1
         } else {
             0
         };
-        let overhead_h = header_h + pills_h + gap_h.saturating_mul(2);
+        let overhead_h = logo_h + gap_h + meta_h;
         let max_input_lines = body_area.height.saturating_sub(overhead_h + 2).clamp(1, 8);
         let input_lines = (self.editor.line_count() as u16).clamp(1, max_input_lines);
         let input_h = (input_lines + 2).min(body_area.height.saturating_sub(overhead_h).max(3));
@@ -133,16 +116,15 @@ impl App {
         let stack_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(header_h),
+                Constraint::Length(logo_h),
                 Constraint::Length(gap_h),
                 Constraint::Length(input_h),
-                Constraint::Length(gap_h),
-                Constraint::Length(pills_h),
+                Constraint::Length(meta_h),
             ])
             .split(stack_area);
 
-        let header_widget = Paragraph::new(header_lines).alignment(Alignment::Center);
-        frame.render_widget(header_widget, stack_chunks[0]);
+        let logo_widget = Paragraph::new(logo_lines).alignment(Alignment::Center);
+        frame.render_widget(logo_widget, stack_chunks[0]);
 
         let input_w = body_area.width.min(HERO_INPUT_MAX_WIDTH);
         let input_x = body_area
@@ -159,50 +141,60 @@ impl App {
             frame.set_cursor_position((cursor_x, cursor_y));
         }
 
-        let pills_widget = Paragraph::new(pill_lines).alignment(Alignment::Center);
-        frame.render_widget(pills_widget, stack_chunks[4]);
+        let meta_area = Rect {
+            x: input_x,
+            y: stack_chunks[3].y,
+            width: input_w,
+            height: stack_chunks[3].height,
+        };
+        self.render_hero_meta_bar(frame, meta_area);
 
         input_area
     }
 
+    fn render_hero_meta_bar(&self, frame: &mut Frame, meta_area: Rect) {
+        if meta_area.width < 20 || meta_area.height == 0 {
+            return;
+        }
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(10), Constraint::Length(18)])
+            .split(meta_area);
+
+        let cwd_widget = Paragraph::new(Line::from(vec![Span::styled(
+            &self.cwd_display,
+            Style::default().fg(TEXT_MUTED),
+        )]));
+        frame.render_widget(cwd_widget, chunks[0]);
+
+        let palette_widget = Paragraph::new(Line::from(vec![
+            Span::styled("Ctrl+P", Style::default().fg(TEXT_PRIMARY)),
+            Span::styled(": Palette", Style::default().fg(TEXT_MUTED)),
+        ]))
+        .alignment(Alignment::Right);
+        frame.render_widget(palette_widget, chunks[1]);
+    }
+
     pub(crate) fn render_welcome_compact(&self, frame: &mut Frame, chat_area: Rect) {
-        let bold_hl = Style::default()
-            .fg(ACCENT_HIGHLIGHT)
-            .add_modifier(Modifier::BOLD);
-        let welcome_lines = vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::styled(
-                    "frontal",
-                    Style::default()
-                        .fg(ACCENT_PRIMARY)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    format!(
-                        " v{} · {}",
-                        env!("CARGO_PKG_VERSION"),
-                        self.backend.as_str()
-                    ),
-                    Style::default().fg(TEXT_MUTED),
-                ),
-            ]),
-            Line::from(vec![Span::styled(
-                "Async TUI for Antigravity & stream-json engines",
-                Style::default().fg(TEXT_MUTED),
-            )]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("/resume", bold_hl),
-                Span::styled(" · ", Style::default().fg(TEXT_MUTED)),
-                Span::styled("/model", bold_hl),
-                Span::styled(" · ", Style::default().fg(TEXT_MUTED)),
-                Span::styled("/new", bold_hl),
-                Span::styled(" · ", Style::default().fg(TEXT_MUTED)),
-                Span::styled("Ctrl+P", bold_hl),
-            ]),
-        ];
-        let welcome_widget = Paragraph::new(welcome_lines).alignment(Alignment::Center);
+        let use_block_logo = chat_area.width >= 35 && chat_area.height >= 5;
+        let needed_with_pad = if use_block_logo { 5 } else { 3 };
+        let mut lines = Vec::new();
+        if chat_area.height >= needed_with_pad {
+            lines.push(Line::from(""));
+        }
+        if use_block_logo {
+            lines.extend(build_logo_lines());
+        } else {
+            lines.push(Line::from(vec![
+                Span::styled("fron", Style::default().fg(ACCENT_RUBY)),
+                Span::styled("tal", Style::default().fg(ACCENT_HIGHLIGHT)),
+            ]));
+        }
+        lines.push(Line::from(vec![Span::styled(
+            format!("v{}", env!("CARGO_PKG_VERSION")),
+            Style::default().fg(TEXT_MUTED),
+        )]));
+        let welcome_widget = Paragraph::new(lines).alignment(Alignment::Center);
         frame.render_widget(welcome_widget, chat_area);
     }
 }

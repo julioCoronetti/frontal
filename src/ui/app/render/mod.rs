@@ -73,7 +73,7 @@ impl App {
 
             self.viewport_bounds = (hero_area.x, hero_area.y, hero_area.width, hero_area.height);
             let input_area = self.render_welcome_hero(frame, hero_area);
-            self.render_footer(frame, footer_area);
+            self.render_version_footer(frame, footer_area);
             self.render_popover(frame, input_area, area, true);
         } else {
             let body_chunks = Layout::default()
