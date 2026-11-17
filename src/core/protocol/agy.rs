@@ -1,6 +1,5 @@
 use super::{
-    media_uri_to_path, ErrorEvent, PromptPayload, ProtocolError, StreamEvent, UserInputEvent,
-    UserMessageContent,
+    ErrorEvent, PromptPayload, ProtocolError, StreamEvent, UserInputEvent, UserMessageContent,
 };
 
 pub struct AgyStreamParser;
@@ -53,17 +52,11 @@ pub fn format_user_payload(payload: &PromptPayload) -> Result<String, ProtocolEr
     if payload.is_empty() {
         return Err(ProtocolError::EmptyPrompt);
     }
-    if payload.media.is_empty() {
-        return format_user_message(&payload.text);
+    if !payload.media.is_empty() {
+        return Err(ProtocolError::UnsupportedMedia(
+            "agy stream-json mode does not support image content blocks; use ACP or OpenCode"
+                .to_string(),
+        ));
     }
-    let mut parts = Vec::new();
-    let trimmed = payload.text.trim();
-    if !trimmed.is_empty() {
-        parts.push(payload.text.trim_end().to_string());
-    }
-    for item in &payload.media {
-        let path = media_uri_to_path(&item.uri);
-        parts.push(format!("[Attached Media: {} ({})]", path, item.mime_type));
-    }
-    format_user_message(&parts.join("\n"))
+    format_user_message(&payload.text)
 }

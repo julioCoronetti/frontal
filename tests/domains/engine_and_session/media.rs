@@ -14,7 +14,7 @@ use frontal::transport::{build_opencode_payload_args, EngineConfig};
 use crate::common::{TempFileGuard, PGID_TEST_LOCK};
 
 #[test]
-fn test_format_user_payload_agy_text_and_media_lowering() {
+fn test_format_user_payload_agy_rejects_media_in_stream_json() {
     let empty = PromptPayload::default();
     assert_eq!(
         format_user_payload(&empty).unwrap_err(),
@@ -28,9 +28,10 @@ fn test_format_user_payload_agy_text_and_media_lowering() {
             uri: "file:///tmp/screenshot.png".to_string(),
         }],
     );
-    let formatted_media_only = format_user_payload(&media_only).unwrap();
-    assert!(formatted_media_only.contains("\"event\":\"user\""));
-    assert!(formatted_media_only.contains("[Attached Media: /tmp/screenshot.png (image/png)]"));
+    assert!(matches!(
+        format_user_payload(&media_only),
+        Err(ProtocolError::UnsupportedMedia(_))
+    ));
 
     let combined = PromptPayload::new(
         "describe this UI",
@@ -39,9 +40,15 @@ fn test_format_user_payload_agy_text_and_media_lowering() {
             uri: "/tmp/mockup.webp".to_string(),
         }],
     );
-    let formatted_combined = format_user_payload(&combined).unwrap();
-    assert!(formatted_combined
-        .contains("describe this UI\\n[Attached Media: /tmp/mockup.webp (image/webp)]"));
+    assert!(matches!(
+        format_user_payload(&combined),
+        Err(ProtocolError::UnsupportedMedia(_))
+    ));
+
+    let text_only = PromptPayload::from_text("hello agy");
+    let formatted_text = format_user_payload(&text_only).unwrap();
+    assert!(formatted_text.contains("\"event\":\"user\""));
+    assert!(formatted_text.contains("hello agy"));
 }
 
 #[test]
@@ -128,14 +135,10 @@ async fn test_opencode_engine_send_payload_passes_file_flags_to_mock_cli() {
 }
 
 #[tokio::test]
-async fn test_agy_engine_send_payload_writes_media_reference_to_stdin() {
+async fn test_agy_engine_rejects_media_in_stream_json_mode() {
     let _lock = PGID_TEST_LOCK.lock().await;
-    let stdin_log = TempFileGuard::new("agy_media_stdin", "ndjson", "");
-    let script = format!(
-        "#!/usr/bin/env bash\necho '{{\"event\":\"init\",\"conversation_id\":\"conv-media\"}}'\nIFS= read -r line\nprintf '%s\\n' \"$line\" > {}\necho '{{\"event\":\"result\",\"result\":{{\"status\":\"SUCCESS\"}}}}'\n",
-        stdin_log.path().display()
-    );
-    let mock = TempFileGuard::new("mock_agy_media", "sh", &script);
+    let script = "#!/usr/bin/env bash\necho '{\"event\":\"init\",\"conversation_id\":\"conv-media\"}'\nread -r _line\n";
+    let mock = TempFileGuard::new("mock_agy_media", "sh", script);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -151,7 +154,7 @@ async fn test_agy_engine_send_payload_writes_media_reference_to_stdin() {
 
     let mut engine = AgyEngine::spawn(session_id, config, tx).await.unwrap();
     let _ = rx.recv().await;
-    engine
+    let err = engine
         .send_prompt(PromptPayload::new(
             "check diagram",
             vec![MediaItem {
@@ -160,21 +163,7 @@ async fn test_agy_engine_send_payload_writes_media_reference_to_stdin() {
             }],
         ))
         .await
-        .unwrap();
-
-    for _ in 0..30 {
-        if let Ok(Some(env)) = timeout(Duration::from_millis(200), rx.recv()).await {
-            if let EngineEvent::Stream(ev) = env.event {
-                if matches!(*ev, StreamEvent::Result(_)) {
-                    break;
-                }
-            }
-        }
-    }
-
-    let captured = std::fs::read_to_string(stdin_log.path()).unwrap();
-    assert!(captured.contains("\"event\":\"user\""));
-    assert!(captured.contains("check diagram"));
-    assert!(captured.contains("[Attached Media: /tmp/diagram.png (image/png)]"));
+        .unwrap_err();
+    assert!(err.to_string().contains("Unsupported media"));
     let _ = engine.shutdown(Duration::from_millis(200)).await;
 }
