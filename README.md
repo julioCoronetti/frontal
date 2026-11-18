@@ -1,6 +1,6 @@
 # Frontal
 
-Decoupled, asynchronous, high-performance Terminal User Interface (TUI) harness developed in **Rust** (version `0.15.1`) for the Antigravity CLI (`agy`) and agentic engines compatible with the `stream-json` protocol.
+Decoupled, asynchronous, high-performance Terminal User Interface (TUI) harness developed in **Rust** (version `0.16.0`) for the Antigravity CLI (`agy`) and agentic engines compatible with the `stream-json` protocol.
 
 ---
 
@@ -63,7 +63,7 @@ The codebase enforces strict decoupling into three cohesive architectural layers
 
 ## 5. Consolidated Capabilities and Continuous Evolution
 
-Frontal is operational in production (version `0.15.1`), fully verified by **236 tests across 8 domains**. Development progresses continuously via GitHub Project Board #8 cards across these consolidated domains:
+Frontal is operational in production (version `0.16.0`), fully verified by **236 tests across 8 domains**. Development progresses continuously via GitHub Project Board #8 cards across these consolidated domains:
 
 - **Foundation, `stream-json` & ACP Protocols, and Headless IPC:**
   - Single Cargo crate, session multiplexing via `SessionId`, typed `stream-json` and JSON-RPC 2.0 ACP (`agy acp --stdio`) protocols, `AcpEngine` with RFC 4648 Base64 `ImageContentBlock` and async permission handling, `AgyEngine`, `OpenCodeEngine`, `FixtureReplayEngine`, async line decoding via `LinesCodec` (16 MB buffer), structured `PromptPayload` (`text` + `media`), and POSIX process isolation (`setpgid`/`killpg`/`PR_SET_PDEATHSIG`).
@@ -119,7 +119,7 @@ cargo run --release -- --headless -p "Describe the project architecture"
 Detailed technical documentation is available on the [GitHub Wiki](https://github.com/julioCoronetti/frontal/wiki):
 
 - **[Home](https://github.com/julioCoronetti/frontal/wiki/Home)**: Central documentation index.
-- **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: Official Rust implementation architecture (v0.15.1), modules, Atlas Crimson theme, and 236 tests suite.
+- **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: Official Rust implementation architecture (v0.16.0), modules, Atlas Crimson theme, and 236 tests suite.
 - **[Board-Roadmap](https://github.com/julioCoronetti/frontal/wiki/Board-Roadmap)**: Architecture specification, Rust tech stack, decision matrix, consolidated capabilities, and Project Board evolution.
 - **Antigravity CLI (`agy`) Dossier**:
   - [Agy](https://github.com/julioCoronetti/frontal/wiki/Agy): Official CLI overview.
