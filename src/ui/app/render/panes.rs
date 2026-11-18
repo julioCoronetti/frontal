@@ -5,7 +5,7 @@ use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::ui::app::App;
-use crate::ui::theme::{ACCENT_PRIMARY, BG_SIDEBAR, TEXT_MUTED, TEXT_PRIMARY};
+use crate::ui::theme::{ACCENT_PRIMARY, BG_SIDEBAR, TEXT_INTERRUPT_HINT, TEXT_MUTED, TEXT_PRIMARY};
 
 impl App {
     pub(crate) fn render_chat(
@@ -20,15 +20,17 @@ impl App {
         } else {
             let total_lines = self.cache.ensure_visual_lines(chat_area.width);
             let queued_count = self.queued_prompts.len();
+            let armed_interrupt = self.is_interrupt_armed();
+            let show_turn_indicator = self.waiting_for_response || armed_interrupt;
             let total_with_spinner = total_lines
-                + if self.waiting_for_response { 1 } else { 0 }
+                + if show_turn_indicator { 1 } else { 0 }
                 + if queued_count > 0 { 1 } else { 0 };
             self.viewport
                 .sync_dimensions(total_with_spinner, chat_area.height as usize);
             let mut visible_lines = self.viewport.visible_slice(&self.cache);
 
             let status_margin = if chat_area.width > 4 { "  " } else { "" };
-            if self.waiting_for_response {
+            if show_turn_indicator {
                 let mut spans = Vec::new();
                 if !status_margin.is_empty() {
                     spans.push(Span::raw(status_margin));
@@ -39,12 +41,45 @@ impl App {
                         .fg(ACCENT_PRIMARY)
                         .add_modifier(Modifier::BOLD),
                 ));
-                spans.push(Span::styled(
-                    "Thinking...",
-                    Style::default()
-                        .fg(TEXT_MUTED)
-                        .add_modifier(Modifier::ITALIC),
-                ));
+                if armed_interrupt {
+                    let width = chat_area.width as usize;
+                    if width >= 39 {
+                        spans.push(Span::styled(
+                            "Thinking...",
+                            Style::default()
+                                .fg(TEXT_MUTED)
+                                .add_modifier(Modifier::ITALIC),
+                        ));
+                        spans.push(Span::raw("  "));
+                        spans.push(Span::styled(
+                            "esc again to interrupt",
+                            Style::default()
+                                .fg(TEXT_INTERRUPT_HINT)
+                                .add_modifier(Modifier::BOLD),
+                        ));
+                    } else if width >= 26 {
+                        spans.push(Span::styled(
+                            "esc again to interrupt",
+                            Style::default()
+                                .fg(TEXT_INTERRUPT_HINT)
+                                .add_modifier(Modifier::BOLD),
+                        ));
+                    } else {
+                        spans.push(Span::styled(
+                            "esc×2",
+                            Style::default()
+                                .fg(TEXT_INTERRUPT_HINT)
+                                .add_modifier(Modifier::BOLD),
+                        ));
+                    }
+                } else {
+                    spans.push(Span::styled(
+                        "Thinking...",
+                        Style::default()
+                            .fg(TEXT_MUTED)
+                            .add_modifier(Modifier::ITALIC),
+                    ));
+                }
                 visible_lines.push(Line::from(spans));
             }
 

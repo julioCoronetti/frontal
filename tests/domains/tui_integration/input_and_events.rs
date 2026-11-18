@@ -212,11 +212,11 @@ fn test_contextual_ctrl_c_and_slash_commands_routing() {
     assert!(app.editor.is_empty());
     assert!(!app.should_quit);
 
-    app.should_quit = false;
     app.session_manager
         .set_session_status(&sid, SessionStatus::RunningTurn);
     let act_running = app.handle_terminal_event(ctrl_c);
-    assert_eq!(act_running, Some(AppAction::Interrupt));
+    assert_eq!(act_running, None);
+    assert!(app.last_ctrl_c_at.is_some() && app.is_turn_active());
 
     app.session_manager
         .set_session_status(&sid, SessionStatus::Ready);

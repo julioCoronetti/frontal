@@ -33,6 +33,7 @@ impl App {
             self.turns_completed = 0;
             self.last_turn_duration_seconds = None;
             self.queued_prompts.clear();
+            self.esc_armed_at = None;
             self.status_text = String::from("Cleared");
             self.dirty = true;
             Some(None)

@@ -15,8 +15,12 @@ impl App {
         if !is_ctrl_c {
             self.last_ctrl_c_at = None;
         }
+        if key.code != KeyCode::Esc {
+            self.esc_armed_at = None;
+        }
 
         if !self.modals.is_empty() {
+            self.esc_armed_at = None;
             if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('t') {
                 self.modals.pop();
                 return Some(AppAction::NewTab);
@@ -90,18 +94,6 @@ impl App {
                 self.status_text = String::from("Input cleared");
                 self.dirty = true;
                 return None;
-            }
-
-            if self.is_turn_active() {
-                let _ = self.session_manager.interrupt_active();
-                self.queued_prompts.clear();
-                self.cache.consolidate_active_turn_with_meta(None, None);
-                self.status_text = String::from("Interrupted by user");
-                self.waiting_for_response = false;
-                self.queued_prompts.clear();
-                self.last_ctrl_c_at = None;
-                self.dirty = true;
-                return Some(AppAction::Interrupt);
             }
 
             if let Some(last) = self.last_ctrl_c_at {
@@ -209,6 +201,24 @@ impl App {
             }
             if self.popover.is_visible() {
                 self.popover.close();
+                self.dirty = true;
+                return None;
+            }
+            if self.is_turn_active() {
+                if self.is_interrupt_armed() {
+                    let _ = self.session_manager.interrupt_active();
+                    self.queued_prompts.clear();
+                    self.cache.consolidate_active_turn_with_meta(None, None);
+                    self.waiting_for_response = false;
+                    self.in_flight_usage = None;
+                    self.last_step_index = None;
+                    self.turn_started_at = None;
+                    self.esc_armed_at = None;
+                    self.status_text = String::from("Interrupted by user");
+                    self.dirty = true;
+                    return Some(AppAction::Interrupt);
+                }
+                self.esc_armed_at = Some(std::time::Instant::now());
                 self.dirty = true;
                 return None;
             }
