@@ -7,7 +7,7 @@ Reference documentation for on-demand inspection of repository modules.
 - `src/core/protocol/`: Strict typing and NDJSON/ACP deserialization (`EngineEvent`, `StreamEvent`, `ToolInfo`, `PromptPayload`, `MediaItem`) partitioned into `mod.rs`, `events.rs`, `agy.rs`, `opencode.rs`, and `acp.rs`.
 - `src/core/security/`: Deterministic containment security guard (`DangerAssessment`, `RiskCategory`) partitioned into `mod.rs`, `shell.rs`, and `sql.rs`.
 - `src/core/model_catalog.rs`: Runtime catalog mapping for discovered OpenCode/Antigravity models and providers.
-- `src/core/model_spec.rs`: Context window and model specification resolution (`ModelSpec`).
+- `src/core/model_spec.rs`: Context window, semaphore threshold, compact token formatting, and model specification resolution (`ModelSpec`, `ContextSemaphore`).
 - `src/core/config.rs`: Persistent user configuration (`~/.frontal/config.toml`, model, mode, and default effort).
 
 ## Infrastructure & IPC (`src/infra/`)
@@ -16,7 +16,7 @@ Reference documentation for on-demand inspection of repository modules.
 - `src/infra/transport/`: `EngineTransport` implementations (`AgyEngine` config with 16 MB `LinesCodec` buffer and `FixtureReplayEngine`) partitioned into `mod.rs` and `opencode.rs`.
 - `src/infra/session.rs`: Session multiplexing and management via `SessionId` and `SessionManager`.
 - `src/infra/clipboard/`: System clipboard integration via `arboard`, zero-dep PNG encoding (`image_codec.rs`), platform media fallbacks (`platform.rs`), isolated in-memory buffer, and OSC 52 fallback.
-- `src/infra/history/`: Command history persistence in SQLite WAL (`PromptHistory`) with RAII `Drop` flush, JSONL transcript parser (`TranscriptBlock`), and per-conversation message storage (`messages.rs`) for cross-engine resume.
+- `src/infra/history/`: Command history persistence in SQLite WAL (`PromptHistory`) with dedicated background worker (`worker.rs`), RAII `Drop` flush, non-blocking external `conversation_summaries.db` cache (`agent.rs`), JSONL transcript parser (`TranscriptBlock`), and per-conversation message/telemetry storage (`messages.rs`, `telemetry.rs`) for cross-engine resume.
 
 ## Terminal Interface (`src/ui/`)
 - `src/ui/mod.rs`: Asynchronous 60 FPS TUI event loop (crossterm `EventStream`, cancellation, render ticks).
