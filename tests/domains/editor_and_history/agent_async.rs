@@ -5,12 +5,13 @@ use crossterm::event::KeyModifiers;
 use frontal::infra::history::{
     load_agent_conversations_at, messages::is_custom_title_at,
     query_agent_conversation_timestamp_at, query_agent_conversation_title_at, telemetry,
-    PromptHistory, SessionRecord,
+    transcript::parse_transcript_telemetry, PromptHistory, SessionRecord,
 };
 use frontal::protocol::{
     EngineEvent, InitEvent, ResultData, ResultEvent, StepState, StepUpdateData, StepUpdateEvent,
     StreamEvent, TokenUsage,
 };
+use frontal::transport::EngineConfig;
 
 use crate::common::{press_key, test_app, TempDirGuard};
 
@@ -316,4 +317,63 @@ fn test_interrupt_persists_streaming_usage_for_resume() {
 
     let loaded = telemetry::load(&history_db, "conv-int-1").expect("telemetry persisted");
     assert_eq!(loaded.last.effective_total(), 111_091);
+}
+
+#[test]
+fn test_parse_transcript_telemetry_deduplicates_steps_and_extracts_model() {
+    let raw = [
+        r#"{"type":"USER_INPUT","content":"hello"}"#,
+        r#"{"type":"PLANNER_RESPONSE","step_index":1,"model":"gemini-3.8-flash-low","input_tokens":1000,"output_tokens":50,"cache_read_tokens":0}"#,
+        r#"{"type":"PLANNER_RESPONSE","step_index":1,"model":"gemini-3.8-flash-low","input_tokens":1200,"output_tokens":80,"cache_read_tokens":200}"#,
+        r#"{"type":"PLANNER_RESPONSE","step_index":2,"model":"gemini-4-hydrogen-high","input_tokens":0,"output_tokens":0,"cache_read_tokens":0}"#,
+        r#"{"type":"USER_INPUT","content":"next"}"#,
+        r#"{"type":"PLANNER_RESPONSE","step_index":4,"model":"gemini-4-hydrogen-high","input_tokens":3000,"output_tokens":400,"cache_read_tokens":10000}"#,
+    ]
+    .join("\n");
+
+    let snapshot = parse_transcript_telemetry(std::io::Cursor::new(raw)).expect("telemetry");
+    assert_eq!(snapshot.model.as_deref(), Some("gemini-4-hydrogen-high"));
+    assert_eq!(snapshot.steps, 2);
+    assert_eq!(snapshot.turns, 2);
+    assert_eq!(snapshot.last.input_tokens, 3000);
+    assert_eq!(snapshot.last.output_tokens, 400);
+    assert_eq!(snapshot.last.cache_read_tokens, 10000);
+    assert_eq!(snapshot.last.thinking_tokens, 0);
+    assert_eq!(snapshot.last.effective_total(), 13400);
+    assert_eq!(snapshot.accumulated.input_tokens, 4200);
+    assert_eq!(snapshot.accumulated.output_tokens, 480);
+    assert_eq!(snapshot.accumulated.cache_read_tokens, 10200);
+    assert_eq!(snapshot.accumulated.effective_total(), 14880);
+}
+
+#[test]
+fn test_split_model_effort_handles_agy_suffixes_and_plain_ids() {
+    assert_eq!(
+        EngineConfig::split_model_effort("gemini-4-hydrogen-high"),
+        ("gemini-4-hydrogen", Some("high"))
+    );
+    assert_eq!(
+        EngineConfig::split_model_effort("gemini-3.8-flash-xhigh"),
+        ("gemini-3.8-flash", Some("xhigh"))
+    );
+    assert_eq!(
+        EngineConfig::split_model_effort("claude-sonnet-5-5-max"),
+        ("claude-sonnet-5-5", Some("max"))
+    );
+    assert_eq!(
+        EngineConfig::split_model_effort("gemini-4-argon-low"),
+        ("gemini-4-argon", Some("low"))
+    );
+    assert_eq!(
+        EngineConfig::split_model_effort("gemini-4-argon-medium"),
+        ("gemini-4-argon", Some("medium"))
+    );
+    assert_eq!(
+        EngineConfig::split_model_effort("gemini-4-hydrogen"),
+        ("gemini-4-hydrogen", None)
+    );
+    assert_eq!(
+        EngineConfig::strip_effort_suffix("gemini-4-hydrogen-high"),
+        "gemini-4-hydrogen"
+    );
 }
