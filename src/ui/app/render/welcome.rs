@@ -107,10 +107,10 @@ fn push_gem_row_spans(spans: &mut Vec<Span<'static>>, row_idx: usize) {
 fn build_logo_lines() -> Vec<Line<'static>> {
     let shade = Style::default().fg(TAB_ACTIVE_BG);
 
-    let f_rows = ["█▀▀▀▀", "█    ", "█▀▀▀ ", "█    "];
+    let f_rows = ["▄▄▄▄▄", "█    ", "█▀▀▀ ", "█    "];
     let r_rows = ["    ", "█▀▀▄", "█   ", "█   "];
-    let t_rows = [" █ ", "▀█▀", " █ ", " █▄"];
-    let l_rows = ["█ ", "█ ", "█ ", "█▄"];
+    let t_rows = [" ▄ ", "▀█▀", " █ ", " █▄"];
+    let l_rows = ["▄ ", "█ ", "█ ", "█▄"];
 
     (0..4)
         .map(|row_idx| {

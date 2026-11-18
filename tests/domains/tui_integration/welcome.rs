@@ -47,7 +47,7 @@ fn test_hero_welcome_centered_layout_and_version_footer() {
     let logo_x = (0..buf.area.width)
         .find(|&x| {
             let cell = buf.cell((x, logo_y)).unwrap();
-            cell.symbol() == "█" && cell.fg == ACCENT_HIGHLIGHT
+            cell.symbol() == "▄" && cell.fg == ACCENT_HIGHLIGHT
         })
         .expect("logo top accent x");
     assert!(logo_x > 25 && logo_x < 55);
