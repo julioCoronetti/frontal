@@ -220,6 +220,34 @@ impl App {
         expired
     }
 
+    pub fn apply_pending_agent_updates(&mut self) -> bool {
+        let updates = self.history.poll_agent_title_updates();
+        if updates.is_empty() {
+            return false;
+        }
+        let mut changed = false;
+        for (cid, title) in updates {
+            let mut matched = false;
+            for tab in &mut self.tabs {
+                let tab_cid = self
+                    .session_manager
+                    .get_metadata(&tab.session_id)
+                    .and_then(|m| m.conversation_id.clone());
+                if tab_cid.as_deref() == Some(cid.as_str()) && !tab.custom_title {
+                    if tab.title != title {
+                        tab.title = title.clone();
+                        changed = true;
+                    }
+                    matched = true;
+                }
+            }
+            if matched {
+                self.history.rename_session(&cid, &title);
+            }
+        }
+        changed
+    }
+
     pub fn active_model_spec(&self) -> crate::model_spec::ModelSpec {
         let served = self.served_model.as_deref().unwrap_or("");
         let active = self.active_model_name();

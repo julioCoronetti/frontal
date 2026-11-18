@@ -53,6 +53,13 @@ impl App {
                         None,
                     );
                     self.sync_session_to_history(&envelope.session_id);
+                    if self.tabs[tab_idx].custom_title {
+                        let custom = self.tabs[tab_idx].title.clone();
+                        self.history.rename_session(conv_id, &custom);
+                        if !self.history.is_in_memory() {
+                            self.history.rename_agent_title(conv_id, &custom);
+                        }
+                    }
                 }
             } else if let StreamEvent::Result(ref res) = **boxed_ev {
                 let conv_id = res
@@ -67,13 +74,23 @@ impl App {
                         None,
                         None,
                     );
-                    if let Some(agent_title) =
-                        crate::ui::history::query_agent_conversation_title(&cid)
-                    {
-                        self.tabs[tab_idx].title = agent_title.clone();
-                        self.history.rename_session(&cid, &agent_title);
+                    if self.tabs[tab_idx].custom_title {
+                        self.sync_session_to_history(&envelope.session_id);
+                        let custom = self.tabs[tab_idx].title.clone();
+                        self.history.rename_session(&cid, &custom);
+                        if !self.history.is_in_memory() {
+                            self.history.rename_agent_title(&cid, &custom);
+                        }
+                    } else {
+                        if !self.history.is_in_memory() {
+                            if let Some(agent_title) = self.history.cached_agent_title(&cid) {
+                                self.tabs[tab_idx].title = agent_title.clone();
+                                self.history.rename_session(&cid, &agent_title);
+                            }
+                            self.history.request_agent_refresh(Some(cid.clone()));
+                        }
+                        self.sync_session_to_history(&envelope.session_id);
                     }
-                    self.sync_session_to_history(&envelope.session_id);
                 }
             }
         }
@@ -154,9 +171,19 @@ impl App {
                 self.tabs[tab_idx].pending_danger = None;
                 self.tabs[tab_idx].suspended_events.clear();
                 self.tabs[tab_idx].queued_prompts.clear();
+                let had_pending = self.tabs[tab_idx].cache.has_unconsolidated_blocks()
+                    || self.tabs[tab_idx].in_flight_usage.is_some();
                 self.tabs[tab_idx]
                     .cache
                     .consolidate_active_turn_with_meta(None, None);
+                if self.tabs[tab_idx].last_turn_usage.is_none() {
+                    self.tabs[tab_idx].last_turn_usage = self.tabs[tab_idx].in_flight_usage.take();
+                } else {
+                    self.tabs[tab_idx].in_flight_usage = None;
+                }
+                if had_pending {
+                    self.persist_completed_turn(tab_idx);
+                }
                 if is_active {
                     self.modals.remove_danger_modal();
                 }
@@ -166,7 +193,7 @@ impl App {
         }
     }
 
-    fn persist_completed_turn(&mut self, tab_idx: usize) {
+    pub(crate) fn persist_completed_turn(&mut self, tab_idx: usize) {
         let Some(conversation_id) = self
             .session_manager
             .get_metadata(&self.tabs[tab_idx].session_id)
@@ -207,7 +234,9 @@ impl App {
                 turn_meta,
             });
         }
-        let last_usage = self.tabs[tab_idx].last_turn_usage;
+        let last_usage = self.tabs[tab_idx]
+            .last_turn_usage
+            .or(self.tabs[tab_idx].in_flight_usage);
         if last_usage.is_some() || self.tabs[tab_idx].turns_completed > 0 {
             let model = self.tabs[tab_idx].served_model.clone().or_else(|| {
                 self.session_manager

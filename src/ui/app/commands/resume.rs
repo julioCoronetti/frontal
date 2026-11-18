@@ -4,29 +4,34 @@ use crate::ui::modal::{Modal, ModalAction};
 impl App {
     pub(crate) fn sync_session_to_history(&mut self, session_id: &crate::protocol::SessionId) {
         if let Some(meta) = self.session_manager.get_metadata(session_id) {
-            let tab_title = self
+            let tab_state = self
                 .tabs
                 .iter()
                 .find(|t| &t.session_id == session_id)
-                .map(|t| t.title.clone())
-                .filter(|t| {
-                    !t.starts_with("Session ") && t != "New session" && !t.trim().is_empty()
-                });
+                .map(|t| (t.title.clone(), t.custom_title));
+            let tab_custom = tab_state.as_ref().map(|(_, c)| *c).unwrap_or(false);
+            let tab_title = tab_state.map(|(t, _)| t).filter(|t| {
+                !t.starts_with("Session ") && t != "New session" && !t.trim().is_empty()
+            });
 
             let agent_title = if self.history.is_in_memory() {
                 None
             } else {
                 meta.conversation_id
                     .as_deref()
-                    .and_then(crate::ui::history::query_agent_conversation_title)
+                    .and_then(|cid| self.history.cached_agent_title(cid))
             };
-            let final_title = agent_title
-                .or_else(|| {
-                    meta.last_prompt
-                        .as_deref()
-                        .map(crate::ui::history::clean_session_title)
-                })
-                .or(tab_title);
+            let final_title = if tab_custom {
+                tab_title.or(agent_title)
+            } else {
+                agent_title
+                    .or_else(|| {
+                        meta.last_prompt
+                            .as_deref()
+                            .map(crate::ui::history::clean_session_title)
+                    })
+                    .or(tab_title)
+            };
 
             if let Some(ref t) = final_title {
                 if let Some(tab) = self.tabs.iter_mut().find(|tb| &tb.session_id == session_id) {
@@ -128,7 +133,7 @@ impl App {
 
         let mut past_sessions = self.history.resumable_sessions();
         if !self.history.is_in_memory() {
-            for ext in crate::ui::history::load_agent_conversations() {
+            for ext in self.history.cached_agent_conversations() {
                 if let Some(ref cid) = ext.conversation_id {
                     if let Some(existing) = past_sessions
                         .iter_mut()
@@ -145,6 +150,7 @@ impl App {
                     }
                 }
             }
+            self.history.request_agent_refresh(None);
         }
         past_sessions.sort_by_key(|a| std::cmp::Reverse(a.created_at));
 

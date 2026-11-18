@@ -215,10 +215,15 @@ impl App {
                     self.cache.consolidate_active_turn_with_meta(None, None);
                     self.cache.push_interrupted();
                     self.waiting_for_response = false;
+                    if self.last_turn_usage.is_none() {
+                        self.last_turn_usage = self.in_flight_usage;
+                    }
                     self.in_flight_usage = None;
                     self.last_step_index = None;
                     self.turn_started_at = None;
                     self.esc_armed_at = None;
+                    let active_idx = self.active_tab_index;
+                    self.persist_completed_turn(active_idx);
                     self.status_text = String::from("Interrupted by user");
                     self.dirty = true;
                     return Some(AppAction::Interrupt);

@@ -94,6 +94,7 @@ impl App {
                 return Some(None);
             }
             self.title = new_title.to_string();
+            self.custom_title = true;
             self.sync_session_to_history(&self.active_session.clone());
             self.history
                 .rename_session(self.active_session.as_str(), new_title);
@@ -103,7 +104,7 @@ impl App {
                 .and_then(|m| m.conversation_id.clone())
             {
                 self.history.rename_session(&conv_id, new_title);
-                let _ = crate::ui::history::update_agent_conversation_title(&conv_id, new_title);
+                self.history.rename_agent_title(&conv_id, new_title);
             }
             self.status_text = format!("Session renamed to: {}", new_title);
             self.dirty = true;
