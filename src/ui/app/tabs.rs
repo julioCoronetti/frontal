@@ -107,6 +107,7 @@ impl App {
 
         if self.tabs[0].cache.blocks_count() == 0 && !self.tabs[0].waiting_for_response {
             self.tabs[0].title = String::from("New session");
+            self.tabs[0].custom_title = false;
             self.tabs[0].has_unread = false;
             self.tabs[0].queued_prompts.clear();
             self.tabs[0].pending_danger = None;
@@ -176,6 +177,7 @@ impl App {
         effort: Option<String>,
         mode: Option<String>,
     ) -> Result<SessionId, crate::transport::EngineError> {
+        let tab_idx = self.active_tab_index;
         let old_id = self.active_session.clone();
         let was_replay = self.session_manager.is_replay_session(&old_id);
         let base_engine_config = self.session_manager.get_engine_config(&old_id);
@@ -200,7 +202,7 @@ impl App {
         let prev_backend = base_engine_config
             .as_ref()
             .map(|config| config.backend)
-            .unwrap_or(self.tabs[self.active_tab_index].backend);
+            .unwrap_or(self.tabs[tab_idx].backend);
         let requested_backend = conversation_id.as_deref().map(|id| {
             if id.starts_with("ses_") {
                 BackendKind::OpenCode
@@ -237,7 +239,8 @@ impl App {
         if let Some(md) = &final_mode {
             self.user_config.mode = md.clone();
         }
-        let _ = self.user_config.save();
+        let config_to_save = self.user_config.clone();
+        let _ = tokio::task::spawn_blocking(move || config_to_save.save()).await;
 
         let new_id = if was_replay {
             let id = SessionId::new();
@@ -263,12 +266,12 @@ impl App {
         };
         self.active_session = new_id.clone();
         self.session_manager.set_active_session(new_id.clone());
-        self.tabs[self.active_tab_index].session_id = new_id.clone();
-        self.tabs[self.active_tab_index].backend = target_backend;
-        self.tabs[self.active_tab_index].waiting_for_response = false;
-        self.pending_danger = None;
-        self.suspended_events.clear();
-        self.queued_prompts.clear();
+        self.tabs[tab_idx].session_id = new_id.clone();
+        self.tabs[tab_idx].backend = target_backend;
+        self.tabs[tab_idx].waiting_for_response = false;
+        self.tabs[tab_idx].pending_danger = None;
+        self.tabs[tab_idx].suspended_events.clear();
+        self.tabs[tab_idx].queued_prompts.clear();
         self.modals.remove_danger_modal();
 
         let is_different_conv = match (&final_conv_id, &prev_conv_id) {
@@ -277,24 +280,24 @@ impl App {
             _ => false,
         };
         if is_different_conv {
-            self.last_turn_usage = None;
-            self.accumulated_usage = crate::protocol::TokenUsage::default();
-            self.steps_seen = 0;
-            self.last_step_index = None;
-            self.turns_completed = 0;
-            self.last_turn_duration_seconds = None;
+            self.tabs[tab_idx].last_turn_usage = None;
+            self.tabs[tab_idx].accumulated_usage = crate::protocol::TokenUsage::default();
+            self.tabs[tab_idx].steps_seen = 0;
+            self.tabs[tab_idx].last_step_index = None;
+            self.tabs[tab_idx].turns_completed = 0;
+            self.tabs[tab_idx].last_turn_duration_seconds = None;
         }
-        self.in_flight_usage = None;
+        self.tabs[tab_idx].in_flight_usage = None;
         if is_different_conv || model_changed {
-            self.context_window_hint = None;
-            self.served_model = None;
+            self.tabs[tab_idx].context_window_hint = None;
+            self.tabs[tab_idx].served_model = None;
         }
-        if is_different_conv || self.cache.is_empty() {
+        if is_different_conv || self.tabs[tab_idx].cache.is_empty() {
             if let Some(ref cid) = final_conv_id {
                 let cid_clone = cid.clone();
                 let db_path = self.history.path().map(|path| path.to_path_buf());
                 let mut hydrated_cache = crate::ui::cache::RenderCache::new();
-                let (hydrated, new_cache, maybe_title, maybe_telemetry) =
+                let (hydrated, new_cache, maybe_title, is_custom_title, maybe_telemetry) =
                     tokio::task::spawn_blocking(move || {
                         let ok = crate::ui::history::hydrate_conversation(
                             &cid_clone,
@@ -303,6 +306,14 @@ impl App {
                         );
                         let title =
                             crate::ui::history::conversation_title(&cid_clone, db_path.as_deref());
+                        let custom = db_path
+                            .as_deref()
+                            .map(|path| {
+                                crate::infra::history::messages::is_custom_title_at(
+                                    path, &cid_clone,
+                                )
+                            })
+                            .unwrap_or(false);
                         let telemetry = db_path
                             .as_deref()
                             .and_then(|path| {
@@ -323,45 +334,49 @@ impl App {
                                     },
                                 )
                             });
-                        (ok, hydrated_cache, title, telemetry)
+                        (ok, hydrated_cache, title, custom, telemetry)
                     })
                     .await
                     .unwrap_or((
                         false,
                         crate::ui::cache::RenderCache::new(),
                         None,
+                        false,
                         None,
                     ));
 
                 if hydrated {
-                    self.cache = new_cache;
-                    self.viewport.scroll_to_bottom();
+                    self.tabs[tab_idx].cache = new_cache;
+                    self.tabs[tab_idx].viewport.scroll_to_bottom();
                 } else if is_different_conv {
-                    self.cache.clear();
+                    self.tabs[tab_idx].cache.clear();
                 }
                 if let Some(title) = maybe_title {
-                    self.tabs[self.active_tab_index].title = title;
+                    self.tabs[tab_idx].title = title;
+                    self.tabs[tab_idx].custom_title = is_custom_title;
+                } else if is_different_conv {
+                    self.tabs[tab_idx].custom_title = is_custom_title;
                 }
                 if let Some(snapshot) = maybe_telemetry {
                     let fallback_model = snapshot.model.clone();
-                    self.last_turn_usage = Some(snapshot.last);
-                    self.accumulated_usage = snapshot.accumulated;
-                    self.steps_seen = snapshot.steps;
-                    self.last_step_index = None;
-                    self.turns_completed = snapshot.turns;
-                    self.last_turn_duration_seconds = snapshot
+                    self.tabs[tab_idx].last_turn_usage = Some(snapshot.last);
+                    self.tabs[tab_idx].accumulated_usage = snapshot.accumulated;
+                    self.tabs[tab_idx].steps_seen = snapshot.steps;
+                    self.tabs[tab_idx].last_step_index = None;
+                    self.tabs[tab_idx].turns_completed = snapshot.turns;
+                    self.tabs[tab_idx].last_turn_duration_seconds = snapshot
                         .duration_millis
                         .map(|millis| millis as f64 / 1000.0);
                     if !model_changed {
                         if let Some(window) = snapshot.context_window {
-                            self.context_window_hint = Some(window);
+                            self.tabs[tab_idx].context_window_hint = Some(window);
                         }
                         if let Some(model) = snapshot.model.filter(|model| !model.trim().is_empty())
                         {
-                            self.served_model = Some(model);
+                            self.tabs[tab_idx].served_model = Some(model);
                         }
                     }
-                    let has_meta = self
+                    let has_meta = self.tabs[tab_idx]
                         .cache
                         .blocks()
                         .iter()
@@ -381,22 +396,22 @@ impl App {
                             output_tokens: (snapshot.last.output_tokens > 0)
                                 .then_some(snapshot.last.output_tokens),
                         };
-                        self.cache.set_last_assistant_turn_meta(meta);
+                        self.tabs[tab_idx].cache.set_last_assistant_turn_meta(meta);
                     }
                 }
             } else if is_different_conv {
-                self.cache.clear();
+                self.tabs[tab_idx].cache.clear();
             }
         }
 
-        self.tabs[self.active_tab_index].persisted_block_id = self
+        self.tabs[tab_idx].persisted_block_id = self.tabs[tab_idx]
             .cache
             .blocks()
             .last()
             .map(|block| block.id)
             .unwrap_or(0);
         self.sync_session_to_history(&new_id);
-        self.status_text = format!("Respawned session: {}", new_id);
+        self.tabs[tab_idx].status_text = format!("Respawned session: {}", new_id);
         self.dirty = true;
         Ok(new_id)
     }

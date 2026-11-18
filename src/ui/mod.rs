@@ -173,7 +173,9 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
             }
             _ = ticker.tick() => {
                 app.spinner_tick = app.spinner_tick.wrapping_add(1);
-                if app.expire_interrupt_timers() {
+                let timers_expired = app.expire_interrupt_timers();
+                let titles_updated = app.apply_pending_agent_updates();
+                if timers_expired || titles_updated {
                     app.dirty = true;
                 }
                 if app.waiting_for_response
@@ -193,6 +195,7 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     guard.restore();
+    app.history.flush();
     let _ = app
         .session_manager
         .shutdown_all(Duration::from_millis(500))
