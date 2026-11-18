@@ -10,7 +10,10 @@ pub mod format;
 pub mod slice;
 mod user_format;
 
-pub use format::wrap_text_utf8;
+pub use format::{
+    clamp_tool_output, wrap_text_utf8, TOOL_OUTPUT_HEAD_LINES, TOOL_OUTPUT_MAX_LINE_CHARS,
+    TOOL_OUTPUT_TAIL_LINES,
+};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TurnMeta {
@@ -157,7 +160,7 @@ impl RenderCache {
                 name: name.to_string(),
                 state: StepState::Done,
             },
-            content: output.unwrap_or_default().to_string(),
+            content: output.map(clamp_tool_output).unwrap_or_default(),
             revision: 1,
             consolidated: true,
             collapsed: true,
@@ -248,7 +251,7 @@ impl RenderCache {
                         block.tool_args = Some(a.to_string());
                     }
                     if let Some(out) = output {
-                        block.content = out.to_string();
+                        block.content = clamp_tool_output(out);
                     }
                     if state == StepState::Done {
                         block.collapsed = true;
@@ -268,7 +271,7 @@ impl RenderCache {
                 name: name.to_string(),
                 state,
             },
-            content: output.unwrap_or("").to_string(),
+            content: output.map(clamp_tool_output).unwrap_or_default(),
             revision: 1,
             consolidated: false,
             collapsed: is_collapsed,

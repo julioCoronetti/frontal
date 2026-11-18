@@ -9,6 +9,77 @@ use crate::ui::markdown::{
 };
 use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY};
 
+pub const TOOL_OUTPUT_HEAD_LINES: usize = 100;
+pub const TOOL_OUTPUT_TAIL_LINES: usize = 50;
+pub const TOOL_OUTPUT_MAX_LINE_CHARS: usize = 2048;
+
+fn clamp_single_line(line: &str, max_chars: usize) -> std::borrow::Cow<'_, str> {
+    if line.len() <= max_chars {
+        return std::borrow::Cow::Borrowed(line);
+    }
+    if let Some((byte_idx, _)) = line.char_indices().nth(max_chars) {
+        std::borrow::Cow::Owned(format!("{}… [line truncated]", &line[..byte_idx]))
+    } else {
+        std::borrow::Cow::Borrowed(line)
+    }
+}
+
+pub fn clamp_tool_output(raw: &str) -> String {
+    if raw.is_empty() {
+        return String::new();
+    }
+    let max_lines = TOOL_OUTPUT_HEAD_LINES + TOOL_OUTPUT_TAIL_LINES;
+    let mut head: Vec<std::borrow::Cow<'_, str>> = Vec::with_capacity(TOOL_OUTPUT_HEAD_LINES);
+    let mut tail: std::collections::VecDeque<&str> =
+        std::collections::VecDeque::with_capacity(TOOL_OUTPUT_TAIL_LINES);
+    let mut total_lines = 0usize;
+    let mut modified = false;
+
+    for line in raw.lines() {
+        total_lines += 1;
+        if head.len() < TOOL_OUTPUT_HEAD_LINES {
+            let clamped = clamp_single_line(line, TOOL_OUTPUT_MAX_LINE_CHARS);
+            if matches!(clamped, std::borrow::Cow::Owned(_)) {
+                modified = true;
+            }
+            head.push(clamped);
+        } else {
+            if tail.len() == TOOL_OUTPUT_TAIL_LINES {
+                tail.pop_front();
+            }
+            tail.push_back(line);
+        }
+    }
+
+    if total_lines <= max_lines {
+        let mut clamped_tail = Vec::with_capacity(tail.len());
+        for line in tail {
+            let clamped = clamp_single_line(line, TOOL_OUTPUT_MAX_LINE_CHARS);
+            if matches!(clamped, std::borrow::Cow::Owned(_)) {
+                modified = true;
+            }
+            clamped_tail.push(clamped);
+        }
+        if !modified {
+            return raw.to_string();
+        }
+        head.extend(clamped_tail);
+        return head.join("\n");
+    }
+
+    let elided = total_lines - max_lines;
+    let mut out = Vec::with_capacity(max_lines + 1);
+    out.extend(head);
+    out.push(std::borrow::Cow::Owned(format!(
+        "[... {} lines elided in UI ...]",
+        elided
+    )));
+    for line in tail {
+        out.push(clamp_single_line(line, TOOL_OUTPUT_MAX_LINE_CHARS));
+    }
+    out.join("\n")
+}
+
 pub fn sanitize_terminal_line(line: &str) -> String {
     let mut raw = line.trim_end_matches('\r');
     if let Some(pos) = raw.rfind('\r') {
