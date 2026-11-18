@@ -107,7 +107,7 @@ fn build_logo_lines() -> Vec<Line<'static>> {
     let r_rows = ["    ", "█▀▀▄", "█   ", "█   "];
     let n_rows = ["     ", "█▀▀▀▄", "█   █", "█   █"];
     let t_rows = [" ▄ ", "▀█▀", " █ ", " █▄"];
-    let a_rows = ["     ", "▀▀▀▀█", "█▀▀▀█", "█▄▄▄█"];
+    let a_rows = ["    ", "▀▀▀█", "█▀▀█", "█▄▄█"];
     let l_rows = ["▄  ", "█  ", "█  ", "█▄▄"];
 
     (0..4)
@@ -227,7 +227,7 @@ impl App {
     }
 
     pub(crate) fn render_welcome_compact(&self, frame: &mut Frame, chat_area: Rect) {
-        let use_block_logo = chat_area.width >= 36 && chat_area.height >= 6;
+        let use_block_logo = chat_area.width >= 35 && chat_area.height >= 6;
         let needed_with_pad = if use_block_logo { 6 } else { 3 };
         let mut lines = Vec::new();
         if chat_area.height >= needed_with_pad {
