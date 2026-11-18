@@ -31,12 +31,12 @@ fn test_hero_welcome_centered_layout_and_version_footer() {
     assert!(!text.contains("Async TUI for Antigravity"));
     assert!(!text.contains("/resume"));
     assert!(text.contains(&app.cwd_display));
-    assert!(text.contains("Ctrl+P: Palette"));
+    assert!(text.contains("Ctrl+P: Commands"));
 
     let gem_y = find_row_containing(buf, "▄▀▀▀▀▄").expect("gem top row");
     let logo_y = gem_y.saturating_sub(1);
     let input_y = find_row_containing(buf, "Gemini 3.8 Flash").expect("input row");
-    let meta_y = find_row_containing(buf, "Ctrl+P: Palette").expect("meta bar row");
+    let meta_y = find_row_containing(buf, "Ctrl+P: Commands").expect("meta bar row");
     let footer_y = find_row_containing(buf, &version_badge).expect("version footer row");
 
     assert!(logo_y > 2 && logo_y < input_y);

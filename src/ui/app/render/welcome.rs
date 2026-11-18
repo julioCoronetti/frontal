@@ -218,12 +218,12 @@ impl App {
         )]));
         frame.render_widget(cwd_widget, chunks[0]);
 
-        let palette_widget = Paragraph::new(Line::from(vec![
+        let commands_widget = Paragraph::new(Line::from(vec![
             Span::styled("Ctrl+P", Style::default().fg(TEXT_PRIMARY)),
-            Span::styled(": Palette", Style::default().fg(TEXT_MUTED)),
+            Span::styled(": Commands", Style::default().fg(TEXT_MUTED)),
         ]))
         .alignment(Alignment::Right);
-        frame.render_widget(palette_widget, chunks[1]);
+        frame.render_widget(commands_widget, chunks[1]);
     }
 
     pub(crate) fn render_welcome_compact(&self, frame: &mut Frame, chat_area: Rect) {

@@ -263,7 +263,7 @@ impl App {
 
         let shortcuts_widget = Paragraph::new(Line::from(vec![
             Span::styled("Ctrl+P", Style::default().fg(TEXT_PRIMARY)),
-            Span::styled(": Palette", Style::default().fg(TEXT_MUTED)),
+            Span::styled(": Commands", Style::default().fg(TEXT_MUTED)),
         ]))
         .alignment(ratatui::layout::Alignment::Right);
         frame.render_widget(shortcuts_widget, footer_chunks[1]);

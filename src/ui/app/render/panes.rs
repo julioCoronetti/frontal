@@ -40,7 +40,7 @@ impl App {
                         .add_modifier(Modifier::BOLD),
                 ));
                 spans.push(Span::styled(
-                    "Thinking / Waiting for response...",
+                    "Thinking...",
                     Style::default()
                         .fg(TEXT_MUTED)
                         .add_modifier(Modifier::ITALIC),

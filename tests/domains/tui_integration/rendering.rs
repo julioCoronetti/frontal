@@ -126,7 +126,7 @@ fn test_multisession_tabs_ui_rendering_on_test_backend() {
 
     assert!(rendered.contains("New session"));
     assert!(rendered.contains("Secondary*"));
-    assert!(rendered.contains("Ctrl+P: Palette"));
+    assert!(rendered.contains("Ctrl+P: Commands"));
 
     app.modals
         .push(Modal::CommandPalette(CommandPaletteModal::new()));
@@ -177,7 +177,7 @@ fn test_footer_cwd_and_active_model_header() {
 
     assert!(rendered.contains(&app.cwd_display));
     assert!(rendered.contains("Gemini 3.8 Flash"));
-    assert!(rendered.contains("Ctrl+P: Palette"));
+    assert!(rendered.contains("Ctrl+P: Commands"));
 }
 
 #[test]
@@ -213,7 +213,7 @@ fn test_opencode_visual_layout_and_symmetry() {
     assert!(rendered_text.contains('+'));
     assert!(rendered_text.contains("New session"));
     assert!(rendered_text.contains(&app.cwd_display));
-    assert!(rendered_text.contains("Ctrl+P: Palette"));
+    assert!(rendered_text.contains("Ctrl+P: Commands"));
     assert!(!rendered_text.contains("#hex"));
     assert!(!rendered_text.contains("/model"));
     assert!(rendered_text.contains("Gemini 4 Argon · 1.5s · 200.0 tok/s"));
@@ -329,7 +329,7 @@ async fn test_markdown_headings_and_ui_refinements_on_test_backend() {
         .map(|c| c.symbol())
         .collect::<Vec<_>>()
         .join("");
-    assert!(text2.contains("Thinking / Waiting for response..."));
+    assert!(text2.contains("Thinking..."));
     assert_eq!(app.cache.blocks_count(), initial_blocks);
 
     let down_event = press_key(KeyCode::Down, KeyModifiers::NONE);
