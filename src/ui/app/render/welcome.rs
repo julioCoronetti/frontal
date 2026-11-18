@@ -1,77 +1,183 @@
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::Style;
+use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::ui::app::App;
-use crate::ui::theme::{ACCENT_PRIMARY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY};
+use crate::ui::theme::{
+    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY,
+};
 
 const HERO_INPUT_MAX_WIDTH: u16 = 76;
-const LOGO_GLYPHS: [&[&str]; 7] = [
-    &[
-        "████████",
-        "██      ",
-        "██      ",
-        "██████  ",
-        "██      ",
-        "██      ",
-        "██      ",
+
+const GEM_PIXELS: [[Option<(u8, u8, u8)>; 8]; 8] = [
+    [
+        None,
+        None,
+        Some((105, 16, 38)),
+        Some((230, 43, 67)),
+        Some((230, 43, 67)),
+        Some((177, 12, 41)),
+        None,
+        None,
     ],
-    &[
-        "        ",
-        "        ",
-        "██████  ",
-        "██   ██ ",
-        "██      ",
-        "██      ",
-        "██      ",
+    [
+        None,
+        Some((53, 14, 30)),
+        Some((105, 16, 38)),
+        Some((152, 18, 45)),
+        Some((255, 59, 80)),
+        Some((255, 59, 80)),
+        Some((198, 25, 51)),
+        None,
     ],
-    &[
-        "        ",
-        "        ",
-        " █████  ",
-        "██   ██ ",
-        "██   ██ ",
-        "██   ██ ",
-        " █████  ",
+    [
+        Some((25, 15, 28)),
+        Some((87, 13, 36)),
+        Some((87, 13, 36)),
+        Some((177, 12, 41)),
+        Some((177, 12, 41)),
+        Some((255, 59, 80)),
+        Some((177, 12, 41)),
+        Some((72, 11, 32)),
     ],
-    &[
-        "        ",
-        "        ",
-        "██████  ",
-        "██   ██ ",
-        "██   ██ ",
-        "██   ██ ",
-        "██   ██ ",
+    [
+        Some((25, 15, 28)),
+        Some((87, 13, 36)),
+        Some((38, 15, 29)),
+        Some((38, 15, 29)),
+        Some((177, 12, 41)),
+        Some((177, 12, 41)),
+        Some((72, 11, 32)),
+        Some((72, 11, 32)),
     ],
-    &[
-        "  ██    ",
-        "  ██    ",
-        "██████  ",
-        "  ██    ",
-        "  ██    ",
-        "  ██    ",
-        "   ████ ",
+    [
+        Some((47, 17, 33)),
+        Some((38, 15, 29)),
+        Some((38, 15, 29)),
+        Some((38, 15, 29)),
+        Some((177, 12, 41)),
+        Some((177, 12, 41)),
+        Some((72, 11, 32)),
+        Some((73, 11, 32)),
     ],
-    &[
-        "        ",
-        "        ",
-        " █████  ",
-        "     ██ ",
-        " ██████ ",
-        "██   ██ ",
-        " ██████ ",
+    [
+        Some((47, 17, 33)),
+        Some((38, 15, 29)),
+        Some((72, 11, 32)),
+        Some((72, 11, 32)),
+        Some((38, 15, 29)),
+        Some((72, 11, 32)),
+        Some((72, 11, 32)),
+        Some((24, 15, 28)),
     ],
-    &[
-        "██      ",
-        "██      ",
-        "██      ",
-        "██      ",
-        "██      ",
-        "██      ",
-        " ███    ",
+    [
+        None,
+        Some((66, 17, 39)),
+        Some((72, 11, 32)),
+        Some((72, 11, 32)),
+        Some((66, 17, 39)),
+        Some((24, 15, 28)),
+        Some((92, 16, 38)),
+        None,
     ],
+    [
+        None,
+        None,
+        Some((24, 15, 28)),
+        Some((66, 17, 39)),
+        Some((24, 15, 28)),
+        Some((134, 16, 44)),
+        None,
+        None,
+    ],
+];
+
+const GLYPH_F: [&str; 10] = [
+    "████████",
+    "████████",
+    "██      ",
+    "██      ",
+    "██████  ",
+    "██████  ",
+    "██      ",
+    "██      ",
+    "██      ",
+    "██      ",
+];
+
+const GLYPH_R: [&str; 10] = [
+    "      ",
+    "      ",
+    "██ ██ ",
+    "██████",
+    "███   ",
+    "██    ",
+    "██    ",
+    "██    ",
+    "██    ",
+    "██    ",
+];
+
+const GLYPH_N: [&str; 10] = [
+    "        ",
+    "        ",
+    "██████  ",
+    "███████ ",
+    "██   ██ ",
+    "██   ██ ",
+    "██   ██ ",
+    "██   ██ ",
+    "██   ██ ",
+    "██   ██ ",
+];
+
+const GLYPH_T: [&str; 10] = [
+    "  ██  ",
+    "  ██  ",
+    "██████",
+    "██████",
+    "  ██  ",
+    "  ██  ",
+    "  ██  ",
+    "  ██  ",
+    "  ██  ",
+    "  ████",
+];
+
+const GLYPH_A: [&str; 10] = [
+    "        ",
+    "        ",
+    " █████  ",
+    " ██████ ",
+    "     ██ ",
+    " ██████ ",
+    "██   ██ ",
+    "██   ██ ",
+    "███████ ",
+    " ██████ ",
+];
+
+const GLYPH_L: [&str; 10] = [
+    "██  ",
+    "██  ",
+    "██  ",
+    "██  ",
+    "██  ",
+    "██  ",
+    "██  ",
+    "██  ",
+    "██  ",
+    "████",
+];
+
+const LETTER_ROW_COLORS: [Color; 5] = [
+    ACCENT_HIGHLIGHT,
+    Color::Rgb(218, 36, 61),
+    ACCENT_PRIMARY,
+    ACCENT_RUBY,
+    BORDER_SUBTLE,
 ];
 
 fn quadrant_char(tl: bool, tr: bool, bl: bool, br: bool) -> char {
@@ -95,120 +201,78 @@ fn quadrant_char(tl: bool, tr: bool, bl: bool, br: bool) -> char {
     }
 }
 
-fn glyph_cell(bmp: &[Vec<u8>], cy: usize, cx: usize) -> (char, Style) {
-    let face = Style::default().fg(ACCENT_PRIMARY);
-    let face_on_shadow = Style::default().fg(ACCENT_PRIMARY).bg(BORDER_SUBTLE);
-    let shadow = Style::default().fg(BORDER_SUBTLE);
+fn render_glyph_row(glyph: &[&str; 10], row_idx: usize) -> Span<'static> {
+    let cy = row_idx * 2;
+    let chars: Vec<char> = glyph[cy].chars().collect();
+    let bot_chars: Vec<char> = glyph[cy + 1].chars().collect();
 
-    let vals = [
-        bmp[cy][cx],
-        bmp[cy][cx + 1],
-        bmp[cy + 1][cx],
-        bmp[cy + 1][cx + 1],
-    ];
-    let has_face = vals.contains(&1);
-    let has_shadow = vals.contains(&2);
-    let has_empty = vals.contains(&0);
-
-    if has_face {
-        let ch = quadrant_char(vals[0] == 1, vals[1] == 1, vals[2] == 1, vals[3] == 1);
-        let style = if has_shadow && !has_empty {
-            face_on_shadow
-        } else {
-            face
-        };
-        (ch, style)
-    } else if has_shadow {
-        let ch = quadrant_char(vals[0] == 2, vals[1] == 2, vals[2] == 2, vals[3] == 2);
-        (ch, shadow)
-    } else {
-        (' ', Style::default())
+    let mut out = String::with_capacity(chars.len() / 2);
+    let mut cx = 0;
+    while cx + 1 < chars.len() {
+        let ch = quadrant_char(
+            chars[cx] == '█',
+            chars[cx + 1] == '█',
+            bot_chars[cx] == '█',
+            bot_chars[cx + 1] == '█',
+        );
+        out.push(ch);
+        cx += 2;
     }
+    Span::styled(out, Style::default().fg(LETTER_ROW_COLORS[row_idx]))
 }
 
-fn build_glyph_cells(glyph: &[&str]) -> Vec<Vec<(char, Style)>> {
-    let max_x = glyph
-        .iter()
-        .filter_map(|row| {
-            row.chars()
-                .enumerate()
-                .filter(|&(_, ch)| ch == '█')
-                .map(|(char_idx, _)| char_idx + 1)
-                .last()
-        })
-        .max()
-        .unwrap_or(2);
-    let mut width = max_x + 1;
-    if width % 2 == 1 {
-        width += 1;
+fn push_gem_row_spans(spans: &mut Vec<Span<'static>>, row_idx: usize) {
+    if row_idx == 0 {
+        spans.push(Span::raw("        "));
+        return;
     }
-
-    let mut bmp = vec![vec![0u8; width]; 8];
-    for (y, row) in glyph.iter().enumerate().take(7) {
-        for (x, ch) in row.chars().enumerate().take(width) {
-            if ch == '█' {
-                bmp[y][x] = 1;
+    let py = (row_idx - 1) * 2;
+    for (&top, &bot) in GEM_PIXELS[py].iter().zip(GEM_PIXELS[py + 1].iter()) {
+        match (top, bot) {
+            (Some((tr, tg, tb)), Some((br, bg_g, bb))) => {
+                spans.push(Span::styled(
+                    "▀",
+                    Style::default()
+                        .fg(Color::Rgb(tr, tg, tb))
+                        .bg(Color::Rgb(br, bg_g, bb)),
+                ));
+            }
+            (Some((tr, tg, tb)), None) => {
+                spans.push(Span::styled(
+                    "▀",
+                    Style::default().fg(Color::Rgb(tr, tg, tb)),
+                ));
+            }
+            (None, Some((br, bg_g, bb))) => {
+                spans.push(Span::styled(
+                    "▄",
+                    Style::default().fg(Color::Rgb(br, bg_g, bb)),
+                ));
+            }
+            (None, None) => {
+                spans.push(Span::raw(" "));
             }
         }
     }
-    for y in 0..7 {
-        for x in 0..width.saturating_sub(1) {
-            if bmp[y][x] == 1 && bmp[y + 1][x + 1] == 0 {
-                bmp[y + 1][x + 1] = 2;
-            }
-        }
-    }
-
-    (0..8)
-        .step_by(2)
-        .map(|cy| {
-            (0..width)
-                .step_by(2)
-                .map(|cx| glyph_cell(&bmp, cy, cx))
-                .collect()
-        })
-        .collect()
 }
 
 fn build_logo_lines() -> Vec<Line<'static>> {
-    let blocks: Vec<Vec<Vec<(char, Style)>>> =
-        LOGO_GLYPHS.iter().map(|g| build_glyph_cells(g)).collect();
-
-    (0..4)
+    (0..5)
         .map(|row_idx| {
-            let mut spans: Vec<Span<'static>> = Vec::new();
-            let mut active_style: Option<Style> = None;
-            let mut buf = String::new();
-
-            for (g_idx, block) in blocks.iter().enumerate() {
-                if g_idx > 0 {
-                    if active_style == Some(Style::default()) {
-                        buf.push(' ');
-                    } else {
-                        if let Some(st) = active_style.take() {
-                            spans.push(Span::styled(std::mem::take(&mut buf), st));
-                        }
-                        buf.push(' ');
-                        active_style = Some(Style::default());
-                    }
-                }
-                for &(ch, style) in &block[row_idx] {
-                    if active_style == Some(style) {
-                        buf.push(ch);
-                    } else {
-                        if let Some(st) = active_style.take() {
-                            spans.push(Span::styled(std::mem::take(&mut buf), st));
-                        }
-                        buf.push(ch);
-                        active_style = Some(style);
-                    }
-                }
-            }
-            if let Some(st) = active_style {
-                if !buf.is_empty() {
-                    spans.push(Span::styled(buf, st));
-                }
-            }
+            let mut spans = Vec::with_capacity(18);
+            spans.push(render_glyph_row(&GLYPH_F, row_idx));
+            spans.push(Span::raw(" "));
+            spans.push(render_glyph_row(&GLYPH_R, row_idx));
+            spans.push(Span::raw(" "));
+            push_gem_row_spans(&mut spans, row_idx);
+            spans.push(Span::raw(" "));
+            spans.push(render_glyph_row(&GLYPH_N, row_idx));
+            spans.push(Span::raw(" "));
+            spans.push(render_glyph_row(&GLYPH_T, row_idx));
+            spans.push(Span::raw(" "));
+            spans.push(render_glyph_row(&GLYPH_A, row_idx));
+            spans.push(Span::raw(" "));
+            spans.push(render_glyph_row(&GLYPH_L, row_idx));
             Line::from(spans)
         })
         .collect()
@@ -308,8 +372,8 @@ impl App {
     }
 
     pub(crate) fn render_welcome_compact(&self, frame: &mut Frame, chat_area: Rect) {
-        let use_block_logo = chat_area.width >= 34 && chat_area.height >= 6;
-        let needed_with_pad = if use_block_logo { 6 } else { 3 };
+        let use_block_logo = chat_area.width >= 34 && chat_area.height >= 7;
+        let needed_with_pad = if use_block_logo { 7 } else { 3 };
         let mut lines = Vec::new();
         if chat_area.height >= needed_with_pad {
             lines.push(Line::from(""));
@@ -317,10 +381,11 @@ impl App {
         if use_block_logo {
             lines.extend(build_logo_lines());
         } else {
-            lines.push(Line::from(vec![Span::styled(
-                "Frontal",
-                Style::default().fg(ACCENT_PRIMARY),
-            )]));
+            lines.push(Line::from(vec![
+                Span::styled("F", Style::default().fg(ACCENT_HIGHLIGHT)),
+                Span::styled("ron", Style::default().fg(ACCENT_PRIMARY)),
+                Span::styled("tal", Style::default().fg(ACCENT_RUBY)),
+            ]));
         }
         lines.push(Line::from(vec![Span::styled(
             format!("v{}", env!("CARGO_PKG_VERSION")),
