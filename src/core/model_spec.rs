@@ -1,6 +1,14 @@
 use serde::{Deserialize, Serialize};
 
 pub const COMPACTION_THRESHOLD_PCT: f64 = 75.0;
+pub const SEMAPHORE_WARNING_RATIO: f64 = 2.0 / 3.0;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContextSemaphore {
+    Green,
+    Yellow,
+    Red,
+}
 
 const FAMILY_CONTEXT_WINDOWS: &[(&str, u64)] = &[("gemini", 1_000_000), ("claude", 200_000)];
 const EFFORT_SUFFIXES: &[&str] = &["-xhigh", "-medium", "-high", "-low", "-max"];
@@ -130,6 +138,39 @@ impl ModelSpec {
         self.occupancy_pct(used)
             .map(|pct| pct >= COMPACTION_THRESHOLD_PCT)
             .unwrap_or(false)
+    }
+
+    pub fn semaphore(&self, used: u64) -> Option<ContextSemaphore> {
+        let pct = self.occupancy_pct(used)?;
+        if pct >= COMPACTION_THRESHOLD_PCT {
+            Some(ContextSemaphore::Red)
+        } else if pct >= COMPACTION_THRESHOLD_PCT * SEMAPHORE_WARNING_RATIO {
+            Some(ContextSemaphore::Yellow)
+        } else {
+            Some(ContextSemaphore::Green)
+        }
+    }
+}
+
+pub fn format_compact_tokens(value: u64) -> String {
+    if value >= 999_500 {
+        let tenths = (value + 50_000) / 100_000;
+        if tenths.is_multiple_of(10) {
+            format!("{}M", tenths / 10)
+        } else {
+            format!("{}.{}M", tenths / 10, tenths % 10)
+        }
+    } else if value >= 9_950 {
+        format!("{}k", (value + 500) / 1_000)
+    } else if value >= 1_000 {
+        let tenths = (value + 50) / 100;
+        if tenths.is_multiple_of(10) {
+            format!("{}k", tenths / 10)
+        } else {
+            format!("{}.{}k", tenths / 10, tenths % 10)
+        }
+    } else {
+        value.to_string()
     }
 }
 

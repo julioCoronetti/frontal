@@ -4,6 +4,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
+use crate::core::model_spec::format_compact_tokens;
+use crate::ui::app::render::semaphore_color;
 use crate::ui::app::{App, HitAction, HitRegion};
 use crate::ui::editor::TriggerKind;
 use crate::ui::theme::{
@@ -249,10 +251,26 @@ impl App {
         frame.render_widget(divider_widget, divider_area);
     }
 
-    pub(crate) fn render_footer(&self, frame: &mut Frame, footer_area: Rect) {
+    pub(crate) fn render_footer(&self, frame: &mut Frame, footer_area: Rect, show_sidebar: bool) {
+        let mut right_spans = Vec::new();
+        if !show_sidebar {
+            let gauge_spans = self.compact_context_gauge_spans(footer_area.width);
+            if !gauge_spans.is_empty() {
+                right_spans.extend(gauge_spans);
+                right_spans.push(Span::styled("  ", Style::default().fg(TEXT_MUTED)));
+            }
+        }
+        right_spans.push(Span::styled("Ctrl+P", Style::default().fg(TEXT_PRIMARY)));
+        right_spans.push(Span::styled(": Commands", Style::default().fg(TEXT_MUTED)));
+
+        let right_width = right_spans
+            .iter()
+            .map(|span| span.width())
+            .sum::<usize>()
+            .min(footer_area.width as usize) as u16;
         let footer_chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Min(10), Constraint::Length(18)])
+            .constraints([Constraint::Min(1), Constraint::Length(right_width)])
             .split(footer_area);
 
         let cwd_widget = Paragraph::new(Line::from(vec![Span::styled(
@@ -261,12 +279,46 @@ impl App {
         )]));
         frame.render_widget(cwd_widget, footer_chunks[0]);
 
-        let shortcuts_widget = Paragraph::new(Line::from(vec![
-            Span::styled("Ctrl+P", Style::default().fg(TEXT_PRIMARY)),
-            Span::styled(": Commands", Style::default().fg(TEXT_MUTED)),
-        ]))
-        .alignment(ratatui::layout::Alignment::Right);
+        let shortcuts_widget =
+            Paragraph::new(Line::from(right_spans)).alignment(ratatui::layout::Alignment::Right);
         frame.render_widget(shortcuts_widget, footer_chunks[1]);
+    }
+
+    fn compact_context_gauge_spans(&self, footer_width: u16) -> Vec<Span<'static>> {
+        let used_tokens = self
+            .last_turn_usage
+            .as_ref()
+            .map(|usage| usage.effective_total())
+            .unwrap_or(0);
+        let spec = self.active_model_spec();
+        if let (Some(pct), Some(sem)) =
+            (spec.occupancy_pct(used_tokens), spec.semaphore(used_tokens))
+        {
+            let dot_color = semaphore_color(sem);
+            let label = match spec.compaction_threshold() {
+                Some(threshold) if footer_width >= 56 => format!(
+                    " {:.0}% ({}/{})",
+                    pct,
+                    format_compact_tokens(used_tokens),
+                    format_compact_tokens(threshold)
+                ),
+                _ => format!(" {:.0}%", pct),
+            };
+            return vec![
+                Span::styled("●", Style::default().fg(dot_color)),
+                Span::styled(label, Style::default().fg(TEXT_MUTED)),
+            ];
+        }
+        if used_tokens > 0 {
+            return vec![
+                Span::styled("●", Style::default().fg(TEXT_MUTED)),
+                Span::styled(
+                    format!(" {} tok", format_compact_tokens(used_tokens)),
+                    Style::default().fg(TEXT_MUTED),
+                ),
+            ];
+        }
+        Vec::new()
     }
 
     pub(crate) fn render_version_footer(&self, frame: &mut Frame, footer_area: Rect) {
@@ -373,8 +425,8 @@ impl App {
         }
 
         let title = match self.popover.kind {
-            TriggerKind::Command => " Commands (Tab/Enter: apply, Esc: close) ",
-            TriggerKind::File => " Files (Tab/Enter: apply, Esc: close) ",
+            TriggerKind::Command => " Commands ",
+            TriggerKind::File => " Files ",
         };
 
         let popover_widget = Paragraph::new(popover_lines).block(

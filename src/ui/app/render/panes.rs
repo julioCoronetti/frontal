@@ -4,6 +4,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::Frame;
 
+use crate::core::model_spec::format_compact_tokens;
+use crate::ui::app::render::semaphore_color;
 use crate::ui::app::App;
 use crate::ui::theme::{ACCENT_PRIMARY, BG_SIDEBAR, TEXT_INTERRUPT_HINT, TEXT_MUTED, TEXT_PRIMARY};
 
@@ -157,14 +159,28 @@ impl App {
                 bar_style,
             ),
         ];
-        match spec.occupancy_pct(used_tokens) {
-            Some(pct) => sb_lines.push(sidebar_line(
-                &format!("{:.0}% used", pct),
-                ACCENT_PRIMARY,
-                false,
-                bar_style,
-            )),
-            None => sb_lines.push(sidebar_line("window unknown", TEXT_MUTED, false, bar_style)),
+        match (spec.occupancy_pct(used_tokens), spec.semaphore(used_tokens)) {
+            (Some(pct), Some(sem)) => {
+                let summary = match spec.compaction_threshold() {
+                    Some(threshold) => format!(
+                        " {:.0}% used ({}/{})",
+                        pct,
+                        format_compact_tokens(used_tokens),
+                        format_compact_tokens(threshold)
+                    ),
+                    None => format!(" {:.0}% used", pct),
+                };
+                sb_lines.push(Line::from(vec![
+                    Span::styled("▌", bar_style),
+                    Span::styled(" ", Style::default().bg(BG_SIDEBAR)),
+                    Span::styled(
+                        "●",
+                        Style::default().fg(semaphore_color(sem)).bg(BG_SIDEBAR),
+                    ),
+                    Span::styled(summary, Style::default().fg(TEXT_MUTED).bg(BG_SIDEBAR)),
+                ]));
+            }
+            _ => sb_lines.push(sidebar_line("window unknown", TEXT_MUTED, false, bar_style)),
         }
         while sb_lines.len() < sb_area.height as usize {
             sb_lines.push(Line::from(vec![Span::styled("▌", bar_style)]));

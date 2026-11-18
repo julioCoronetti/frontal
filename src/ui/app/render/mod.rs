@@ -4,14 +4,24 @@ mod panes;
 mod welcome;
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::Color;
 use ratatui::widgets::Clear;
 use ratatui::Frame;
 
+use crate::core::model_spec::ContextSemaphore;
 use crate::ui::app::App;
 
 const SIDEBAR_WIDTH: u16 = 38;
 const SIDEBAR_GAP: u16 = 2;
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+pub(super) fn semaphore_color(sem: ContextSemaphore) -> Color {
+    match sem {
+        ContextSemaphore::Green => Color::Green,
+        ContextSemaphore::Yellow => Color::Yellow,
+        ContextSemaphore::Red => Color::Red,
+    }
+}
 
 impl App {
     pub fn render(&mut self, frame: &mut Frame) {
@@ -125,7 +135,7 @@ impl App {
                 frame.set_cursor_position((cursor_x, cursor_y));
             }
 
-            self.render_footer(frame, footer_area);
+            self.render_footer(frame, footer_area, show_sidebar);
             self.render_popover(frame, input_area, area, false);
         }
 
