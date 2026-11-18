@@ -108,7 +108,7 @@ fn build_logo_lines() -> Vec<Line<'static>> {
     let n_rows = ["     ", "█▀▀▀▄", "█   █", "█   █"];
     let t_rows = [" ▄ ", "▀█▀", " █ ", " █▄"];
     let a_rows = ["    ", "▀▀▀█", "█▀▀█", "█▄▄█"];
-    let l_rows = ["▄  ", "█  ", "█  ", "█▄▄"];
+    let l_rows = ["   ", "█  ", "█  ", "█▄▄"];
 
     (0..4)
         .map(|row_idx| {
