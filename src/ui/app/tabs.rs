@@ -210,6 +210,7 @@ impl App {
                 BackendKind::Agy
             }
         });
+        let is_explicit_config_change = conversation_id.is_none();
         let target_backend = requested_backend.unwrap_or(self.user_config.backend);
         if let Some(backend) = requested_backend {
             self.user_config.backend = backend;
@@ -222,31 +223,100 @@ impl App {
                 .clone()
                 .filter(|id| backend_compatible(target_backend, id)),
         };
+        let is_different_conv = match (&final_conv_id, &prev_conv_id) {
+            (Some(a), Some(b)) => a != b,
+            (Some(_), None) => true,
+            _ => false,
+        };
+        let should_hydrate = is_different_conv || self.tabs[tab_idx].cache.is_empty();
+        let hydrated_session = if should_hydrate {
+            if let Some(ref cid) = final_conv_id {
+                let cid_clone = cid.clone();
+                let db_path = self.history.path().map(|path| path.to_path_buf());
+                tokio::task::spawn_blocking(move || {
+                    crate::ui::history::hydrate_session_blocking(&cid_clone, db_path.as_deref())
+                })
+                .await
+                .ok()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let (hydrated_model, hydrated_effort) = hydrated_session
+            .as_ref()
+            .and_then(|h| h.telemetry.as_ref())
+            .and_then(|t| t.model.as_deref())
+            .map(str::trim)
+            .filter(|m| !m.is_empty())
+            .map(|raw| {
+                let sanitized = crate::config::sanitize_model_id(raw);
+                if target_backend == BackendKind::Agy && !sanitized.contains('/') {
+                    let (base, eff) =
+                        crate::transport::EngineConfig::split_model_effort(&sanitized);
+                    (
+                        (!base.is_empty()).then(|| base.to_string()),
+                        eff.map(str::to_string),
+                    )
+                } else if is_model_compatible_with_backend(target_backend, &sanitized) {
+                    (Some(sanitized).filter(|s| !s.is_empty()), None)
+                } else {
+                    (None, None)
+                }
+            })
+            .unwrap_or((None, None));
+
         let model_changed = model
             .as_ref()
             .map(|requested| prev_model.as_ref() != Some(requested))
             .unwrap_or(false);
-        let final_model = model.or(prev_model);
-        let final_effort = effort.or(prev_effort);
-        let final_mode = mode.or(prev_mode);
+        let inherited_prev_model = (!is_different_conv && !backend_changed)
+            .then_some(prev_model)
+            .flatten()
+            .filter(|m| is_model_compatible_with_backend(target_backend, m));
+        let inherited_prev_effort = (!is_different_conv && !backend_changed)
+            .then_some(prev_effort)
+            .flatten();
+        let user_fallback_model = (!backend_changed
+            && is_model_compatible_with_backend(target_backend, &self.user_config.model))
+        .then(|| crate::config::sanitize_model_id(&self.user_config.model))
+        .filter(|m| !m.is_empty());
+        let has_hydrated_model = hydrated_model.is_some();
+        let final_model = model
+            .or(hydrated_model)
+            .or(inherited_prev_model)
+            .or(user_fallback_model.clone());
+        let final_effort = effort
+            .or(hydrated_effort)
+            .or(inherited_prev_effort)
+            .or_else(|| {
+                (!has_hydrated_model && user_fallback_model.is_some())
+                    .then(|| self.user_config.effort.clone())
+            });
+        let final_mode = mode
+            .or((!is_different_conv).then_some(prev_mode).flatten())
+            .or_else(|| Some(self.user_config.mode.clone()));
 
-        if let Some(m) = &final_model {
-            self.user_config.model = m.clone();
+        if is_explicit_config_change {
+            if let Some(m) = &final_model {
+                self.user_config.model = m.clone();
+            }
+            if let Some(e) = &final_effort {
+                self.user_config.effort = e.clone();
+            }
+            if let Some(md) = &final_mode {
+                self.user_config.mode = md.clone();
+            }
+            let config_to_save = self.user_config.clone();
+            let _ = tokio::task::spawn_blocking(move || config_to_save.save()).await;
         }
-        if let Some(e) = &final_effort {
-            self.user_config.effort = e.clone();
-        }
-        if let Some(md) = &final_mode {
-            self.user_config.mode = md.clone();
-        }
-        let config_to_save = self.user_config.clone();
-        let _ = tokio::task::spawn_blocking(move || config_to_save.save()).await;
 
         let new_id = if was_replay {
             let id = SessionId::new();
-            self.session_manager.register_mock_session(id.clone());
-            self.session_manager.set_session_metadata(
-                &id,
+            self.session_manager.register_mock_session_with_metadata(
+                id.clone(),
                 final_conv_id.clone(),
                 final_model,
                 final_effort,
@@ -274,11 +344,6 @@ impl App {
         self.tabs[tab_idx].queued_prompts.clear();
         self.modals.remove_danger_modal();
 
-        let is_different_conv = match (&final_conv_id, &prev_conv_id) {
-            (Some(a), Some(b)) => a != b,
-            (Some(_), None) => true,
-            _ => false,
-        };
         if is_different_conv {
             self.tabs[tab_idx].last_turn_usage = None;
             self.tabs[tab_idx].accumulated_usage = crate::protocol::TokenUsage::default();
@@ -292,116 +357,62 @@ impl App {
             self.tabs[tab_idx].context_window_hint = None;
             self.tabs[tab_idx].served_model = None;
         }
-        if is_different_conv || self.tabs[tab_idx].cache.is_empty() {
-            if let Some(ref cid) = final_conv_id {
-                let cid_clone = cid.clone();
-                let db_path = self.history.path().map(|path| path.to_path_buf());
-                let mut hydrated_cache = crate::ui::cache::RenderCache::new();
-                let (hydrated, new_cache, maybe_title, is_custom_title, maybe_telemetry) =
-                    tokio::task::spawn_blocking(move || {
-                        let ok = crate::ui::history::hydrate_conversation(
-                            &cid_clone,
-                            &mut hydrated_cache,
-                            db_path.as_deref(),
-                        );
-                        let title =
-                            crate::ui::history::conversation_title(&cid_clone, db_path.as_deref());
-                        let custom = db_path
-                            .as_deref()
-                            .map(|path| {
-                                crate::infra::history::messages::is_custom_title_at(
-                                    path, &cid_clone,
-                                )
-                            })
-                            .unwrap_or(false);
-                        let telemetry = db_path
-                            .as_deref()
-                            .and_then(|path| {
-                                crate::infra::history::telemetry::load(path, &cid_clone)
-                            })
-                            .or_else(|| {
-                                crate::infra::history::opencode::load_usage(&cid_clone).map(
-                                    |(usage, model, duration_millis)| {
-                                        crate::infra::history::TelemetrySnapshot {
-                                            last: usage,
-                                            accumulated: usage,
-                                            steps: 0,
-                                            turns: 0,
-                                            duration_millis,
-                                            context_window: None,
-                                            model,
-                                        }
-                                    },
-                                )
-                            });
-                        (ok, hydrated_cache, title, custom, telemetry)
-                    })
-                    .await
-                    .unwrap_or((
-                        false,
-                        crate::ui::cache::RenderCache::new(),
-                        None,
-                        false,
-                        None,
-                    ));
-
-                if hydrated {
-                    self.tabs[tab_idx].cache = new_cache;
-                    self.tabs[tab_idx].viewport.scroll_to_bottom();
-                } else if is_different_conv {
-                    self.tabs[tab_idx].cache.clear();
-                }
-                if let Some(title) = maybe_title {
-                    self.tabs[tab_idx].title = title;
-                    self.tabs[tab_idx].custom_title = is_custom_title;
-                } else if is_different_conv {
-                    self.tabs[tab_idx].custom_title = is_custom_title;
-                }
-                if let Some(snapshot) = maybe_telemetry {
-                    let fallback_model = snapshot.model.clone();
-                    self.tabs[tab_idx].last_turn_usage = Some(snapshot.last);
-                    self.tabs[tab_idx].accumulated_usage = snapshot.accumulated;
-                    self.tabs[tab_idx].steps_seen = snapshot.steps;
-                    self.tabs[tab_idx].last_step_index = None;
-                    self.tabs[tab_idx].turns_completed = snapshot.turns;
-                    self.tabs[tab_idx].last_turn_duration_seconds = snapshot
-                        .duration_millis
-                        .map(|millis| millis as f64 / 1000.0);
-                    if !model_changed {
-                        if let Some(window) = snapshot.context_window {
-                            self.tabs[tab_idx].context_window_hint = Some(window);
-                        }
-                        if let Some(model) = snapshot.model.filter(|model| !model.trim().is_empty())
-                        {
-                            self.tabs[tab_idx].served_model = Some(model);
-                        }
-                    }
-                    let has_meta = self.tabs[tab_idx]
-                        .cache
-                        .blocks()
-                        .iter()
-                        .rev()
-                        .find(|block| matches!(block.kind, crate::ui::cache::BlockKind::Assistant))
-                        .map(|block| block.turn_meta.is_some())
-                        .unwrap_or(false);
-                    if !has_meta && (snapshot.turns > 0 || snapshot.last.output_tokens > 0) {
-                        let mode = self.active_mode_name();
-                        let model = fallback_model.unwrap_or_else(|| self.active_model_name());
-                        let meta = crate::ui::cache::TurnMeta {
-                            mode,
-                            model,
-                            duration_seconds: snapshot
-                                .duration_millis
-                                .map(|millis| millis as f64 / 1000.0),
-                            output_tokens: (snapshot.last.output_tokens > 0)
-                                .then_some(snapshot.last.output_tokens),
-                        };
-                        self.tabs[tab_idx].cache.set_last_assistant_turn_meta(meta);
-                    }
-                }
+        if let Some(hydrated_data) = hydrated_session {
+            if hydrated_data.hydrated {
+                self.tabs[tab_idx].cache = hydrated_data.cache;
+                self.tabs[tab_idx].viewport.scroll_to_bottom();
             } else if is_different_conv {
                 self.tabs[tab_idx].cache.clear();
             }
+            if let Some(title) = hydrated_data.title {
+                self.tabs[tab_idx].title = title;
+                self.tabs[tab_idx].custom_title = hydrated_data.is_custom_title;
+            } else if is_different_conv {
+                self.tabs[tab_idx].custom_title = hydrated_data.is_custom_title;
+            }
+            if let Some(snapshot) = hydrated_data.telemetry {
+                let fallback_model = snapshot.model.clone();
+                self.tabs[tab_idx].last_turn_usage = Some(snapshot.last);
+                self.tabs[tab_idx].accumulated_usage = snapshot.accumulated;
+                self.tabs[tab_idx].steps_seen = snapshot.steps;
+                self.tabs[tab_idx].last_step_index = None;
+                self.tabs[tab_idx].turns_completed = snapshot.turns;
+                self.tabs[tab_idx].last_turn_duration_seconds = snapshot
+                    .duration_millis
+                    .map(|millis| millis as f64 / 1000.0);
+                if !model_changed {
+                    if let Some(window) = snapshot.context_window {
+                        self.tabs[tab_idx].context_window_hint = Some(window);
+                    }
+                    if let Some(model) = snapshot.model.filter(|model| !model.trim().is_empty()) {
+                        self.tabs[tab_idx].served_model = Some(model);
+                    }
+                }
+                let has_meta = self.tabs[tab_idx]
+                    .cache
+                    .blocks()
+                    .iter()
+                    .rev()
+                    .find(|block| matches!(block.kind, crate::ui::cache::BlockKind::Assistant))
+                    .map(|block| block.turn_meta.is_some())
+                    .unwrap_or(false);
+                if !has_meta && (snapshot.turns > 0 || snapshot.last.output_tokens > 0) {
+                    let mode = self.active_mode_name();
+                    let model = fallback_model.unwrap_or_else(|| self.active_model_name());
+                    let meta = crate::ui::cache::TurnMeta {
+                        mode,
+                        model,
+                        duration_seconds: snapshot
+                            .duration_millis
+                            .map(|millis| millis as f64 / 1000.0),
+                        output_tokens: (snapshot.last.output_tokens > 0)
+                            .then_some(snapshot.last.output_tokens),
+                    };
+                    self.tabs[tab_idx].cache.set_last_assistant_turn_meta(meta);
+                }
+            }
+        } else if is_different_conv {
+            self.tabs[tab_idx].cache.clear();
         }
 
         self.tabs[tab_idx].persisted_block_id = self.tabs[tab_idx]
@@ -421,5 +432,16 @@ fn backend_compatible(backend: BackendKind, conversation_id: &str) -> bool {
     match backend {
         BackendKind::OpenCode => conversation_id.starts_with("ses_"),
         BackendKind::Agy => !conversation_id.starts_with("ses_"),
+    }
+}
+
+fn is_model_compatible_with_backend(backend: BackendKind, model: &str) -> bool {
+    let trimmed = model.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    match backend {
+        BackendKind::Agy => !trimmed.contains('/'),
+        BackendKind::OpenCode => trimmed.contains('/'),
     }
 }

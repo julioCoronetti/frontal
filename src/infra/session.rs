@@ -66,12 +66,29 @@ impl SessionManager {
     }
 
     pub fn register_mock_session(&mut self, session_id: SessionId) {
+        self.register_mock_session_with_metadata(
+            session_id,
+            None,
+            Some(crate::config::DEFAULT_MODEL.to_string()),
+            Some(crate::config::DEFAULT_EFFORT.to_string()),
+            Some(crate::config::DEFAULT_MODE.to_string()),
+        );
+    }
+
+    pub fn register_mock_session_with_metadata(
+        &mut self,
+        session_id: SessionId,
+        conversation_id: Option<String>,
+        model: Option<String>,
+        effort: Option<String>,
+        mode: Option<String>,
+    ) {
         let metadata = SessionMetadata {
             session_id: session_id.clone(),
-            conversation_id: None,
-            model: Some(crate::config::DEFAULT_MODEL.to_string()),
-            mode: Some(crate::config::DEFAULT_MODE.to_string()),
-            effort: Some(crate::config::DEFAULT_EFFORT.to_string()),
+            conversation_id,
+            model,
+            mode,
+            effort,
             turns: 0,
             last_prompt: None,
             status: SessionStatus::Ready,

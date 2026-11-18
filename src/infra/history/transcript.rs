@@ -1,8 +1,12 @@
-use std::io::BufRead;
-use std::path::PathBuf;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use serde_json::Value;
+
+use crate::infra::history::TelemetrySnapshot;
+use crate::protocol::TokenUsage;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TranscriptBlock {
@@ -36,6 +40,14 @@ struct TranscriptEntry {
     thinking: Option<String>,
     #[serde(default)]
     tool_calls: Option<Vec<TranscriptToolCall>>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    input_tokens: Option<u64>,
+    #[serde(default)]
+    output_tokens: Option<u64>,
+    #[serde(default)]
+    cache_read_tokens: Option<u64>,
 }
 
 pub fn clean_user_prompt(raw: &str) -> String {
@@ -175,4 +187,97 @@ pub fn parse_transcript_reader<R: BufRead>(reader: R) -> Vec<TranscriptBlock> {
     }
 
     blocks
+}
+
+pub fn parse_transcript_telemetry<R: BufRead>(reader: R) -> Option<TelemetrySnapshot> {
+    let mut turns: u64 = 0;
+    let mut in_turn = false;
+    let mut latest_model: Option<String> = None;
+    let mut step_usages: Vec<(Option<u64>, TokenUsage)> = Vec::new();
+
+    for line in reader.lines().map_while(Result::ok) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let entry: TranscriptEntry = match serde_json::from_str(trimmed) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        match entry.r#type.as_deref() {
+            Some("USER_INPUT") => {
+                in_turn = true;
+            }
+            Some("PLANNER_RESPONSE") => {
+                if in_turn {
+                    turns = turns.saturating_add(1);
+                    in_turn = false;
+                } else if turns == 0 {
+                    turns = 1;
+                }
+                if let Some(raw_model) = entry.model.as_deref() {
+                    let clean = crate::config::sanitize_model_id(raw_model);
+                    if !clean.is_empty() {
+                        latest_model = Some(clean);
+                    }
+                }
+                let input = entry.input_tokens.unwrap_or(0);
+                let output = entry.output_tokens.unwrap_or(0);
+                let cache_read = entry.cache_read_tokens.unwrap_or(0);
+                if input > 0 || output > 0 || cache_read > 0 {
+                    let usage = TokenUsage {
+                        input_tokens: input,
+                        output_tokens: output,
+                        thinking_tokens: 0,
+                        cache_read_tokens: cache_read,
+                        total_tokens: input.saturating_add(output).saturating_add(cache_read),
+                    };
+                    if let Some(idx) = entry.step_index {
+                        if let Some((_, existing)) =
+                            step_usages.iter_mut().find(|(k, _)| *k == Some(idx))
+                        {
+                            *existing = usage;
+                        } else {
+                            step_usages.push((Some(idx), usage));
+                        }
+                    } else {
+                        step_usages.push((None, usage));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if step_usages.is_empty() && latest_model.is_none() {
+        return None;
+    }
+
+    let last = step_usages.last().map(|(_, u)| *u).unwrap_or_default();
+    let mut accumulated = TokenUsage::default();
+    for (_, usage) in &step_usages {
+        accumulated.accumulate(usage);
+    }
+    let steps = step_usages.len() as u64;
+
+    Some(TelemetrySnapshot {
+        last,
+        accumulated,
+        steps,
+        turns,
+        duration_millis: None,
+        context_window: None,
+        model: latest_model,
+    })
+}
+
+pub fn load_usage_at(path: &Path) -> Option<TelemetrySnapshot> {
+    let file = File::open(path).ok()?;
+    parse_transcript_telemetry(BufReader::new(file))
+}
+
+pub fn load_usage(conv_id: &str) -> Option<TelemetrySnapshot> {
+    let path = transcript_path_for_conversation(conv_id)?;
+    load_usage_at(&path)
 }

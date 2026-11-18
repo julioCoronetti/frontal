@@ -210,14 +210,20 @@ impl EngineConfig {
         }
     }
 
-    pub fn strip_effort_suffix(model: &str) -> &str {
+    pub fn split_model_effort(model: &str) -> (&str, Option<&str>) {
         let suffixes = ["-low", "-medium", "-high", "-xhigh", "-max"];
         for sfx in suffixes {
             if let Some(stripped) = model.strip_suffix(sfx) {
-                return stripped;
+                if !stripped.is_empty() {
+                    return (stripped, Some(&sfx[1..]));
+                }
             }
         }
-        model
+        (model, None)
+    }
+
+    pub fn strip_effort_suffix(model: &str) -> &str {
+        Self::split_model_effort(model).0
     }
 
     pub fn build_args(&self, resolved_conversation_id: &str) -> Vec<String> {
