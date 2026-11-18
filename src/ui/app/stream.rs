@@ -187,7 +187,7 @@ impl App {
                 BlockKind::Assistant => "assistant",
                 BlockKind::Thought => "thought",
                 BlockKind::Tool { .. } => "tool",
-                BlockKind::Error => continue,
+                BlockKind::Error | BlockKind::Interrupted => continue,
             };
             let (tool_name, tool_args) = match &block.kind {
                 BlockKind::Tool { name, .. } => (Some(name.clone()), block.tool_args.clone()),

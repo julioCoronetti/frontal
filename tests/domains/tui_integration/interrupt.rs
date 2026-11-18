@@ -6,7 +6,7 @@ use frontal::protocol::{EngineEvent, PromptPayload, ResultEvent, StreamEvent};
 use frontal::ui::app::AppAction;
 use frontal::ui::cache::BlockKind;
 use frontal::ui::tab::INTERRUPT_ARM_TIMEOUT;
-use frontal::ui::theme::TEXT_INTERRUPT_HINT;
+use frontal::ui::theme::{TEXT_INTERRUPT_HINT, TEXT_MUTED};
 
 use crate::common::{press_key, render_app, test_app};
 
@@ -15,6 +15,7 @@ fn test_double_esc_arms_confirms_and_clears_active_turn() {
     let (mut app, _) = test_app();
     let esc = press_key(KeyCode::Esc, KeyModifiers::NONE);
 
+    app.cache.push_user_message("run long task");
     app.waiting_for_response = true;
     app.status_text = String::from("Thinking...");
     app.queued_prompts
@@ -34,6 +35,41 @@ fn test_double_esc_arms_confirms_and_clears_active_turn() {
     assert!(app.queued_prompts.is_empty());
     assert!(!app.is_turn_active());
     assert_eq!(app.status_text, "Interrupted by user");
+
+    let (term, rendered) = render_app(&mut app, 80, 24);
+    assert!(rendered.contains("  Prompt interrupted"));
+    let buf = term.backend().buffer();
+    let found_muted = (0..buf.area.height).any(|y| {
+        let row: String = (0..buf.area.width)
+            .map(|x| buf.cell((x, y)).unwrap().symbol())
+            .collect();
+        row.contains("  Prompt interrupted")
+            && (0..buf.area.width).any(|x| {
+                let cell = buf.cell((x, y)).unwrap();
+                cell.symbol() == "P" && cell.fg == TEXT_MUTED
+            })
+    });
+    assert!(found_muted);
+
+    app.cache
+        .append_streaming_delta(BlockKind::Assistant, "partial streamed answer");
+    assert_eq!(
+        app.handle_terminal_event(press_key(KeyCode::Esc, KeyModifiers::NONE)),
+        None
+    );
+    assert_eq!(
+        app.handle_terminal_event(press_key(KeyCode::Esc, KeyModifiers::NONE)),
+        Some(AppAction::Interrupt)
+    );
+    let blocks = app.cache.blocks();
+    assert_eq!(
+        blocks.last().map(|b| &b.kind),
+        Some(&BlockKind::Interrupted)
+    );
+    assert!(blocks.iter().all(|b| b.consolidated));
+    let (_, rendered_mid) = render_app(&mut app, 80, 24);
+    assert!(rendered_mid.contains("partial streamed answer"));
+    assert!(rendered_mid.contains("  Prompt interrupted"));
 }
 
 #[test]

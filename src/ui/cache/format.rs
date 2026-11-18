@@ -333,6 +333,16 @@ impl RenderCache {
                 }
                 result.push(Line::from(""));
             }
+            BlockKind::Interrupted => {
+                result.push(with_left_margin(
+                    margin,
+                    vec![Span::styled(
+                        block.content.clone(),
+                        Style::default().fg(TEXT_MUTED),
+                    )],
+                ));
+                result.push(Line::from(""));
+            }
         }
         result
     }

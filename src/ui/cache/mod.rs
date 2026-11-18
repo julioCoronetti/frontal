@@ -27,6 +27,7 @@ pub enum BlockKind {
     Thought,
     Tool { name: String, state: StepState },
     Error,
+    Interrupted,
 }
 
 #[derive(Clone)]
@@ -340,12 +341,12 @@ impl RenderCache {
         None
     }
 
-    pub fn push_error(&mut self, text: &str) -> u64 {
+    fn push_terminal_notice(&mut self, kind: BlockKind, text: &str) -> u64 {
         let id = self.next_block_id;
         self.next_block_id += 1;
         self.blocks.push(MessageBlock {
             id,
-            kind: BlockKind::Error,
+            kind,
             content: text.to_string(),
             revision: 1,
             consolidated: true,
@@ -357,6 +358,14 @@ impl RenderCache {
             turn_meta: None,
         });
         id
+    }
+
+    pub fn push_error(&mut self, text: &str) -> u64 {
+        self.push_terminal_notice(BlockKind::Error, text)
+    }
+
+    pub fn push_interrupted(&mut self) -> u64 {
+        self.push_terminal_notice(BlockKind::Interrupted, "Prompt interrupted")
     }
 
     pub fn consolidate_active_turn_with_meta(
