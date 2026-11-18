@@ -22,12 +22,12 @@ Frontal's architecture delivers deterministic 60 FPS execution with minimal reso
 | :--- | :--- | :--- |
 | **Presentation & TUI** | `ratatui` + `crossterm` | Immediate-mode rendering with double-buffering and microsecond cell diffing. |
 | **Async Runtime & IPC** | `tokio` + `tokio-util` | Asynchronous subprocess orchestration (`tokio::process`), MPSC channels, and NDJSON decoding via `LinesCodec`. |
-| **Serialization** | `serde` + `serde_json` | Strict, typed deserialization of `stream-json` events and commands. |
-| **Prompt Editor** | `ropey` + Token Registry | B-Tree (Rope) buffer for fast multiline navigation, atomic mention extmarks (`@`, `/`), and large paste collapse (`[Pasted ~N lines]`). |
+| **Serialization** | `serde` + `serde_json` | Strict, typed deserialization of `stream-json` events/commands and JSON-RPC 2.0 ACP (`agy acp --stdio`) multimodal payloads. |
+| **Prompt Editor** | `ropey` + Token Registry | B-Tree (Rope) buffer for fast multiline navigation, atomic mention and media extmarks (`@`, `/`, `[Image #N]`), and large paste collapse (`[Pasted ~N lines]`). |
 | **Markdown Parsing** | `pulldown-cmark` | High-performance CommonMark event parser building an internal AST of modular blocks (`MessageBlock`). |
 | **Syntax Highlighting** | `syntect` | Line-incremental highlighting with 150+ bundled grammars without native C compilation. |
 | **Local Persistence** | `rusqlite` (WAL mode) | Embedded lightweight SQLite for session metadata, command history, and cache. |
-| **System Clipboard** | `arboard` + OSC 52 | Native system clipboard access with fallback to OSC 52 escape sequences for remote SSH sessions. |
+| **System Clipboard** | `arboard` + OSC 52 | Native text and RGBA image capture (`Ctrl+V` / `Alt+V`) with zero-dependency PNG encoding in `~/.frontal/cache/media/` and OSC 52 escape fallback for remote SSH sessions. |
 | **Process Isolation & POSIX** | `libc` | POSIX process groups (`setpgid` / `killpg`) and orphan prevention (`PR_SET_PDEATHSIG`). |
 | **Buffers & Async Utils** | `bytes` + `futures-util` | Network buffer management and async stream combinators with minimal allocations. |
 
@@ -54,9 +54,10 @@ Frontal's architecture delivers deterministic 60 FPS execution with minimal reso
 
 The codebase enforces strict decoupling into three cohesive architectural layers with a strict 500-line ceiling per `.rs` file and zero comments:
 
-- **Core (`src/core/`)**: Domain logic and protocol (`protocol.rs`), deterministic risk evaluation matrix partitioned into shell and SQL components (`security/`), and persistent user configuration (`config.rs`).
-- **Infra (`src/infra/`)**: Asynchronous IPC transport (`transport.rs`), subprocess lifecycle and POSIX groups (`engine.rs`), session multiplexing (`session.rs`), system clipboard driver (`clipboard.rs`), and SQLite WAL history persistence with RAII flush (`history/`).
-- **UI (`src/ui/`)**: 60 FPS non-blocking render loop (`mod.rs`), modular application state and commands (`app/` partitioned into `render/`, `commands/`, and `events/`), unified tab state (`tab.rs`), 2-level render cache (`cache/`), incremental markdown parser (`markdown/`), syntax highlighter (`highlight.rs`), rope editor (`editor/`), and modal stack (`modal/`).
+- **Core (`src/core/`)**: Domain logic and protocols (`protocol/` partitioned into `mod.rs`, `events.rs`, `agy.rs`, `opencode.rs`, and `acp.rs`), deterministic risk evaluation matrix (`security/` partitioned into `mod.rs`, `shell.rs`, and `sql.rs`), model specifications (`model_spec.rs`, `model_catalog.rs`), and persistent user configuration (`config.rs`).
+- **Infra (`src/infra/`)**: Asynchronous IPC transport (`transport/` partitioned into `mod.rs` and `opencode.rs`), subprocess lifecycle and POSIX groups (`engine/` partitioned into `mod.rs`, `agy.rs`, `opencode.rs`, `acp/`, and `process.rs`), session multiplexing (`session.rs`), text and PNG image clipboard driver (`clipboard/`), and SQLite WAL history persistence with RAII flush (`history/`).
+- **UI (`src/ui/`)**: 60 FPS non-blocking render loop (`mod.rs`), modular application state and commands (`app/` partitioned into `mod.rs`, `tabs.rs`, `stream.rs`, `render/`, `commands/`, and `events/`), unified tab state (`tab.rs`), cache hydration bridge (`history.rs`), 2-level render cache (`cache/` including `user_format.rs`), viewport state machine (`viewport.rs`), incremental markdown parser (`markdown/`), syntax highlighter (`highlight.rs`), rope editor (`editor/`), autocomplete (`autocomplete.rs`), modal stack (`modal/`), diff viewer (`diff.rs`), sensory notifications (`notify.rs`), TTY recovery (`terminal.rs`), Atlas Crimson theme (`theme.rs`), and model/provider label formatter (`labels.rs`).
+- **Entrypoints (`src/`)**: Binary bootstrap (`main.rs`), library facade (`lib.rs`), and CLI argument parser (`cli.rs`).
 
 ---
 
@@ -64,20 +65,20 @@ The codebase enforces strict decoupling into three cohesive architectural layers
 
 Frontal is operational in production (version `0.15.1`), fully verified by **236 tests across 8 domains**. Development progresses continuously via GitHub Project Board #8 cards across these consolidated domains:
 
-- **Foundation, `stream-json` Protocol, and Headless IPC:**
-  - Single Cargo workspace, session multiplexing via `SessionId`, typed `stream-json` protocol, dual engines (`AgyEngine`/`SubprocessEngine` and `FixtureReplayEngine`), async line decoding via `LinesCodec` (16 MB buffer), and POSIX process isolation (`setpgid`/`killpg`/`PR_SET_PDEATHSIG`).
+- **Foundation, `stream-json` & ACP Protocols, and Headless IPC:**
+  - Single Cargo crate, session multiplexing via `SessionId`, typed `stream-json` and JSON-RPC 2.0 ACP (`agy acp --stdio`) protocols, `AcpEngine` with RFC 4648 Base64 `ImageContentBlock` and async permission handling, `AgyEngine`, `OpenCodeEngine`, `FixtureReplayEngine`, async line decoding via `LinesCodec` (16 MB buffer), structured `PromptPayload` (`text` + `media`), and POSIX process isolation (`setpgid`/`killpg`/`PR_SET_PDEATHSIG`).
 - **Core TUI (60 FPS), Sticky Scroll Viewport, and 2-Level Cache:**
   - Non-blocking Ratatui event loop at 60 FPS, bracketed paste, TTY restore panic hook, deterministic sticky scroll, and 2-level render cache (L1 immutable AST, L2 width/revision indexed visual lines).
 - **Incremental Markdown Streaming, `syntect` Highlighting, and Tool Cards:**
   - Resilient `pulldown-cmark` incremental parser handling open code blocks, line-by-line syntax highlighting with state checkpoints, terminal output sanitization (`\r`/ANSI), clean collapsible thinking blocks (`+ Thought`/`- Thought`), command indicators (`●`), and interactive tool execution cards.
-- **`ropey` Editor with Atomic Extmarks, Autocomplete, and SQLite WAL History:**
-  - Multiline B-Tree buffer, priority popover overlay, atomic mention tags (`@`, `/`), collapsed paste pills, async file searching worker, and persistent SQLite WAL command history.
-- **Multi-Session (`TabState`), Modal Stack (`DialogSelect`), Safety Guardian, and Hot-Respawn:**
-  - Multi-tab management (`Alt+1..9`) via `SessionManager`, staged prompt barrier, local command dispatch, floating modal dialog stack with backdrop dimming, deterministic Safety Guardian (`DangerAssessment`) with confirmation containment modal for destructive actions, unified `DialogSelect` component (keyboard and mouse navigation), hot-respawn model switching, commands modal (`Ctrl+P`), and integrated git diff viewer.
+- **`ropey` Editor, Multimodal Attachments, Autocomplete, and SQLite WAL History:**
+  - Multiline B-Tree buffer, downward-anchored priority popover overlay, atomic mention and media extmarks (`@`, `/`, `[Image #N]` in `ACCENT_RUBY`), collapsed paste pills, `Ctrl+V` / `Alt+V` clipboard RGBA image capture with zero-dependency PNG encoding into `~/.frontal/cache/media/`, drag-and-drop image paths, chat transcript `[Image N]` highlighting with `ACCENT_RUBY` ` file ` badges, async file searching worker, and persistent SQLite WAL command history.
+- **Multi-Session (`TabState`), Modal Stack (`DialogSelect`), Double-`Esc` Interruption, and Safety Guardian:**
+  - OpenCode-style interactive tab bar (`Ctrl+T`, `Ctrl+W`, `Alt+1..9`, hover-only `×` close, `+` new tab) via `SessionManager`, staged prompt barrier, local command dispatch, double-`Esc` active-turn interruption (`1500 ms` confirmation window with `Thinking...  esc again to interrupt` hint in `TEXT_INTERRUPT_HINT` and muted `Prompt interrupted` block, keeping `Ctrl+C` strictly for selection copy, input clear, and quit), floating modal dialog stack with backdrop dimming, deterministic Safety Guardian (`DangerAssessment`) with confirmation containment modal for destructive actions, unified `DialogSelect` component (keyboard and mouse navigation), hot-respawn model switching, commands modal (`Ctrl+P`), and integrated git diff viewer.
 - **Multi-Backend Harness (`FrontalEngine`), OpenCode Integration, and Resume Parity:**
-  - Decoupled `AgyEngine` (persistent pipe daemon, default) and `OpenCodeEngine` (per-turn `opencode run` supervisor) behind `FrontalEngine`, runtime model discovery via `opencode models`, a unified `/model` provider selector (Antigravity plus each OpenCode provider) with global search that shows the provider on every result and human-readable provider/model labels while identifiers stay canonical, contextual `/quota` with Go usage windows read from the stored OpenCode credential (`OPENCODE_GO_API_KEY` or the local OpenCode database), cross-backend `conversation_id` isolation, and per-conversation message persistence so `/resume` hydrates history on both engines.
-- **OpenCode Visual Ergonomics, Atlas Crimson Theme, and Clipboard Fidelity:**
-  - Centered welcome state, fluid transition to 2-column layout (conversation + Context Sidebar), 2-column aligned autocomplete popover, scroll indicator, **Atlas Crimson** theme, normalized `/model` selector with reasoning effort slider (`◀ ●──◎──● ▶`), clean column 0 margin alignment, granular text selection in viewport, and faithful clipboard copying.
+  - Decoupled `AgyEngine` (persistent pipe daemon, default), `AcpEngine`, and `OpenCodeEngine` (per-turn `opencode run` supervisor with `--file` attachments) behind `FrontalEngine`, runtime model discovery via `opencode models`, a unified `/model` provider selector (Antigravity plus each OpenCode provider) with global search that shows the provider on every result and human-readable provider/model labels while identifiers stay canonical, contextual `/quota` with Go usage windows read from the stored OpenCode credential (`OPENCODE_GO_API_KEY` or the local OpenCode database), cross-backend `conversation_id` isolation, and per-conversation message persistence so `/resume` hydrates history on both engines.
+- **OpenCode Visual Ergonomics, Hero Welcome State, Context Telemetry, and Atlas Crimson Theme:**
+  - Centered Hero welcome state featuring a 4-row (`35×4`) half-block `Frontal` wordmark with Atlas Crimson vertical gradient and 6×6 truecolor Atlas Gem (`< 50×16` compact fallback), fluid transition to 2-column layout (conversation + Context Sidebar with `ModelSpec` resolution, token count, context window percentage bar, `Ctrl+B` / `/sidebar` toggle, and persisted turn metadata across `/resume`), 2-column aligned autocomplete popover, scroll indicator, **Atlas Crimson** theme, normalized `/model` selector with reasoning effort slider (`◀ ●──◎──● ▶`), clean column 0 margin alignment, granular text selection in viewport, and faithful clipboard copying.
 
 ---
 

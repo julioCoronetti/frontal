@@ -4,16 +4,18 @@ Reference documentation for on-demand inspection of repository modules.
 
 ## Core Domain (`src/core/`)
 - `src/core/mod.rs`: Domain module declarations and public exports.
-- `src/core/protocol/`: Strict typing and NDJSON deserialization for the `stream-json` protocol (`EngineEvent`, `StreamEvent`, `ToolInfo`, etc.) partitioned into `mod.rs` (canonical types), `agy.rs` (`AgyStreamParser`), and `opencode.rs` (`OpenCodeStreamParser`).
+- `src/core/protocol/`: Strict typing and NDJSON/ACP deserialization (`EngineEvent`, `StreamEvent`, `ToolInfo`, `PromptPayload`, `MediaItem`) partitioned into `mod.rs`, `events.rs`, `agy.rs`, `opencode.rs`, and `acp.rs`.
 - `src/core/security/`: Deterministic containment security guard (`DangerAssessment`, `RiskCategory`) partitioned into `mod.rs`, `shell.rs`, and `sql.rs`.
+- `src/core/model_catalog.rs`: Runtime catalog mapping for discovered OpenCode/Antigravity models and providers.
+- `src/core/model_spec.rs`: Context window and model specification resolution (`ModelSpec`).
 - `src/core/config.rs`: Persistent user configuration (`~/.frontal/config.toml`, model, mode, and default effort).
 
 ## Infrastructure & IPC (`src/infra/`)
 - `src/infra/mod.rs`: Infrastructure module declarations.
-- `src/infra/engine/`: High-level agentic engines (`AgyEngine` persistent pipe daemon and `OpenCodeEngine` per-turn supervisor) partitioned into `mod.rs` and `opencode.rs`, with shared POSIX pgid registry and streaming channels.
+- `src/infra/engine/`: High-level agentic engines (`AgyEngine` persistent pipe daemon, `AcpEngine` over `agy acp --stdio`, and `OpenCodeEngine` per-turn supervisor) partitioned into `mod.rs`, `agy.rs`, `opencode.rs`, `acp/`, and `process.rs`, with shared POSIX pgid registry and streaming channels.
 - `src/infra/transport/`: `EngineTransport` implementations (`AgyEngine` config with 16 MB `LinesCodec` buffer and `FixtureReplayEngine`) partitioned into `mod.rs` and `opencode.rs`.
 - `src/infra/session.rs`: Session multiplexing and management via `SessionId` and `SessionManager`.
-- `src/infra/clipboard.rs`: System clipboard integration via `arboard` with isolated in-memory buffer and OSC 52 fallback.
+- `src/infra/clipboard/`: System clipboard integration via `arboard`, zero-dep PNG encoding (`image_codec.rs`), platform media fallbacks (`platform.rs`), isolated in-memory buffer, and OSC 52 fallback.
 - `src/infra/history/`: Command history persistence in SQLite WAL (`PromptHistory`) with RAII `Drop` flush, JSONL transcript parser (`TranscriptBlock`), and per-conversation message storage (`messages.rs`) for cross-engine resume.
 
 ## Terminal Interface (`src/ui/`)
@@ -27,7 +29,7 @@ Reference documentation for on-demand inspection of repository modules.
   - `src/ui/app/render/`: 60 FPS drawing methods, layout calculation, and TUI widgets partitioned into `mod.rs`, `chrome.rs`, `input.rs`, `panes.rs`, and `welcome.rs`.
 - `src/ui/tab.rs`: Tab state management (`TabState`) and unified stream event handling (`apply_stream_event`).
 - `src/ui/history.rs`: Visual cache hydration bridge (`hydrate_cache_from_reader`, `hydrate_conversation`) with Agy transcript preference and Frontal store fallback.
-- `src/ui/cache/`: Partitioned 2-level render cache (`mod.rs`, `format.rs`, `slice.rs`).
+- `src/ui/cache/`: Partitioned 2-level render cache (`mod.rs`, `format.rs`, `slice.rs`, `user_format.rs`).
 - `src/ui/viewport.rs`: Conversation viewport with state machine for sticky scroll and clean text selection.
 - `src/ui/markdown/`: Partitioned incremental `pulldown-cmark` parser (`mod.rs`, `normalize.rs`, `parse.rs`, `render.rs`).
 - `src/ui/highlight.rs`: Incremental line-by-line syntax highlighting via `syntect` with state checkpoints.
