@@ -5,17 +5,17 @@ use ratatui::Frame;
 
 use crate::ui::theme::{BACKDROP_BG, BACKDROP_FG};
 
+pub mod commands;
 pub mod danger;
 pub mod diff;
 pub mod model_effort;
-pub mod palette;
 pub mod select;
 pub mod usage;
 
+pub use commands::{CommandItem, CommandsModal};
 pub use danger::DangerConfirmationModal;
 pub use diff::DiffModal;
 pub use model_effort::{ModelEffortModal, ModelEffortStep, ModelItem};
-pub use palette::{CommandPaletteModal, PaletteItem};
 pub use select::{DialogSelect, SelectItem, SelectResult};
 pub use usage::UsageModal;
 
@@ -41,7 +41,7 @@ pub enum ModalAction {
 
 pub enum Modal {
     ModelEffort(ModelEffortModal),
-    CommandPalette(CommandPaletteModal),
+    Commands(CommandsModal),
     Diff(DiffModal),
     Select(DialogSelect<ModalAction>),
     DangerConfirmation(DangerConfirmationModal),
@@ -52,7 +52,7 @@ impl Modal {
     pub fn handle_key(&mut self, key: KeyEvent) -> ModalAction {
         match self {
             Self::ModelEffort(m) => m.handle_key(key),
-            Self::CommandPalette(m) => m.handle_key(key),
+            Self::Commands(m) => m.handle_key(key),
             Self::Diff(m) => m.handle_key(key),
             Self::Select(m) => match m.handle_key(key) {
                 SelectResult::Selected(item) => item.value.clone(),
@@ -71,7 +71,7 @@ impl Modal {
                 SelectResult::Cancel => ModalAction::Close,
                 SelectResult::None => ModalAction::None,
             },
-            Self::CommandPalette(m) => m.handle_mouse(mouse),
+            Self::Commands(m) => m.handle_mouse(mouse),
             Self::Diff(m) => match mouse.kind {
                 MouseEventKind::ScrollUp => {
                     m.viewer.scroll_up(3);
@@ -91,7 +91,7 @@ impl Modal {
     pub fn render(&self, frame: &mut Frame, area: Rect) {
         match self {
             Self::ModelEffort(m) => m.render(frame, area),
-            Self::CommandPalette(m) => m.render(frame, area),
+            Self::Commands(m) => m.render(frame, area),
             Self::Diff(m) => m.render(frame, area),
             Self::Select(m) => m.render(frame, area),
             Self::DangerConfirmation(m) => m.render(frame, area),
@@ -112,7 +112,7 @@ impl Modal {
             Self::ModelEffort(_) => {
                 ModalStack::centered_rect_bounded(56, 62, 48, 72, 16, 26, screen)
             }
-            Self::CommandPalette(_) | Self::Select(_) => {
+            Self::Commands(_) | Self::Select(_) => {
                 ModalStack::centered_rect_bounded(48, 55, 42, 64, 12, 22, screen)
             }
             Self::Usage(_) => ModalStack::centered_rect_bounded(60, 68, 54, 78, 18, 30, screen),

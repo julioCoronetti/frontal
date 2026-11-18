@@ -5,7 +5,7 @@ use ratatui::Terminal;
 
 use frontal::protocol::TokenUsage;
 use frontal::ui::diff::{DiffLineKind, DiffViewer};
-use frontal::ui::modal::{CommandPaletteModal, ModalAction, ModelEffortModal};
+use frontal::ui::modal::{CommandsModal, ModalAction, ModelEffortModal};
 use frontal::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_RUBY, BORDER_SUBTLE, TEXT_PRIMARY};
 
 use crate::common::{press_key, test_app};
@@ -30,17 +30,17 @@ fn test_modal_stack_push_pop_and_exclusive_focus() {
 }
 
 #[test]
-fn test_command_palette_filtering_and_action_dispatch() {
-    let mut palette = CommandPaletteModal::new();
+fn test_commands_modal_filtering_and_action_dispatch() {
+    let mut commands = CommandsModal::new();
     for c in ['d', 'i', 'f'] {
-        palette.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        commands.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
     }
-    let filtered = palette.filtered_indices();
+    let filtered = commands.filtered_indices();
     assert_eq!(filtered.len(), 1);
-    assert_eq!(palette.items[filtered[0]].id, "view_diff");
+    assert_eq!(commands.items[filtered[0]].id, "view_diff");
 
     let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-    let act = palette.handle_key(enter);
+    let act = commands.handle_key(enter);
     assert_eq!(act, ModalAction::ExecuteCommand("view_diff".to_string()));
 }
 
@@ -76,24 +76,24 @@ index 1234..5678 100644
 }
 
 #[test]
-fn test_adversarial_modal_and_palette_inputs() {
-    let mut palette = CommandPaletteModal::new();
+fn test_adversarial_modal_and_commands_inputs() {
+    let mut commands = CommandsModal::new();
     for _ in 0..10 {
         let bs = KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE);
-        palette.handle_key(bs);
+        commands.handle_key(bs);
     }
-    assert!(palette.query.is_empty());
-    assert_eq!(palette.filtered_indices().len(), palette.items.len());
+    assert!(commands.query.is_empty());
+    assert_eq!(commands.filtered_indices().len(), commands.items.len());
 
     let special = "non_existent_command_xyz_123!@#";
     for c in special.chars() {
         let ch = KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
-        palette.handle_key(ch);
+        commands.handle_key(ch);
     }
-    assert_eq!(palette.filtered_indices().len(), 0);
+    assert_eq!(commands.filtered_indices().len(), 0);
 
     let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-    let act = palette.handle_key(enter);
+    let act = commands.handle_key(enter);
     assert_eq!(act, ModalAction::None);
 
     let mut empty_diff = DiffViewer::new("");
@@ -120,10 +120,10 @@ fn test_modal_shortcut_keys_do_not_leak_chars() {
     let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
     let alt_x = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::ALT);
 
-    let mut palette = CommandPaletteModal::new();
-    palette.handle_key(ctrl_c);
-    palette.handle_key(alt_x);
-    assert!(palette.query.is_empty());
+    let mut commands = CommandsModal::new();
+    commands.handle_key(ctrl_c);
+    commands.handle_key(alt_x);
+    assert!(commands.query.is_empty());
 }
 
 #[test]
@@ -212,13 +212,13 @@ fn test_modal_backdrop_dimming_overlay() {
 }
 
 #[test]
-fn test_modal_palette_and_effort_atlas_crimson_styling() {
+fn test_modal_commands_and_effort_atlas_crimson_styling() {
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend).unwrap();
 
-    let palette = CommandPaletteModal::new();
+    let commands = CommandsModal::new();
     terminal
-        .draw(|f| palette.render(f, ratatui::layout::Rect::new(10, 2, 60, 20)))
+        .draw(|f| commands.render(f, ratatui::layout::Rect::new(10, 2, 60, 20)))
         .unwrap();
     let buf = terminal.backend().buffer();
 

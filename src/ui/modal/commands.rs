@@ -6,87 +6,87 @@ use crate::ui::modal::select::{DialogSelect, SelectItem, SelectResult};
 use crate::ui::modal::ModalAction;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PaletteItem {
+pub struct CommandItem {
     pub id: String,
     pub title: String,
     pub shortcut: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CommandPaletteModal {
+pub struct CommandsModal {
     pub select: DialogSelect<String>,
     pub query: String,
-    pub items: Vec<PaletteItem>,
+    pub items: Vec<CommandItem>,
     pub selected_idx: usize,
 }
 
-impl Default for CommandPaletteModal {
+impl Default for CommandsModal {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl CommandPaletteModal {
+impl CommandsModal {
     pub fn new() -> Self {
-        let palette_items = vec![
-            PaletteItem {
+        let command_items = vec![
+            CommandItem {
                 id: "new_tab".to_string(),
                 title: "New Session Tab".to_string(),
                 shortcut: "Ctrl+T".to_string(),
             },
-            PaletteItem {
+            CommandItem {
                 id: "close_tab".to_string(),
                 title: "Close Session Tab".to_string(),
                 shortcut: "Ctrl+W".to_string(),
             },
-            PaletteItem {
+            CommandItem {
                 id: "select_model".to_string(),
                 title: "Select Model & Effort".to_string(),
                 shortcut: "/model".to_string(),
             },
-            PaletteItem {
+            CommandItem {
                 id: "resume_session".to_string(),
                 title: "Resume Past Session".to_string(),
                 shortcut: "/resume".to_string(),
             },
-            PaletteItem {
+            CommandItem {
                 id: "rename_session".to_string(),
                 title: "Rename Current Session".to_string(),
                 shortcut: "/rename".to_string(),
             },
-            PaletteItem {
+            CommandItem {
                 id: "view_diff".to_string(),
                 title: "View Git/Patch Diff".to_string(),
                 shortcut: "/diff".to_string(),
             },
-            PaletteItem {
+            CommandItem {
                 id: "view_usage".to_string(),
                 title: "View Model Quotas".to_string(),
                 shortcut: "/quota".to_string(),
             },
-            PaletteItem {
+            CommandItem {
                 id: "toggle_sidebar".to_string(),
                 title: "Toggle Context Sidebar".to_string(),
                 shortcut: "/sidebar".to_string(),
             },
-            PaletteItem {
+            CommandItem {
                 id: "clear".to_string(),
                 title: "Clear Conversation Viewport".to_string(),
                 shortcut: "/clear".to_string(),
             },
-            PaletteItem {
+            CommandItem {
                 id: "interrupt".to_string(),
                 title: "Interrupt Running Turn".to_string(),
                 shortcut: "Ctrl+C".to_string(),
             },
-            PaletteItem {
+            CommandItem {
                 id: "quit".to_string(),
                 title: "Quit Frontal".to_string(),
                 shortcut: "Ctrl+Q".to_string(),
             },
         ];
 
-        let select_items: Vec<SelectItem<String>> = palette_items
+        let select_items: Vec<SelectItem<String>> = command_items
             .iter()
             .map(|it| {
                 SelectItem::new(it.id.clone(), it.title.clone(), it.id.clone())
@@ -94,12 +94,12 @@ impl CommandPaletteModal {
             })
             .collect();
 
-        let select = DialogSelect::new("Command Palette", select_items);
+        let select = DialogSelect::new("Commands", select_items);
 
         Self {
             select,
             query: String::new(),
-            items: palette_items,
+            items: command_items,
             selected_idx: 0,
         }
     }

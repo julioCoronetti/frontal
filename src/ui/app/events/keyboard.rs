@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::ui::app::{App, AppAction};
 use crate::ui::editor::{ExtmarkKind, TriggerKind};
-use crate::ui::modal::{CommandPaletteModal, Modal};
+use crate::ui::modal::{CommandsModal, Modal};
 
 impl App {
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> Option<AppAction> {
@@ -55,8 +55,7 @@ impl App {
         }
 
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('p') {
-            self.modals
-                .push(Modal::CommandPalette(CommandPaletteModal::new()));
+            self.modals.push(Modal::Commands(CommandsModal::new()));
             self.dirty = true;
             return None;
         }

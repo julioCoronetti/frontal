@@ -269,7 +269,7 @@ fn test_usage_modal_exhausted_bucket_and_rendering() {
 }
 
 #[test]
-fn test_slash_quota_command_and_palette_dispatch() {
+fn test_slash_quota_command_dispatch() {
     let (mut app, _) = test_app();
     let enter = press_key(KeyCode::Enter, KeyModifiers::NONE);
 

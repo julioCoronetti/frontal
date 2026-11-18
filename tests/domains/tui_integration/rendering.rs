@@ -6,7 +6,7 @@ use frontal::protocol::{EngineEvent, SessionId, StepState, StreamEvent};
 use frontal::session::SessionManager;
 use frontal::ui::app::{App, AppAction};
 use frontal::ui::cache::{BlockKind, RenderCache, TurnMeta};
-use frontal::ui::modal::{CommandPaletteModal, DiffModal, Modal, ModelEffortModal};
+use frontal::ui::modal::{CommandsModal, DiffModal, Modal, ModelEffortModal};
 use frontal::ui::theme::{
     ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BG_SIDEBAR, BG_USER_CONTAINER, BORDER_SUBTLE,
     TAB_ACTIVE_DOT, TEXT_MUTED, TEXT_PRIMARY,
@@ -128,8 +128,7 @@ fn test_multisession_tabs_ui_rendering_on_test_backend() {
     assert!(rendered.contains("Secondary*"));
     assert!(rendered.contains("Ctrl+P: Commands"));
 
-    app.modals
-        .push(Modal::CommandPalette(CommandPaletteModal::new()));
+    app.modals.push(Modal::Commands(CommandsModal::new()));
     terminal.draw(|f| app.render(f)).unwrap();
     let buf_modal = terminal.backend().buffer();
     let rendered_modal = buf_modal
@@ -139,7 +138,7 @@ fn test_multisession_tabs_ui_rendering_on_test_backend() {
         .collect::<Vec<_>>()
         .join("");
 
-    assert!(rendered_modal.contains("Command Palette"));
+    assert!(rendered_modal.contains(" Commands:"));
     assert!(rendered_modal.contains("New Session Tab"));
 
     app.modals.pop();
@@ -276,7 +275,7 @@ fn test_adversarial_terminal_dimensions_no_panic() {
     }
 
     let model_modal = ModelEffortModal::new();
-    let cmd_modal = CommandPaletteModal::new();
+    let cmd_modal = CommandsModal::new();
     let diff_modal = DiffModal::new("--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new");
 
     for &(w, h) in &[(20, 8), (1, 1)] {

@@ -450,9 +450,9 @@ fn test_sidebar_unknown_window_fallback() {
 }
 
 #[test]
-fn test_sidebar_toggle_via_command_and_palette() {
+fn test_sidebar_toggle_via_command_and_commands_modal() {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use frontal::ui::modal::{CommandPaletteModal, ModalAction};
+    use frontal::ui::modal::{CommandsModal, ModalAction};
 
     let (mut app, _) = crate::common::test_app();
     app.cache.push_user_message("prompt for sidebar telemetry");
@@ -465,13 +465,13 @@ fn test_sidebar_toggle_via_command_and_palette() {
     let (_, text) = crate::common::render_app(&mut app, 120, 30);
     assert!(!text.contains("tokens"));
 
-    let mut palette = CommandPaletteModal::new();
+    let mut commands = CommandsModal::new();
     for ch in ['s', 'i', 'd', 'e', 'b', 'a', 'r'] {
-        palette.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        commands.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
-    let filtered = palette.filtered_indices();
-    assert_eq!(palette.items[filtered[0]].id, "toggle_sidebar");
-    let action = palette.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let filtered = commands.filtered_indices();
+    assert_eq!(commands.items[filtered[0]].id, "toggle_sidebar");
+    let action = commands.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(
         action,
         ModalAction::ExecuteCommand("toggle_sidebar".to_string())
