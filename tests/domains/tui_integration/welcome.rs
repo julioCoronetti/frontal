@@ -1,8 +1,6 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 use frontal::config::BackendKind;
-use frontal::ui::theme::{
-    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BORDER_SUBTLE, TEXT_PRIMARY,
-};
+use frontal::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, TEXT_PRIMARY};
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::style::Color;
@@ -55,7 +53,7 @@ fn test_hero_welcome_centered_layout_and_version_footer() {
     assert!(logo_x > 25 && logo_x < 55);
 
     let mut found_colors = Vec::new();
-    for y in logo_y..=logo_y + 4 {
+    for y in logo_y..=logo_y + 3 {
         for x in 0..buf.area.width {
             let cell = buf.cell((x, y)).unwrap();
             if cell.symbol() != " " {
@@ -66,7 +64,6 @@ fn test_hero_welcome_centered_layout_and_version_footer() {
     assert!(found_colors.contains(&ACCENT_HIGHLIGHT));
     assert!(found_colors.contains(&ACCENT_PRIMARY));
     assert!(found_colors.contains(&ACCENT_RUBY));
-    assert!(found_colors.contains(&BORDER_SUBTLE));
     assert!(found_colors.contains(&Color::Rgb(230, 43, 67)));
 }
 

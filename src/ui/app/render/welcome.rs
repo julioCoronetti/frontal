@@ -5,179 +5,132 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::ui::app::App;
-use crate::ui::theme::{
-    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY,
-};
+use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, TEXT_MUTED, TEXT_PRIMARY};
 
 const HERO_INPUT_MAX_WIDTH: u16 = 76;
 
-const GEM_PIXELS: [[Option<(u8, u8, u8)>; 8]; 8] = [
-    [
-        None,
-        None,
-        Some((105, 16, 38)),
-        Some((230, 43, 67)),
-        Some((230, 43, 67)),
-        Some((177, 12, 41)),
-        None,
-        None,
-    ],
+const GEM_PIXELS: [[Option<(u8, u8, u8)>; 6]; 6] = [
     [
         None,
         Some((53, 14, 30)),
-        Some((105, 16, 38)),
-        Some((152, 18, 45)),
-        Some((255, 59, 80)),
-        Some((255, 59, 80)),
+        Some((230, 43, 67)),
+        Some((230, 43, 67)),
         Some((198, 25, 51)),
         None,
     ],
     [
-        Some((25, 15, 28)),
-        Some((87, 13, 36)),
-        Some((87, 13, 36)),
-        Some((177, 12, 41)),
-        Some((177, 12, 41)),
+        Some((66, 14, 32)),
+        Some((105, 16, 38)),
+        Some((255, 59, 80)),
         Some((255, 59, 80)),
         Some((177, 12, 41)),
-        Some((72, 11, 32)),
+        Some((198, 25, 51)),
     ],
     [
         Some((25, 15, 28)),
         Some((87, 13, 36)),
         Some((38, 15, 29)),
-        Some((38, 15, 29)),
         Some((177, 12, 41)),
         Some((177, 12, 41)),
-        Some((72, 11, 32)),
         Some((72, 11, 32)),
     ],
     [
         Some((47, 17, 33)),
         Some((38, 15, 29)),
         Some((38, 15, 29)),
-        Some((38, 15, 29)),
-        Some((177, 12, 41)),
         Some((177, 12, 41)),
         Some((72, 11, 32)),
         Some((73, 11, 32)),
     ],
     [
-        Some((47, 17, 33)),
-        Some((38, 15, 29)),
+        Some((48, 15, 32)),
         Some((72, 11, 32)),
         Some((72, 11, 32)),
-        Some((38, 15, 29)),
-        Some((72, 11, 32)),
-        Some((72, 11, 32)),
+        Some((66, 17, 39)),
+        Some((24, 15, 28)),
         Some((24, 15, 28)),
     ],
     [
         None,
         Some((66, 17, 39)),
-        Some((72, 11, 32)),
-        Some((72, 11, 32)),
-        Some((66, 17, 39)),
-        Some((24, 15, 28)),
-        Some((92, 16, 38)),
-        None,
-    ],
-    [
-        None,
-        None,
-        Some((24, 15, 28)),
         Some((66, 17, 39)),
         Some((24, 15, 28)),
         Some((134, 16, 44)),
         None,
-        None,
     ],
 ];
 
-const GLYPH_F: [&str; 10] = [
-    "████████",
-    "████████",
-    "██      ",
-    "██      ",
-    "██████  ",
-    "██████  ",
-    "██      ",
-    "██      ",
-    "██      ",
-    "██      ",
+const GLYPH_F: [&str; 8] = [
+    "██████████",
+    "██████████",
+    "███       ",
+    "████████  ",
+    "████████  ",
+    "███       ",
+    "███       ",
+    "███       ",
 ];
 
-const GLYPH_R: [&str; 10] = [
-    "      ",
-    "      ",
-    "██ ██ ",
-    "██████",
+const GLYPH_R: [&str; 8] = [
+    "        ",
+    "        ",
+    "███ ████",
+    "████████",
+    "███     ",
+    "███     ",
+    "███     ",
+    "███     ",
+];
+
+const GLYPH_N: [&str; 8] = [
+    "          ",
+    "          ",
+    "█████████ ",
+    "██████████",
+    "███    ███",
+    "███    ███",
+    "███    ███",
+    "███    ███",
+];
+
+const GLYPH_T: [&str; 8] = [
+    "  ███   ",
+    "  ███   ",
+    "████████",
+    "████████",
+    "  ███   ",
+    "  ███   ",
+    "  ███   ",
+    "   █████",
+];
+
+const GLYPH_A: [&str; 8] = [
+    "          ",
+    "          ",
+    " ████████ ",
+    " █████████",
+    "  ████████",
+    "███    ███",
+    "██████████",
+    " █████████",
+];
+
+const GLYPH_L: [&str; 8] = [
     "███   ",
-    "██    ",
-    "██    ",
-    "██    ",
-    "██    ",
-    "██    ",
+    "███   ",
+    "███   ",
+    "███   ",
+    "███   ",
+    "███   ",
+    "███   ",
+    " █████",
 ];
 
-const GLYPH_N: [&str; 10] = [
-    "        ",
-    "        ",
-    "██████  ",
-    "███████ ",
-    "██   ██ ",
-    "██   ██ ",
-    "██   ██ ",
-    "██   ██ ",
-    "██   ██ ",
-    "██   ██ ",
-];
-
-const GLYPH_T: [&str; 10] = [
-    "  ██  ",
-    "  ██  ",
-    "██████",
-    "██████",
-    "  ██  ",
-    "  ██  ",
-    "  ██  ",
-    "  ██  ",
-    "  ██  ",
-    "  ████",
-];
-
-const GLYPH_A: [&str; 10] = [
-    "        ",
-    "        ",
-    " █████  ",
-    " ██████ ",
-    "     ██ ",
-    " ██████ ",
-    "██   ██ ",
-    "██   ██ ",
-    "███████ ",
-    " ██████ ",
-];
-
-const GLYPH_L: [&str; 10] = [
-    "██  ",
-    "██  ",
-    "██  ",
-    "██  ",
-    "██  ",
-    "██  ",
-    "██  ",
-    "██  ",
-    "██  ",
-    "████",
-];
-
-const LETTER_ROW_COLORS: [Color; 5] = [
+const LETTER_ROW_COLORS: [Color; 4] = [
     ACCENT_HIGHLIGHT,
     Color::Rgb(218, 36, 61),
     ACCENT_PRIMARY,
     ACCENT_RUBY,
-    BORDER_SUBTLE,
 ];
 
 fn quadrant_char(tl: bool, tr: bool, bl: bool, br: bool) -> char {
@@ -201,7 +154,7 @@ fn quadrant_char(tl: bool, tr: bool, bl: bool, br: bool) -> char {
     }
 }
 
-fn render_glyph_row(glyph: &[&str; 10], row_idx: usize) -> Span<'static> {
+fn render_glyph_row(glyph: &[&str; 8], row_idx: usize) -> Span<'static> {
     let cy = row_idx * 2;
     let chars: Vec<char> = glyph[cy].chars().collect();
     let bot_chars: Vec<char> = glyph[cy + 1].chars().collect();
@@ -223,7 +176,7 @@ fn render_glyph_row(glyph: &[&str; 10], row_idx: usize) -> Span<'static> {
 
 fn push_gem_row_spans(spans: &mut Vec<Span<'static>>, row_idx: usize) {
     if row_idx == 0 {
-        spans.push(Span::raw("        "));
+        spans.push(Span::raw("      "));
         return;
     }
     let py = (row_idx - 1) * 2;
@@ -257,9 +210,9 @@ fn push_gem_row_spans(spans: &mut Vec<Span<'static>>, row_idx: usize) {
 }
 
 fn build_logo_lines() -> Vec<Line<'static>> {
-    (0..5)
+    (0..4)
         .map(|row_idx| {
-            let mut spans = Vec::with_capacity(18);
+            let mut spans = Vec::with_capacity(16);
             spans.push(render_glyph_row(&GLYPH_F, row_idx));
             spans.push(Span::raw(" "));
             spans.push(render_glyph_row(&GLYPH_R, row_idx));
@@ -372,8 +325,8 @@ impl App {
     }
 
     pub(crate) fn render_welcome_compact(&self, frame: &mut Frame, chat_area: Rect) {
-        let use_block_logo = chat_area.width >= 34 && chat_area.height >= 7;
-        let needed_with_pad = if use_block_logo { 7 } else { 3 };
+        let use_block_logo = chat_area.width >= 38 && chat_area.height >= 6;
+        let needed_with_pad = if use_block_logo { 6 } else { 3 };
         let mut lines = Vec::new();
         if chat_area.height >= needed_with_pad {
             lines.push(Line::from(""));
