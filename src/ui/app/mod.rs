@@ -210,6 +210,16 @@ impl App {
         &mut self.tabs[self.active_tab_index]
     }
 
+    pub fn expire_interrupt_timers(&mut self) -> bool {
+        let mut expired = false;
+        for tab in &mut self.tabs {
+            if tab.expire_interrupt_arm() {
+                expired = true;
+            }
+        }
+        expired
+    }
+
     pub fn active_model_spec(&self) -> crate::model_spec::ModelSpec {
         let served = self.served_model.as_deref().unwrap_or("");
         let active = self.active_model_name();

@@ -4,6 +4,8 @@ use crate::ui::cache::{BlockKind, RenderCache};
 use crate::ui::editor::{EditorSnapshot, PromptEditor};
 use crate::ui::viewport::ConversationViewport;
 
+pub const INTERRUPT_ARM_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1500);
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StreamOutcome {
     DangerRequired(crate::security::DangerAssessment),
@@ -35,6 +37,7 @@ pub struct TabState {
     pub suspended_events: Vec<StreamEvent>,
     pub queued_prompts: std::collections::VecDeque<crate::protocol::PromptPayload>,
     pub persisted_block_id: u64,
+    pub esc_armed_at: Option<std::time::Instant>,
 }
 
 impl TabState {
@@ -64,7 +67,24 @@ impl TabState {
             suspended_events: Vec::new(),
             queued_prompts: std::collections::VecDeque::new(),
             persisted_block_id: 0,
+            esc_armed_at: None,
         }
+    }
+
+    pub fn is_interrupt_armed(&self) -> bool {
+        self.esc_armed_at
+            .map(|t| t.elapsed() <= INTERRUPT_ARM_TIMEOUT)
+            .unwrap_or(false)
+    }
+
+    pub fn expire_interrupt_arm(&mut self) -> bool {
+        if let Some(t) = self.esc_armed_at {
+            if t.elapsed() > INTERRUPT_ARM_TIMEOUT {
+                self.esc_armed_at = None;
+                return true;
+            }
+        }
+        false
     }
 
     pub fn apply_stream_event(
@@ -173,6 +193,7 @@ impl TabState {
             }
             StreamEvent::Result(res) => {
                 self.waiting_for_response = false;
+                self.esc_armed_at = None;
                 let fallback = res.result.as_ref().and_then(|r| r.response.as_deref());
                 let duration = res
                     .result
@@ -225,6 +246,7 @@ impl TabState {
             }
             StreamEvent::Error(err) => {
                 self.waiting_for_response = false;
+                self.esc_armed_at = None;
                 self.in_flight_usage = None;
                 self.last_step_index = None;
                 let msg = err

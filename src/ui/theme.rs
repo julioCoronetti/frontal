@@ -12,3 +12,4 @@ pub const TAB_ACTIVE_DOT: Color = Color::Rgb(177, 12, 41);
 pub const TAB_ACTIVE_BG: Color = Color::Rgb(38, 22, 30);
 pub const BACKDROP_BG: Color = Color::Reset;
 pub const BACKDROP_FG: Color = Color::DarkGray;
+pub const TEXT_INTERRUPT_HINT: Color = ACCENT_HIGHLIGHT;

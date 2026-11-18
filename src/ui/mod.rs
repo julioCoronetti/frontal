@@ -173,6 +173,9 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
             }
             _ = ticker.tick() => {
                 app.spinner_tick = app.spinner_tick.wrapping_add(1);
+                if app.expire_interrupt_timers() {
+                    app.dirty = true;
+                }
                 if app.waiting_for_response
                     || app.tabs.iter().any(|t| {
                         t.waiting_for_response || t.cache.has_unconsolidated_blocks()
