@@ -351,7 +351,7 @@ fn test_welcome_state_sidebar_and_scroll_down_indicator() {
         .map(|c| c.symbol())
         .collect::<Vec<_>>()
         .join("");
-    assert!(text.contains("▄▀▀"));
+    assert!(text.contains("█▀▀▀▖"));
     assert!(text.contains(env!("CARGO_PKG_VERSION")));
 
     for i in 0..30 {
@@ -406,16 +406,16 @@ fn test_atlas_crimson_theme_constants_and_rendering() {
     terminal.draw(|f| app.render(f)).unwrap();
     let buf = terminal.backend().buffer();
 
-    let mut found_logo_ruby = false;
-    let mut found_logo_highlight = false;
+    let mut found_logo_face = false;
+    let mut found_logo_shadow = false;
     for y in 0..buf.area.height {
         for x in 0..buf.area.width {
             let cell = buf.cell((x, y)).unwrap();
-            if cell.symbol() == "▄" && cell.fg == ACCENT_RUBY {
-                found_logo_ruby = true;
+            if cell.symbol() == "█" && cell.fg == ACCENT_PRIMARY {
+                found_logo_face = true;
             }
-            if cell.symbol() == "▄" && cell.fg == ACCENT_HIGHLIGHT {
-                found_logo_highlight = true;
+            if cell.fg == BORDER_SUBTLE || cell.bg == BORDER_SUBTLE {
+                found_logo_shadow = true;
             }
         }
     }
@@ -429,8 +429,8 @@ fn test_atlas_crimson_theme_constants_and_rendering() {
         }
     }
 
-    assert!(found_logo_ruby);
-    assert!(found_logo_highlight);
+    assert!(found_logo_face);
+    assert!(found_logo_shadow);
     assert!(found_input_accent);
 
     for i in 0..20 {

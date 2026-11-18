@@ -163,7 +163,7 @@ fn test_sole_tab_hover_close_resets_to_welcome() {
     assert_ne!(app.active_session, old_id);
 
     let (_term2, welcome_text) = render_app(&mut app, 100, 24);
-    assert!(welcome_text.contains("▄▀▀"));
+    assert!(welcome_text.contains("█▀▀▀▖"));
 }
 
 #[test]
