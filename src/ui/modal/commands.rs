@@ -75,11 +75,6 @@ impl CommandsModal {
                 shortcut: "/clear".to_string(),
             },
             CommandItem {
-                id: "interrupt".to_string(),
-                title: "Interrupt Running Turn".to_string(),
-                shortcut: "Ctrl+C".to_string(),
-            },
-            CommandItem {
                 id: "quit".to_string(),
                 title: "Quit Frontal".to_string(),
                 shortcut: "Ctrl+Q".to_string(),

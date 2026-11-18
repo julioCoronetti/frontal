@@ -144,12 +144,6 @@ impl App {
                         self.status_text = String::from("Cleared");
                         Some(None)
                     }
-                    "interrupt" => {
-                        let _ = self.session_manager.interrupt_active();
-                        self.status_text = String::from("Interrupted");
-                        self.waiting_for_response = false;
-                        Some(Some(AppAction::Interrupt))
-                    }
                     "quit" => {
                         self.should_quit = true;
                         Some(Some(AppAction::Quit))

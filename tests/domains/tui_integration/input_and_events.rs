@@ -34,7 +34,8 @@ fn test_local_slash_commands_execution() {
 
     app.editor.insert_str("/interrupt");
     let act = app.handle_terminal_event(enter.clone());
-    assert_eq!(act, Some(AppAction::Interrupt));
+    assert_eq!(act, None);
+    assert_eq!(app.status_text, "Unknown command: /interrupt");
 
     app.editor.insert_str("/model gemini");
     let act = app.handle_terminal_event(enter.clone());

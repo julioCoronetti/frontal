@@ -97,7 +97,6 @@ impl AutocompletePopover {
             ("/diff", "View local git diff"),
             ("/sidebar", "Show or hide the context sidebar"),
             ("/quota", "Show model quotas and plan limits"),
-            ("/interrupt", "Interrupt current execution"),
             ("/quit", "Quit Frontal"),
         ];
 

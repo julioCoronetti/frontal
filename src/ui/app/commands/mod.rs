@@ -63,13 +63,6 @@ impl App {
             self.modals.push(Modal::Usage(modal));
             self.dirty = true;
             Some(None)
-        } else if trimmed == "/interrupt" {
-            let _ = self.session_manager.interrupt_active();
-            self.status_text = String::from("Interrupted");
-            self.waiting_for_response = false;
-            self.queued_prompts.clear();
-            self.dirty = true;
-            Some(Some(AppAction::Interrupt))
         } else if trimmed == "/model" || trimmed.starts_with("/model ") {
             let mut modal = ModelEffortModal::with_models(self.available_models.clone());
             modal.set_opencode_models(self.opencode_models.clone());
@@ -117,7 +110,7 @@ impl App {
         } else if trimmed == "/help" {
             self.cache.push_user_message("/help");
             self.cache.push_error(&format!(
-                "Frontal v{} - Available local commands: /clear, /new, /quota, /sidebar, /interrupt, /quit, /exit, /help, /model, /diff, /resume, /rename",
+                "Frontal v{} - Available local commands: /clear, /new, /quota, /sidebar, /quit, /exit, /help, /model, /diff, /resume, /rename",
                 env!("CARGO_PKG_VERSION")
             ));
             self.status_text = String::from("Ready");
