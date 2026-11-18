@@ -141,6 +141,8 @@ impl App {
                         self.viewport.scroll_to_bottom();
                         self.last_turn_usage = None;
                         self.accumulated_usage = crate::protocol::TokenUsage::default();
+                        self.queued_prompts.clear();
+                        self.esc_armed_at = None;
                         self.status_text = String::from("Cleared");
                         Some(None)
                     }

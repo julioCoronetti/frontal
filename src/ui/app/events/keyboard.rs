@@ -161,6 +161,7 @@ impl App {
                 }
                 KeyCode::Esc => {
                     self.popover.close();
+                    self.esc_armed_at = None;
                     self.dirty = true;
                     return None;
                 }
@@ -191,16 +192,19 @@ impl App {
         if key.code == KeyCode::Esc {
             if self.editor.has_selection() {
                 self.editor.clear_selection();
+                self.esc_armed_at = None;
                 self.dirty = true;
                 return None;
             }
             if self.viewport.selection.is_some() {
                 self.viewport.clear_selection();
+                self.esc_armed_at = None;
                 self.dirty = true;
                 return None;
             }
             if self.popover.is_visible() {
                 self.popover.close();
+                self.esc_armed_at = None;
                 self.dirty = true;
                 return None;
             }
