@@ -107,21 +107,44 @@ fn push_gem_row_spans(spans: &mut Vec<Span<'static>>, row_idx: usize) {
 fn build_logo_lines() -> Vec<Line<'static>> {
     let shade = Style::default().fg(TAB_ACTIVE_BG);
 
-    let f_rows = ["▄▄▄▄▄", "█    ", "█▀▀▀ ", "█    "];
-    let r_rows = ["    ", "█▀▀▄", "█   ", "█   "];
-    let t_rows = [" ▄ ", "▀█▀", " █ ", " █▄"];
-    let l_rows = ["▄ ", "█ ", "█ ", "█▄"];
-
     (0..4)
         .map(|row_idx| {
             let fg = Style::default().fg(LETTER_ROW_COLORS[row_idx]);
             let fg_on_shade = fg.bg(TAB_ACTIVE_BG);
-            let mut spans = Vec::with_capacity(24);
+            let mut spans = Vec::with_capacity(28);
 
-            spans.push(Span::styled(f_rows[row_idx], fg));
+            match row_idx {
+                0 => spans.push(Span::styled("▄▄▄▄▄", fg)),
+                1 => spans.push(Span::styled("█    ", fg)),
+                2 => {
+                    spans.push(Span::styled("█", fg));
+                    spans.push(Span::styled("▀▀▀", fg_on_shade));
+                    spans.push(Span::raw(" "));
+                }
+                _ => {
+                    spans.push(Span::styled("█", fg));
+                    spans.push(Span::styled("▀▀▀", shade));
+                    spans.push(Span::raw(" "));
+                }
+            }
             spans.push(Span::raw(" "));
-            spans.push(Span::styled(r_rows[row_idx], fg));
+
+            match row_idx {
+                0 => spans.push(Span::raw("    ")),
+                1 => spans.push(Span::styled("█▀▀▄", fg)),
+                2 => {
+                    spans.push(Span::styled("█", fg));
+                    spans.push(Span::styled("▄▄", shade));
+                    spans.push(Span::raw(" "));
+                }
+                _ => {
+                    spans.push(Span::styled("█", fg));
+                    spans.push(Span::styled("▀▀", shade));
+                    spans.push(Span::raw(" "));
+                }
+            }
             spans.push(Span::raw(" "));
+
             push_gem_row_spans(&mut spans, row_idx);
             spans.push(Span::raw(" "));
 
@@ -139,9 +162,22 @@ fn build_logo_lines() -> Vec<Line<'static>> {
                     spans.push(Span::styled("█", fg));
                 }
             }
-
             spans.push(Span::raw(" "));
-            spans.push(Span::styled(t_rows[row_idx], fg));
+
+            match row_idx {
+                0 => spans.push(Span::styled(" ▄ ", fg)),
+                1 => spans.push(Span::styled("▀█▀", fg)),
+                2 => {
+                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled("█", fg));
+                    spans.push(Span::styled("▄", shade));
+                }
+                _ => {
+                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled("█", fg));
+                    spans.push(Span::styled("▄", fg_on_shade));
+                }
+            }
             spans.push(Span::raw(" "));
 
             match row_idx {
@@ -158,9 +194,23 @@ fn build_logo_lines() -> Vec<Line<'static>> {
                     spans.push(Span::styled("█", fg));
                 }
             }
-
             spans.push(Span::raw(" "));
-            spans.push(Span::styled(l_rows[row_idx], fg));
+
+            match row_idx {
+                0 => spans.push(Span::styled("▄  ", fg)),
+                1 => spans.push(Span::styled("█  ", fg)),
+                2 => {
+                    spans.push(Span::styled("█", fg));
+                    spans.push(Span::styled("▄", shade));
+                    spans.push(Span::raw(" "));
+                }
+                _ => {
+                    spans.push(Span::styled("█", fg));
+                    spans.push(Span::styled("▄", fg_on_shade));
+                    spans.push(Span::styled("▄", fg));
+                }
+            }
+
             Line::from(spans)
         })
         .collect()
@@ -260,7 +310,7 @@ impl App {
     }
 
     pub(crate) fn render_welcome_compact(&self, frame: &mut Frame, chat_area: Rect) {
-        let use_block_logo = chat_area.width >= 35 && chat_area.height >= 6;
+        let use_block_logo = chat_area.width >= 36 && chat_area.height >= 6;
         let needed_with_pad = if use_block_logo { 6 } else { 3 };
         let mut lines = Vec::new();
         if chat_area.height >= needed_with_pad {
