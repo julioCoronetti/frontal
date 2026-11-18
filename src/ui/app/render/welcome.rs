@@ -5,9 +5,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::ui::app::App;
-use crate::ui::theme::{
-    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, TAB_ACTIVE_BG, TEXT_MUTED, TEXT_PRIMARY,
-};
+use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, TEXT_MUTED, TEXT_PRIMARY};
 
 const HERO_INPUT_MAX_WIDTH: u16 = 76;
 
@@ -105,112 +103,31 @@ fn push_gem_row_spans(spans: &mut Vec<Span<'static>>, row_idx: usize) {
 }
 
 fn build_logo_lines() -> Vec<Line<'static>> {
-    let shade = Style::default().fg(TAB_ACTIVE_BG);
+    let f_rows = ["▄▄▄▄▄", "█    ", "█▀▀▀ ", "█    "];
+    let r_rows = ["    ", "█▀▀▄", "█   ", "█   "];
+    let n_rows = ["     ", "█▀▀▀▄", "█   █", "█   █"];
+    let t_rows = [" ▄ ", "▀█▀", " █ ", " █▄"];
+    let a_rows = ["     ", "▀▀▀▀█", "█▀▀▀█", "█▄▄▄█"];
+    let l_rows = ["▄  ", "█  ", "█  ", "█▄▄"];
 
     (0..4)
         .map(|row_idx| {
             let fg = Style::default().fg(LETTER_ROW_COLORS[row_idx]);
-            let fg_on_shade = fg.bg(TAB_ACTIVE_BG);
-            let mut spans = Vec::with_capacity(28);
+            let mut spans = Vec::with_capacity(16);
 
-            match row_idx {
-                0 => spans.push(Span::styled("▄▄▄▄▄", fg)),
-                1 => spans.push(Span::styled("█    ", fg)),
-                2 => {
-                    spans.push(Span::styled("█", fg));
-                    spans.push(Span::styled("▀▀▀", fg_on_shade));
-                    spans.push(Span::raw(" "));
-                }
-                _ => {
-                    spans.push(Span::styled("█", fg));
-                    spans.push(Span::styled("▀▀▀", shade));
-                    spans.push(Span::raw(" "));
-                }
-            }
+            spans.push(Span::styled(f_rows[row_idx], fg));
             spans.push(Span::raw(" "));
-
-            match row_idx {
-                0 => spans.push(Span::raw("    ")),
-                1 => spans.push(Span::styled("█▀▀▄", fg)),
-                2 => {
-                    spans.push(Span::styled("█", fg));
-                    spans.push(Span::styled("▄▄", shade));
-                    spans.push(Span::raw(" "));
-                }
-                _ => {
-                    spans.push(Span::styled("█", fg));
-                    spans.push(Span::styled("▀▀", shade));
-                    spans.push(Span::raw(" "));
-                }
-            }
+            spans.push(Span::styled(r_rows[row_idx], fg));
             spans.push(Span::raw(" "));
-
             push_gem_row_spans(&mut spans, row_idx);
             spans.push(Span::raw(" "));
-
-            match row_idx {
-                0 => spans.push(Span::raw("     ")),
-                1 => spans.push(Span::styled("█▀▀▀▄", fg)),
-                2 => {
-                    spans.push(Span::styled("█", fg));
-                    spans.push(Span::styled("▄▄▄", shade));
-                    spans.push(Span::styled("█", fg));
-                }
-                _ => {
-                    spans.push(Span::styled("█", fg));
-                    spans.push(Span::styled("▀▀▀", shade));
-                    spans.push(Span::styled("█", fg));
-                }
-            }
+            spans.push(Span::styled(n_rows[row_idx], fg));
             spans.push(Span::raw(" "));
-
-            match row_idx {
-                0 => spans.push(Span::styled(" ▄ ", fg)),
-                1 => spans.push(Span::styled("▀█▀", fg)),
-                2 => {
-                    spans.push(Span::raw(" "));
-                    spans.push(Span::styled("█", fg));
-                    spans.push(Span::styled("▄", shade));
-                }
-                _ => {
-                    spans.push(Span::raw(" "));
-                    spans.push(Span::styled("█", fg));
-                    spans.push(Span::styled("▄", fg_on_shade));
-                }
-            }
+            spans.push(Span::styled(t_rows[row_idx], fg));
             spans.push(Span::raw(" "));
-
-            match row_idx {
-                0 => spans.push(Span::raw("     ")),
-                1 => spans.push(Span::styled("▀▀▀▀█", fg)),
-                2 => {
-                    spans.push(Span::styled("█", fg));
-                    spans.push(Span::styled("▀▀▀", fg_on_shade));
-                    spans.push(Span::styled("█", fg));
-                }
-                _ => {
-                    spans.push(Span::styled("█", fg));
-                    spans.push(Span::styled("▄▄▄", fg_on_shade));
-                    spans.push(Span::styled("█", fg));
-                }
-            }
+            spans.push(Span::styled(a_rows[row_idx], fg));
             spans.push(Span::raw(" "));
-
-            match row_idx {
-                0 => spans.push(Span::styled("▄  ", fg)),
-                1 => spans.push(Span::styled("█  ", fg)),
-                2 => {
-                    spans.push(Span::styled("█", fg));
-                    spans.push(Span::styled("▄", shade));
-                    spans.push(Span::raw(" "));
-                }
-                _ => {
-                    spans.push(Span::styled("█", fg));
-                    spans.push(Span::styled("▄", fg_on_shade));
-                    spans.push(Span::styled("▄", fg));
-                }
-            }
-
+            spans.push(Span::styled(l_rows[row_idx], fg));
             Line::from(spans)
         })
         .collect()
