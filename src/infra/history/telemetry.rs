@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::protocol::TokenUsage;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TelemetrySnapshot {
     pub last: TokenUsage,
     pub accumulated: TokenUsage,

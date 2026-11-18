@@ -58,6 +58,23 @@ pub fn conversation_title_at(path: &Path, conv_id: &str) -> Option<String> {
     .flatten()
 }
 
+pub fn is_custom_title_at(path: &Path, conv_id: &str) -> bool {
+    read_connection(path, |conn| {
+        let mut stmt = conn.prepare(
+            "SELECT custom_title FROM sessions
+             WHERE conversation_id = ?1
+             ORDER BY created_at DESC LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![conv_id])?;
+        let Some(row) = rows.next()? else {
+            return Ok(false);
+        };
+        let flag: i64 = row.get(0).unwrap_or(0);
+        Ok(flag != 0)
+    })
+    .unwrap_or(false)
+}
+
 fn read_connection<T>(
     path: &Path,
     read: impl FnOnce(&Connection) -> Result<T, rusqlite::Error>,

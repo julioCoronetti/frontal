@@ -1,7 +1,7 @@
 use rusqlite::{params, Connection};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Sender};
-use std::thread;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod agent;
@@ -10,6 +10,7 @@ pub mod messages;
 pub mod opencode;
 pub mod telemetry;
 pub mod transcript;
+mod worker;
 
 pub use agent::*;
 pub use messages::{
@@ -64,6 +65,11 @@ pub enum HistoryCommand {
         id: String,
         title: String,
     },
+    RenameAgentTitle {
+        conv_id: String,
+        title: String,
+    },
+    RefreshAgent(Option<String>),
     AppendMessages {
         conversation_id: String,
         messages: Vec<StoredMessage>,
@@ -82,100 +88,38 @@ pub struct PromptHistory {
     draft_backup: Option<String>,
     db_path: Option<PathBuf>,
     write_tx: Option<Sender<HistoryCommand>>,
+    agent_cache: Arc<RwLock<Vec<SessionRecord>>>,
+    agent_updates_rx: Option<Receiver<(String, String)>>,
 }
 
 impl PromptHistory {
     pub fn open(db_path: &Path) -> Result<Self, rusqlite::Error> {
+        Self::open_with_agent_db(db_path, agent::default_agent_db_path())
+    }
+
+    pub fn open_with_agent_db(
+        db_path: &Path,
+        agent_db_path: Option<PathBuf>,
+    ) -> Result<Self, rusqlite::Error> {
         if let Some(parent) = db_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
 
         let conn = Connection::open(db_path)?;
-        Self::init_connection(&conn)?;
+        worker::init_connection(&conn)?;
         let entries = Self::load_recent_entries(&conn, 500)?;
         let sessions = Self::load_recent_sessions(&conn, 500)?;
 
         let (tx, rx) = channel::<HistoryCommand>();
-        let bg_path = db_path.to_path_buf();
-        thread::spawn(move || {
-            if let Ok(bg_conn) = Connection::open(&bg_path) {
-                let _ = Self::init_connection(&bg_conn);
-                while let Ok(cmd) = rx.recv() {
-                    match cmd {
-                        HistoryCommand::Record(prompt) => {
-                            let now = SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap_or(Duration::ZERO)
-                                .as_secs() as i64;
-                            let _ = bg_conn.execute(
-                                "INSERT INTO prompt_history (prompt, created_at) VALUES (?1, ?2)",
-                                params![prompt, now],
-                            );
-                        }
-                        HistoryCommand::RecordSession(record) => {
-                            if let Some(ref cid) = record.conversation_id {
-                                if !cid.trim().is_empty() {
-                                    let _ = bg_conn.execute(
-                                        "DELETE FROM sessions WHERE conversation_id = ?1 AND id != ?2",
-                                        params![cid, record.id],
-                                    );
-                                }
-                            }
-                            let _ = bg_conn.execute(
-                                "INSERT INTO sessions (id, conversation_id, model, mode, effort, title, created_at)
-                                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-                                 ON CONFLICT(id) DO UPDATE SET
-                                     conversation_id = COALESCE(excluded.conversation_id, sessions.conversation_id),
-                                     model = COALESCE(excluded.model, sessions.model),
-                                     mode = COALESCE(excluded.mode, sessions.mode),
-                                     effort = COALESCE(excluded.effort, sessions.effort),
-                                     title = COALESCE(sessions.title, excluded.title),
-                                     created_at = CASE
-                                         WHEN excluded.created_at > 0 THEN excluded.created_at
-                                         ELSE sessions.created_at
-                                     END",
-                                params![
-                                    record.id,
-                                    record.conversation_id,
-                                    record.model,
-                                    record.mode,
-                                    record.effort,
-                                    record.title,
-                                    record.created_at,
-                                ],
-                            );
-                        }
-                        HistoryCommand::TouchSession { id, timestamp } => {
-                            let _ = bg_conn.execute(
-                                "UPDATE sessions SET created_at = ?1 WHERE id = ?2 OR conversation_id = ?2",
-                                params![timestamp, id],
-                            );
-                        }
-                        HistoryCommand::RenameSession { id, title } => {
-                            let _ = bg_conn.execute(
-                                "UPDATE sessions SET title = ?1 WHERE id = ?2 OR conversation_id = ?2",
-                                params![title, id],
-                            );
-                        }
-                        HistoryCommand::AppendMessages {
-                            conversation_id,
-                            messages,
-                        } => {
-                            messages::insert_messages(&bg_conn, &conversation_id, &messages);
-                        }
-                        HistoryCommand::RecordTelemetry {
-                            conversation_id,
-                            snapshot,
-                        } => {
-                            let _ = telemetry::upsert(&bg_conn, &conversation_id, &snapshot);
-                        }
-                        HistoryCommand::Flush(done_tx) => {
-                            let _ = done_tx.send(());
-                        }
-                    }
-                }
-            }
-        });
+        let (agent_updates_tx, agent_updates_rx) = channel::<(String, String)>();
+        let agent_cache = Arc::new(RwLock::new(Vec::new()));
+        worker::spawn_history_worker(
+            db_path.to_path_buf(),
+            rx,
+            agent_db_path,
+            Arc::clone(&agent_cache),
+            agent_updates_tx,
+        );
 
         Ok(Self {
             entries,
@@ -184,12 +128,14 @@ impl PromptHistory {
             draft_backup: None,
             db_path: Some(db_path.to_path_buf()),
             write_tx: Some(tx),
+            agent_cache,
+            agent_updates_rx: Some(agent_updates_rx),
         })
     }
 
     pub fn open_in_memory() -> Result<Self, rusqlite::Error> {
         let conn = Connection::open_in_memory()?;
-        Self::init_connection(&conn)?;
+        worker::init_connection(&conn)?;
         let entries = Self::load_recent_entries(&conn, 500)?;
         let sessions = Self::load_recent_sessions(&conn, 500)?;
 
@@ -200,47 +146,9 @@ impl PromptHistory {
             draft_backup: None,
             db_path: None,
             write_tx: None,
+            agent_cache: Arc::new(RwLock::new(Vec::new())),
+            agent_updates_rx: None,
         })
-    }
-
-    fn init_connection(conn: &Connection) -> Result<(), rusqlite::Error> {
-        conn.busy_timeout(Duration::from_millis(5000))?;
-        conn.execute_batch(
-            "PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = NORMAL;
-             CREATE TABLE IF NOT EXISTS prompt_history (
-                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                 prompt TEXT NOT NULL,
-                 created_at INTEGER NOT NULL
-             );
-             CREATE TABLE IF NOT EXISTS sessions (
-                 id TEXT PRIMARY KEY,
-                 conversation_id TEXT,
-                 model TEXT,
-                 mode TEXT,
-                 effort TEXT,
-                 title TEXT,
-                 created_at INTEGER NOT NULL
-             );
-             CREATE TABLE IF NOT EXISTS messages (
-                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                 conversation_id TEXT NOT NULL,
-                 role TEXT NOT NULL,
-                 content TEXT NOT NULL,
-                 tool_name TEXT,
-                 tool_args TEXT,
-                 step_index INTEGER,
-                 turn_meta TEXT,
-                 created_at INTEGER NOT NULL
-             );
-             CREATE INDEX IF NOT EXISTS idx_messages_conversation
-                 ON messages(conversation_id, id);",
-        )?;
-        telemetry::ensure_schema(conn)?;
-        let _ = conn.execute("ALTER TABLE sessions ADD COLUMN effort TEXT", []);
-        let _ = conn.execute("ALTER TABLE sessions ADD COLUMN title TEXT", []);
-        let _ = conn.execute("ALTER TABLE messages ADD COLUMN turn_meta TEXT", []);
-        Ok(())
     }
 
     fn load_recent_sessions(
@@ -410,7 +318,7 @@ impl PromptHistory {
 
         if record.created_at <= 0 && !self.is_in_memory() {
             if let Some(ref cid) = record.conversation_id {
-                if let Some(ts) = agent::query_agent_conversation_timestamp(cid) {
+                if let Some(ts) = self.cached_agent_timestamp(cid) {
                     record.created_at = ts;
                 }
             }
@@ -473,6 +381,77 @@ impl PromptHistory {
                 title: trimmed.to_string(),
             });
         }
+    }
+
+    pub fn rename_agent_title(&mut self, conv_id: &str, new_title: &str) {
+        let trimmed = new_title.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if let Ok(mut guard) = self.agent_cache.write() {
+            if let Some(item) = guard
+                .iter_mut()
+                .find(|s| s.conversation_id.as_deref() == Some(conv_id))
+            {
+                item.title = Some(trimmed.to_string());
+            } else {
+                guard.push(SessionRecord {
+                    id: format!("ext-{}", conv_id),
+                    conversation_id: Some(conv_id.to_string()),
+                    model: None,
+                    mode: None,
+                    effort: None,
+                    title: Some(trimmed.to_string()),
+                    created_at: 0,
+                });
+            }
+        }
+        if let Some(ref tx) = self.write_tx {
+            let _ = tx.send(HistoryCommand::RenameAgentTitle {
+                conv_id: conv_id.to_string(),
+                title: trimmed.to_string(),
+            });
+        }
+    }
+
+    pub fn cached_agent_title(&self, conv_id: &str) -> Option<String> {
+        let guard = self.agent_cache.read().ok()?;
+        guard
+            .iter()
+            .find(|s| s.conversation_id.as_deref() == Some(conv_id))
+            .and_then(|s| s.title.clone())
+    }
+
+    pub fn cached_agent_timestamp(&self, conv_id: &str) -> Option<i64> {
+        let guard = self.agent_cache.read().ok()?;
+        guard
+            .iter()
+            .find(|s| s.conversation_id.as_deref() == Some(conv_id))
+            .map(|s| s.created_at)
+            .filter(|ts| *ts > 0)
+    }
+
+    pub fn cached_agent_conversations(&self) -> Vec<SessionRecord> {
+        self.agent_cache
+            .read()
+            .map(|guard| guard.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn request_agent_refresh(&self, conv_id: Option<String>) {
+        if let Some(ref tx) = self.write_tx {
+            let _ = tx.send(HistoryCommand::RefreshAgent(conv_id));
+        }
+    }
+
+    pub fn poll_agent_title_updates(&self) -> Vec<(String, String)> {
+        let mut updates = Vec::new();
+        if let Some(ref rx) = self.agent_updates_rx {
+            while let Ok(item) = rx.try_recv() {
+                updates.push(item);
+            }
+        }
+        updates
     }
 
     pub fn sessions(&self) -> &[SessionRecord] {
