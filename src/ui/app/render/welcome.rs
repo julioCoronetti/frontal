@@ -5,7 +5,9 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::ui::app::App;
-use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, TEXT_MUTED, TEXT_PRIMARY};
+use crate::ui::theme::{
+    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, TAB_ACTIVE_BG, TEXT_MUTED, TEXT_PRIMARY,
+};
 
 const HERO_INPUT_MAX_WIDTH: u16 = 76;
 
@@ -60,119 +62,12 @@ const GEM_PIXELS: [[Option<(u8, u8, u8)>; 6]; 6] = [
     ],
 ];
 
-const GLYPH_F: [&str; 8] = [
-    "████████",
-    "██      ",
-    "██      ",
-    "██████  ",
-    "██      ",
-    "██      ",
-    "██      ",
-    "██      ",
-];
-
-const GLYPH_R: [&str; 8] = [
-    "        ",
-    "        ",
-    "████████",
-    "██    ██",
-    "██      ",
-    "██      ",
-    "██      ",
-    "██      ",
-];
-
-const GLYPH_N: [&str; 8] = [
-    "        ",
-    "        ",
-    "███████ ",
-    "██    ██",
-    "██    ██",
-    "██    ██",
-    "██    ██",
-    "██    ██",
-];
-
-const GLYPH_T: [&str; 8] = [
-    "  ██    ",
-    "  ██    ",
-    "██████  ",
-    "  ██    ",
-    "  ██    ",
-    "  ██    ",
-    "  ██    ",
-    "   ███  ",
-];
-
-const GLYPH_A: [&str; 8] = [
-    "        ",
-    "        ",
-    " ██████ ",
-    "      ██",
-    " ███████",
-    "██    ██",
-    "██    ██",
-    " ███████",
-];
-
-const GLYPH_L: [&str; 8] = [
-    "██  ",
-    "██  ",
-    "██  ",
-    "██  ",
-    "██  ",
-    "██  ",
-    "██  ",
-    " ███",
-];
-
 const LETTER_ROW_COLORS: [Color; 4] = [
     ACCENT_HIGHLIGHT,
     Color::Rgb(218, 36, 61),
     ACCENT_PRIMARY,
     ACCENT_RUBY,
 ];
-
-fn quadrant_char(tl: bool, tr: bool, bl: bool, br: bool) -> char {
-    match (tl, tr, bl, br) {
-        (false, false, false, false) => ' ',
-        (true, false, false, false) => '▘',
-        (false, true, false, false) => '▝',
-        (false, false, true, false) => '▖',
-        (false, false, false, true) => '▗',
-        (true, true, false, false) => '▀',
-        (false, false, true, true) => '▄',
-        (true, false, true, false) => '▌',
-        (false, true, false, true) => '▐',
-        (true, false, false, true) => '▚',
-        (false, true, true, false) => '▞',
-        (true, true, true, false) => '▛',
-        (true, true, false, true) => '▜',
-        (true, false, true, true) => '▙',
-        (false, true, true, true) => '▟',
-        (true, true, true, true) => '█',
-    }
-}
-
-fn render_glyph_row(glyph: &[&str; 8], row_idx: usize) -> Span<'static> {
-    let cy = row_idx * 2;
-    let chars: Vec<char> = glyph[cy].chars().collect();
-    let bot_chars: Vec<char> = glyph[cy + 1].chars().collect();
-
-    let mut out = String::with_capacity(chars.len() / 2);
-    let mut cx = 0;
-    while cx + 1 < chars.len() {
-        let ch = quadrant_char(
-            chars[cx] == '█',
-            chars[cx + 1] == '█',
-            bot_chars[cx] == '█',
-            bot_chars[cx + 1] == '█',
-        );
-        out.push(ch);
-        cx += 2;
-    }
-    Span::styled(out, Style::default().fg(LETTER_ROW_COLORS[row_idx]))
-}
 
 fn push_gem_row_spans(spans: &mut Vec<Span<'static>>, row_idx: usize) {
     if row_idx == 0 {
@@ -210,22 +105,62 @@ fn push_gem_row_spans(spans: &mut Vec<Span<'static>>, row_idx: usize) {
 }
 
 fn build_logo_lines() -> Vec<Line<'static>> {
+    let shade = Style::default().fg(TAB_ACTIVE_BG);
+
+    let f_rows = ["█▀▀▀▀", "█    ", "█▀▀▀ ", "█    "];
+    let r_rows = ["    ", "█▀▀▄", "█   ", "█   "];
+    let t_rows = [" █ ", "▀█▀", " █ ", " █▄"];
+    let l_rows = ["█ ", "█ ", "█ ", "█▄"];
+
     (0..4)
         .map(|row_idx| {
-            let mut spans = Vec::with_capacity(16);
-            spans.push(render_glyph_row(&GLYPH_F, row_idx));
+            let fg = Style::default().fg(LETTER_ROW_COLORS[row_idx]);
+            let fg_on_shade = fg.bg(TAB_ACTIVE_BG);
+            let mut spans = Vec::with_capacity(24);
+
+            spans.push(Span::styled(f_rows[row_idx], fg));
             spans.push(Span::raw(" "));
-            spans.push(render_glyph_row(&GLYPH_R, row_idx));
+            spans.push(Span::styled(r_rows[row_idx], fg));
             spans.push(Span::raw(" "));
             push_gem_row_spans(&mut spans, row_idx);
             spans.push(Span::raw(" "));
-            spans.push(render_glyph_row(&GLYPH_N, row_idx));
+
+            match row_idx {
+                0 => spans.push(Span::raw("     ")),
+                1 => spans.push(Span::styled("█▀▀▀▄", fg)),
+                2 => {
+                    spans.push(Span::styled("█", fg));
+                    spans.push(Span::styled("▄▄▄", shade));
+                    spans.push(Span::styled("█", fg));
+                }
+                _ => {
+                    spans.push(Span::styled("█", fg));
+                    spans.push(Span::styled("▀▀▀", shade));
+                    spans.push(Span::styled("█", fg));
+                }
+            }
+
             spans.push(Span::raw(" "));
-            spans.push(render_glyph_row(&GLYPH_T, row_idx));
+            spans.push(Span::styled(t_rows[row_idx], fg));
             spans.push(Span::raw(" "));
-            spans.push(render_glyph_row(&GLYPH_A, row_idx));
+
+            match row_idx {
+                0 => spans.push(Span::raw("     ")),
+                1 => spans.push(Span::styled("▀▀▀▀█", fg)),
+                2 => {
+                    spans.push(Span::styled("█", fg));
+                    spans.push(Span::styled("▀▀▀", fg_on_shade));
+                    spans.push(Span::styled("█", fg));
+                }
+                _ => {
+                    spans.push(Span::styled("█", fg));
+                    spans.push(Span::styled("▄▄▄", fg_on_shade));
+                    spans.push(Span::styled("█", fg));
+                }
+            }
+
             spans.push(Span::raw(" "));
-            spans.push(render_glyph_row(&GLYPH_L, row_idx));
+            spans.push(Span::styled(l_rows[row_idx], fg));
             Line::from(spans)
         })
         .collect()
@@ -325,7 +260,7 @@ impl App {
     }
 
     pub(crate) fn render_welcome_compact(&self, frame: &mut Frame, chat_area: Rect) {
-        let use_block_logo = chat_area.width >= 34 && chat_area.height >= 6;
+        let use_block_logo = chat_area.width >= 35 && chat_area.height >= 6;
         let needed_with_pad = if use_block_logo { 6 } else { 3 };
         let mut lines = Vec::new();
         if chat_area.height >= needed_with_pad {
