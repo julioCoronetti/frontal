@@ -1,12 +1,12 @@
 # Frontal
 
-Decoupled, asynchronous, high-performance Terminal User Interface (TUI) harness developed in **Rust** (version `0.17.0`) for the Antigravity CLI (`agy`) and agentic engines compatible with the `stream-json` protocol.
+Decoupled, asynchronous, high-performance Terminal User Interface (TUI) harness developed in **Rust** (version `0.18.0`) for the Antigravity CLI (`agy`) and agentic engines compatible with the `stream-json` protocol.
 
 ---
 
 ## 1. Overview
 
-Frontal provides a high-performance terminal presentation layer designed for the stable, responsive rendering of continuous LLM token streams. The harness consumes structured events (NDJSON) over process pipes (`stdin`/`stdout`), fully decoupling the AI engine lifecycle from the visual interface. Architectural stability is verified by a unified suite of **249 tests across 8 domains**.
+Frontal provides a high-performance terminal presentation layer designed for the stable, responsive rendering of continuous LLM token streams. The harness consumes structured events (NDJSON) over process pipes (`stdin`/`stdout`), fully decoupling the AI engine lifecycle from the visual interface. Architectural stability is verified by a unified suite of **255 tests across 8 domains**.
 
 The design is informed by comparative analysis of two reference harnesses:
 - **Antigravity CLI (`agy`)**: Benchmark for operational simplicity, process stability, and a streamlined `stream-json` protocol.
@@ -63,7 +63,7 @@ The codebase enforces strict decoupling into three cohesive architectural layers
 
 ## 5. Consolidated Capabilities and Continuous Evolution
 
-Frontal is operational in production (version `0.17.0`), fully verified by **249 tests across 8 domains**. Development progresses continuously via GitHub Project Board #8 cards across these consolidated domains:
+Frontal is operational in production (version `0.18.0`), fully verified by **255 tests across 8 domains**. Development progresses continuously via GitHub Project Board #8 cards across these consolidated domains:
 
 - **Foundation, `stream-json` & ACP Protocols, and Headless IPC:**
   - Single Cargo crate, session multiplexing via `SessionId`, typed `stream-json` and JSON-RPC 2.0 ACP (`agy acp --stdio`) protocols, `AcpEngine` with RFC 4648 Base64 `ImageContentBlock` and async permission handling, `AgyEngine`, `OpenCodeEngine`, `FixtureReplayEngine`, async line decoding via `LinesCodec` (16 MB buffer), structured `PromptPayload` (`text` + `media`), and POSIX process isolation (`setpgid`/`killpg`/`PR_SET_PDEATHSIG`).
@@ -76,7 +76,7 @@ Frontal is operational in production (version `0.17.0`), fully verified by **249
 - **Multi-Session (`TabState`), Modal Stack (`DialogSelect`), Double-`Esc` Interruption, and Safety Guardian:**
   - OpenCode-style interactive tab bar (`Ctrl+T`, `Ctrl+W`, `Alt+1..9`, hover-only `×` close, `+` new tab) via `SessionManager`, staged prompt barrier, local command dispatch, double-`Esc` active-turn interruption (`1500 ms` confirmation window with `Thinking...  esc again to interrupt` hint in `TEXT_INTERRUPT_HINT` and muted `Prompt interrupted` block, keeping `Ctrl+C` strictly for selection copy, input clear, and quit), floating modal dialog stack with backdrop dimming, deterministic Safety Guardian (`DangerAssessment`) with confirmation containment modal for destructive actions, unified `DialogSelect` component (keyboard and mouse navigation), hot-respawn model switching, commands modal (`Ctrl+P`), and integrated git diff viewer.
 - **Multi-Backend Harness (`FrontalEngine`), OpenCode Integration, and Resume Parity:**
-  - Decoupled `AgyEngine` (persistent pipe daemon, default), `AcpEngine`, and `OpenCodeEngine` (per-turn `opencode run` supervisor with `--file` attachments) behind `FrontalEngine`, runtime model discovery via `opencode models`, a unified `/model` provider selector (Antigravity plus each OpenCode provider) with global search that shows the provider on every result and human-readable provider/model labels while identifiers stay canonical, contextual `/quota` with Go usage windows read from the stored OpenCode credential (`OPENCODE_GO_API_KEY` or the local OpenCode database), cross-backend `conversation_id` isolation, and per-conversation message persistence so `/resume` hydrates history on both engines.
+  - Decoupled `AgyEngine` (persistent pipe daemon, default), `AcpEngine`, and `OpenCodeEngine` (per-turn `opencode run` supervisor with `--file` attachments) behind `FrontalEngine`, runtime model discovery via `opencode models`, a unified `/model` provider selector (Antigravity plus each OpenCode provider) with global search that shows the provider on every result and human-readable provider/model labels while identifiers stay canonical, contextual `/quota` with Go usage windows read from the stored OpenCode credential (`OPENCODE_GO_API_KEY` or the local OpenCode database), cross-backend `conversation_id` isolation, and symmetric `/resume` hydration (`hydrate_session_blocking`, `transcript::load_usage`, `opencode::load_usage`) restoring history, model, effort, and token telemetry on both engines without mutating global `user_config`.
 - **OpenCode Visual Ergonomics, Hero Welcome State, Context Telemetry, and Atlas Crimson Theme:**
   - Centered Hero welcome state featuring a 4-row (`35×4`) half-block `Frontal` wordmark with Atlas Crimson vertical gradient and 6×6 truecolor Atlas Gem (`< 50×16` compact fallback), fluid transition to 2-column layout (conversation + Context Sidebar with `ModelSpec` resolution, token count, semaphore indicator `●` and compaction threshold, `Ctrl+B` / `/sidebar` toggle, narrow-screen footer semaphore gauge, and persisted turn metadata across `/resume`), 2-column aligned autocomplete popover, scroll indicator, **Atlas Crimson** theme, normalized `/model` selector with reasoning effort slider (`◀ ●──◎──● ▶`), clean column 0 margin alignment, granular text selection in viewport, and faithful clipboard copying.
 
@@ -93,7 +93,7 @@ Frontal is operational in production (version `0.17.0`), fully verified by **249
 # Optimized release build
 cargo build --release
 
-# Execute full 249 tests across 8 domains
+# Execute full 255 tests across 8 domains
 cargo test --quiet
 ```
 
@@ -119,7 +119,7 @@ cargo run --release -- --headless -p "Describe the project architecture"
 Detailed technical documentation is available on the [GitHub Wiki](https://github.com/julioCoronetti/frontal/wiki):
 
 - **[Home](https://github.com/julioCoronetti/frontal/wiki/Home)**: Central documentation index.
-- **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: Official Rust implementation architecture (v0.17.0), modules, Atlas Crimson theme, and 249 tests suite.
+- **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: Official Rust implementation architecture (v0.18.0), modules, Atlas Crimson theme, and 255 tests suite.
 - **[Board-Roadmap](https://github.com/julioCoronetti/frontal/wiki/Board-Roadmap)**: Architecture specification, Rust tech stack, decision matrix, consolidated capabilities, and Project Board evolution.
 - **Antigravity CLI (`agy`) Dossier**:
   - [Agy](https://github.com/julioCoronetti/frontal/wiki/Agy): Official CLI overview.
