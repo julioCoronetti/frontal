@@ -78,8 +78,7 @@ fn test_hero_welcome_popover_anchored_below_and_clamped() {
     let buf = term.backend().buffer();
     let logo_y = find_row_containing(buf, "▄▀▀▀▀▄").expect("logo row");
     let input_y = find_row_containing(buf, "Gemini 3.8 Flash").expect("input row");
-    let popover_y = find_row_containing(buf, "Commands (Tab/Enter: apply, Esc: close)")
-        .expect("popover title row");
+    let popover_y = find_row_containing(buf, " Commands ").expect("popover title row");
 
     assert!(logo_y < input_y);
     assert!(popover_y > input_y);
