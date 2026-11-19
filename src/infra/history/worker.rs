@@ -70,6 +70,7 @@ pub(super) fn init_connection(conn: &Connection) -> Result<(), rusqlite::Error> 
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn spawn_history_worker(
     bg_path: PathBuf,
     rx: Receiver<HistoryCommand>,
@@ -77,41 +78,27 @@ pub(super) fn spawn_history_worker(
     opencode_db_path: Option<PathBuf>,
     agent_cache: Arc<RwLock<Vec<SessionRecord>>>,
     agent_updates_tx: Sender<(String, String)>,
+    mut pinned_titles: std::collections::HashMap<String, String>,
+    known_models: std::collections::HashMap<String, (Option<String>, Option<String>)>,
 ) {
-    if agent_db_path.is_some() || opencode_db_path.is_some() {
-        let cache_clone = Arc::clone(&agent_cache);
-        let adb_clone = agent_db_path.clone();
-        let odb_clone = opencode_db_path.clone();
-        thread::spawn(move || {
-            let records = sync::load_external_conversations(
-                adb_clone.as_deref(),
-                odb_clone.as_deref(),
-                &std::collections::HashMap::new(),
-            );
-            if let Ok(mut guard) = cache_clone.write() {
-                if guard.is_empty() {
-                    *guard = records;
-                } else {
-                    for rec in records {
-                        if let Some(ref cid) = rec.conversation_id {
-                            if !guard
-                                .iter()
-                                .any(|existing| existing.conversation_id.as_deref() == Some(cid))
-                            {
-                                guard.push(rec);
-                            }
-                        }
-                    }
-                }
-            }
-        });
-    }
     thread::spawn(move || {
+        let mut probed_empty = std::collections::HashSet::new();
+        if agent_db_path.is_some() || opencode_db_path.is_some() {
+            let mut records = sync::load_external_sql_conversations(
+                agent_db_path.as_deref(),
+                opencode_db_path.as_deref(),
+                &known_models,
+            );
+            sync::apply_pinned_titles(&mut records, &pinned_titles);
+            if let Ok(mut guard) = agent_cache.write() {
+                *guard = records;
+            }
+        }
         let Ok(bg_conn) = Connection::open(&bg_path) else {
             return;
         };
-        let _ = init_connection(&bg_conn);
-        let mut pinned_titles = sync::load_pinned_titles(&bg_conn);
+        let _ = bg_conn.busy_timeout(Duration::from_millis(5000));
+        pinned_titles.extend(sync::load_pinned_titles(&bg_conn));
         while let Ok(cmd) = rx.recv() {
             match cmd {
                 HistoryCommand::Record(prompt) => {
@@ -186,6 +173,7 @@ pub(super) fn spawn_history_worker(
                         opencode_db_path.as_deref(),
                         &agent_cache,
                         &agent_updates_tx,
+                        &mut probed_empty,
                     );
                 }
                 HistoryCommand::AppendMessages {

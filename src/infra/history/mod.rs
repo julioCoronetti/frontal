@@ -89,10 +89,25 @@ impl PromptHistory {
         worker::init_connection(&conn)?;
         let entries = Self::load_recent_entries(&conn, 500)?;
         let sessions = Self::load_recent_sessions(&conn, 500)?;
+        drop(conn);
 
         let (tx, rx) = channel::<HistoryCommand>();
         let (agent_updates_tx, agent_updates_rx) = channel::<(String, String)>();
         let agent_cache = Arc::new(RwLock::new(Vec::new()));
+        let mut pinned_titles = std::collections::HashMap::new();
+        let mut known_models = std::collections::HashMap::new();
+        for s in &sessions {
+            if let Some(ref cid) = s.conversation_id {
+                if s.title_source == TitleSource::Custom {
+                    if let Some(ref t) = s.title {
+                        pinned_titles.insert(cid.clone(), t.clone());
+                    }
+                }
+                if s.model.is_some() {
+                    known_models.insert(cid.clone(), (s.model.clone(), s.effort.clone()));
+                }
+            }
+        }
         worker::spawn_history_worker(
             db_path.to_path_buf(),
             rx,
@@ -100,6 +115,8 @@ impl PromptHistory {
             opencode_db_path,
             Arc::clone(&agent_cache),
             agent_updates_tx,
+            pinned_titles,
+            known_models,
         );
 
         Ok(Self {

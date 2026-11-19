@@ -237,6 +237,7 @@ async fn test_resume_modal_filters_uuid_fallbacks_and_deduplicates_open_sessions
     let (mut app, session_id) = test_app();
     let history_db = home.join("frontal_history.db");
     app.history = PromptHistory::open(&history_db).unwrap();
+    app.history.flush();
     app.session_manager.set_session_metadata(
         &session_id,
         Some("open-conv-2".to_string()),

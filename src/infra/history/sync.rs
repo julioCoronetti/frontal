@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
@@ -119,6 +119,7 @@ pub(super) fn handle_record_session(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn handle_refresh_agent(
     conn: &Connection,
     maybe_cid: Option<String>,
@@ -127,6 +128,7 @@ pub(super) fn handle_refresh_agent(
     opencode_db_path: Option<&Path>,
     agent_cache: &Arc<RwLock<Vec<SessionRecord>>>,
     agent_updates_tx: &Sender<(String, String)>,
+    probed_empty: &mut HashSet<String>,
 ) {
     match maybe_cid {
         Some(cid) => {
@@ -183,35 +185,50 @@ pub(super) fn handle_refresh_agent(
         }
         None => {
             let known_models = collect_known_models(conn, agent_cache);
-            let mut records =
-                load_external_conversations(agent_db_path, opencode_db_path, &known_models);
-            for (cid, pinned_title) in pinned_titles {
-                if let Some(existing) = records
-                    .iter_mut()
-                    .find(|s| s.conversation_id.as_deref() == Some(cid.as_str()))
-                {
-                    existing.title = Some(pinned_title.clone());
-                    existing.title_source = TitleSource::Custom;
-                } else {
-                    records.push(SessionRecord {
-                        id: format!("ext-{}", cid),
-                        conversation_id: Some(cid.clone()),
-                        backend: Some(infer_backend(Some(cid), None)),
-                        model: None,
-                        mode: None,
-                        effort: None,
-                        title: Some(pinned_title.clone()),
-                        title_source: TitleSource::Custom,
-                        created_at: 0,
-                    });
-                }
-            }
+            let mut records = load_external_conversations(
+                agent_db_path,
+                opencode_db_path,
+                &known_models,
+                probed_empty,
+            );
+            apply_pinned_titles(&mut records, pinned_titles);
+            let in_tx = conn.execute_batch("BEGIN IMMEDIATE;").is_ok();
             for rec in &records {
                 upsert_external_session(conn, rec);
+            }
+            if in_tx && conn.execute_batch("COMMIT;").is_err() {
+                let _ = conn.execute_batch("ROLLBACK;");
             }
             if let Ok(mut guard) = agent_cache.write() {
                 *guard = records;
             }
+        }
+    }
+}
+
+pub(super) fn apply_pinned_titles(
+    records: &mut Vec<SessionRecord>,
+    pinned_titles: &HashMap<String, String>,
+) {
+    for (cid, pinned_title) in pinned_titles {
+        if let Some(existing) = records
+            .iter_mut()
+            .find(|s| s.conversation_id.as_deref() == Some(cid.as_str()))
+        {
+            existing.title = Some(pinned_title.clone());
+            existing.title_source = TitleSource::Custom;
+        } else {
+            records.push(SessionRecord {
+                id: format!("ext-{}", cid),
+                conversation_id: Some(cid.clone()),
+                backend: Some(infer_backend(Some(cid), None)),
+                model: None,
+                mode: None,
+                effort: None,
+                title: Some(pinned_title.clone()),
+                title_source: TitleSource::Custom,
+                created_at: 0,
+            });
         }
     }
 }
@@ -320,7 +337,7 @@ pub(super) fn update_cache_record(
     }
 }
 
-fn collect_known_models(
+pub(super) fn collect_known_models(
     conn: &Connection,
     agent_cache: &Arc<RwLock<Vec<SessionRecord>>>,
 ) -> HashMap<String, (Option<String>, Option<String>)> {
@@ -353,7 +370,7 @@ fn collect_known_models(
     known
 }
 
-pub(super) fn load_external_conversations(
+pub(super) fn load_external_sql_conversations(
     agent_db: Option<&Path>,
     opencode_db: Option<&Path>,
     known_models: &HashMap<String, (Option<String>, Option<String>)>,
@@ -361,30 +378,12 @@ pub(super) fn load_external_conversations(
     let mut records = agent_db
         .map(agent::load_agent_conversations_at)
         .unwrap_or_default();
-    let mut enriched = 0usize;
     for rec in &mut records {
         if rec.model.is_none() {
             if let Some(ref cid) = rec.conversation_id {
                 if let Some((model, effort)) = known_models.get(cid) {
                     rec.model = model.clone();
                     rec.effort = effort.clone();
-                    continue;
-                }
-                if enriched >= 15 {
-                    continue;
-                }
-                if let Some(snapshot) = transcript::load_usage(cid) {
-                    enriched += 1;
-                    if let Some(raw_model) = snapshot.model.as_deref() {
-                        let (base, effort) =
-                            crate::transport::EngineConfig::split_model_effort(raw_model);
-                        if !base.is_empty() {
-                            rec.model = Some(base.to_string());
-                        }
-                        if let Some(eff) = effort {
-                            rec.effort = Some(eff.to_string());
-                        }
-                    }
                 }
             }
         }
@@ -402,5 +401,41 @@ pub(super) fn load_external_conversations(
         }
     }
     records.sort_by_key(|r| std::cmp::Reverse(r.created_at));
+    records
+}
+
+pub(super) fn load_external_conversations(
+    agent_db: Option<&Path>,
+    opencode_db: Option<&Path>,
+    known_models: &HashMap<String, (Option<String>, Option<String>)>,
+    probed_empty: &mut HashSet<String>,
+) -> Vec<SessionRecord> {
+    let mut records = load_external_sql_conversations(agent_db, opencode_db, known_models);
+    let mut enriched = 0usize;
+    for rec in &mut records {
+        if rec.model.is_none() && rec.effective_backend() == crate::config::BackendKind::Agy {
+            if let Some(ref cid) = rec.conversation_id {
+                if probed_empty.contains(cid) || enriched >= 15 {
+                    continue;
+                }
+                enriched += 1;
+                if let Some(snapshot) = transcript::load_usage(cid) {
+                    if let Some(raw_model) = snapshot.model.as_deref() {
+                        let (base, effort) =
+                            crate::transport::EngineConfig::split_model_effort(raw_model);
+                        if !base.is_empty() {
+                            rec.model = Some(base.to_string());
+                        }
+                        if let Some(eff) = effort {
+                            rec.effort = Some(eff.to_string());
+                        }
+                    }
+                }
+                if rec.model.is_none() {
+                    probed_empty.insert(cid.clone());
+                }
+            }
+        }
+    }
     records
 }
