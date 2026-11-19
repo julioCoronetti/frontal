@@ -1,7 +1,54 @@
 use std::sync::mpsc::Sender;
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{QuotaBucket, QuotaGroup, UsagePlanInfo, UsageState, UsageSummary};
+
+struct QuotaFetchState {
+    in_flight: bool,
+    waiters: Vec<Sender<UsageState>>,
+}
+
+static QUOTA_FETCH_STATE: Mutex<QuotaFetchState> = Mutex::new(QuotaFetchState {
+    in_flight: false,
+    waiters: Vec::new(),
+});
+
+struct QuotaFetchGuard;
+
+impl Drop for QuotaFetchGuard {
+    fn drop(&mut self) {
+        let waiters = {
+            let mut state = QUOTA_FETCH_STATE.lock().unwrap_or_else(|e| e.into_inner());
+            if !state.in_flight {
+                return;
+            }
+            state.in_flight = false;
+            std::mem::take(&mut state.waiters)
+        };
+        let err_state = UsageState::Unavailable("Quota worker interrupted.".to_string());
+        for waiter in waiters {
+            let _ = waiter.send(err_state.clone());
+        }
+    }
+}
+
+pub(super) fn clean_text(raw: &str) -> String {
+    raw.chars().filter(|c| !c.is_control()).collect()
+}
+
+pub(crate) fn is_valid_calendar(d: &[i64], t: &[i64]) -> bool {
+    if d.len() < 3 || t.len() < 2 {
+        return false;
+    }
+    let sec = t.get(2).copied().unwrap_or(0);
+    (1970..=9999).contains(&d[0])
+        && (1..=12).contains(&d[1])
+        && (1..=31).contains(&d[2])
+        && (0..=23).contains(&t[0])
+        && (0..=59).contains(&t[1])
+        && (0..=60).contains(&sec)
+}
 
 pub(crate) fn civil_to_days(mut y: i64, m: u64, d: u64) -> i64 {
     y -= (m <= 2) as i64;
@@ -11,24 +58,34 @@ pub(crate) fn civil_to_days(mut y: i64, m: u64, d: u64) -> i64 {
     era * 146097 + (yoe * 365 + yoe / 4 - yoe / 100 + doy) as i64 - 719468
 }
 
-pub fn format_reset_time(iso: &str) -> String {
-    let mut parts = iso.split('T');
-    let (d_str, t_str) = (
-        parts.next().unwrap_or(""),
-        parts.next().unwrap_or("").trim_end_matches('Z'),
-    );
-    let d: Vec<i64> = d_str.split('-').filter_map(|s| s.parse().ok()).collect();
-    let t: Vec<i64> = t_str
-        .split(':')
+pub(crate) fn parse_iso_ymd_hms(iso: &str) -> Option<([i64; 3], [i64; 3])> {
+    let (d_str, rest) = iso.split_once('T')?;
+    let t_str = rest.trim_end_matches('Z');
+    let d_parts: Vec<&str> = d_str.split('-').collect();
+    let t_parts: Vec<&str> = t_str.split(':').collect();
+    if d_parts.len() != 3 || !(2..=3).contains(&t_parts.len()) {
+        return None;
+    }
+    let d: Vec<i64> = d_parts.iter().filter_map(|s| s.parse().ok()).collect();
+    let t: Vec<i64> = t_parts
+        .iter()
         .filter_map(|s| s.split('.').next()?.parse().ok())
         .collect();
-    if d.len() < 3 || t.len() < 2 {
-        return "Resets periodically".to_string();
+    if d.len() != 3 || t.len() != t_parts.len() || !is_valid_calendar(&d, &t) {
+        return None;
     }
-    let target = civil_to_days(d[0], d[1] as u64, d[2] as u64) * 86400
-        + t[0] * 3600
-        + t[1] * 60
-        + t.get(2).copied().unwrap_or(0);
+    Some((
+        [d[0], d[1], d[2]],
+        [t[0], t[1], t.get(2).copied().unwrap_or(0)],
+    ))
+}
+
+pub fn format_reset_time(iso: &str) -> String {
+    let Some((d, t)) = parse_iso_ymd_hms(iso) else {
+        return "Resets periodically".to_string();
+    };
+    let target =
+        civil_to_days(d[0], d[1] as u64, d[2] as u64) * 86400 + t[0] * 3600 + t[1] * 60 + t[2];
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|dur| dur.as_secs() as i64)
@@ -46,34 +103,29 @@ pub fn format_reset_time(iso: &str) -> String {
 }
 
 pub fn fetch_quota_async(tx: Sender<UsageState>) {
-    if super::FETCH_IN_FLIGHT.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        std::thread::spawn(move || {
-            for _ in 0..100 {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-                if !super::FETCH_IN_FLIGHT.load(std::sync::atomic::Ordering::SeqCst) {
-                    if let Ok(guard) = super::USAGE_CACHE.lock() {
-                        if let Some((_, ref summary)) = *guard {
-                            let _ = tx.send(UsageState::Ready(summary.clone()));
-                            return;
-                        }
-                    }
-                    let _ = tx.send(UsageState::Unavailable("Fetch failed in worker.".into()));
-                    return;
-                }
-            }
-            let _ = tx.send(UsageState::Unavailable("Fetch timeout.".into()));
-        });
-        return;
+    {
+        let mut state = QUOTA_FETCH_STATE.lock().unwrap_or_else(|e| e.into_inner());
+        state.waiters.push(tx);
+        if state.in_flight {
+            return;
+        }
+        state.in_flight = true;
     }
     std::thread::spawn(move || {
+        let _guard = QuotaFetchGuard;
         let state = execute_fetch();
         if let UsageState::Ready(ref summary) = state {
-            if let Ok(mut cache) = super::USAGE_CACHE.lock() {
-                *cache = Some((std::time::Instant::now(), summary.clone()));
-            }
+            let mut cache = super::USAGE_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+            *cache = Some((std::time::Instant::now(), summary.clone()));
         }
-        super::FETCH_IN_FLIGHT.store(false, std::sync::atomic::Ordering::SeqCst);
-        let _ = tx.send(state);
+        let waiters: Vec<Sender<UsageState>> = {
+            let mut fetch_state = QUOTA_FETCH_STATE.lock().unwrap_or_else(|e| e.into_inner());
+            fetch_state.in_flight = false;
+            std::mem::take(&mut fetch_state.waiters)
+        };
+        for waiter in waiters {
+            let _ = waiter.send(state.clone());
+        }
     });
 }
 
@@ -112,59 +164,8 @@ fn execute_http_fallback() -> UsageState {
     execute_http_fetch(access_token, email)
 }
 
-fn post_endpoint(
-    url: &str,
-    token: &str,
-    user_agent: Option<&str>,
-) -> Result<serde_json::Value, String> {
-    let mut cfg = format!(
-        "header = \"Authorization: Bearer {}\"\nheader = \"Content-Type: application/json\"\n",
-        token.trim()
-    );
-    if let Some(ua) = user_agent {
-        cfg.push_str(&format!("header = \"User-Agent: {}\"\n", ua));
-    }
-    let mut child = std::process::Command::new("curl")
-        .args([
-            "-sS",
-            "--connect-timeout",
-            "2",
-            "--max-time",
-            "4",
-            "-X",
-            "POST",
-            url,
-            "-d",
-            "{}",
-            "--config",
-            "-",
-        ])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("curl error: {}", e))?;
-
-    if let Some(mut stdin) = child.stdin.take() {
-        use std::io::Write;
-        let _ = stdin.write_all(cfg.as_bytes());
-    }
-    let out = child
-        .wait_with_output()
-        .map_err(|e| format!("network error: {}", e))?;
-    if !out.status.success() {
-        return Err("request failed".to_string());
-    }
-    let val: serde_json::Value =
-        serde_json::from_slice(&out.stdout).map_err(|e| format!("parse error: {}", e))?;
-    if val.get("error").is_some() {
-        return Err("api error".to_string());
-    }
-    Ok(val)
-}
-
 fn execute_http_fetch(token: &str, email: Option<String>) -> UsageState {
-    let ep = |url: &'static str| post_endpoint(url, token, Some("Antigravity/1.5.3"));
+    let ep = |url: &'static str| super::cli::post_endpoint(url, token, Some("Antigravity/1.5.3"));
     let (p_res, q_res, m_res) = std::thread::scope(|s| {
         let p =
             s.spawn(|| ep("https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"));
@@ -191,9 +192,10 @@ fn execute_http_fetch(token: &str, email: Option<String>) -> UsageState {
 }
 
 pub fn parse_plan_info(val: Option<&serde_json::Value>, email: Option<String>) -> UsagePlanInfo {
+    let clean_email = email.map(|e| clean_text(&e));
     let default_plan = UsagePlanInfo {
         tier_name: "Google AI Pro".to_string(),
-        account_email: email.clone(),
+        account_email: clean_email.clone(),
         upgrade_url: None,
         manage_url: None,
     };
@@ -203,15 +205,16 @@ pub fn parse_plan_info(val: Option<&serde_json::Value>, email: Option<String>) -
         .or_else(|| val.pointer("/currentTier/name"))
         .or_else(|| val.pointer("/allowedTiers/0/name"))
         .and_then(|n| n.as_str())
-        .unwrap_or("Google AI Pro")
-        .to_string();
+        .map(clean_text)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "Google AI Pro".to_string());
     let manage_url = val
         .get("manageSubscriptionUri")
         .and_then(|m| m.as_str())
-        .map(|s| s.to_string());
+        .map(clean_text);
     UsagePlanInfo {
         tier_name,
-        account_email: email,
+        account_email: clean_email,
         upgrade_url: None,
         manage_url,
     }
@@ -241,7 +244,10 @@ fn extract_raw_quotas(val: &serde_json::Value) -> Vec<RawQuota> {
             .unwrap_or("")
             .to_string();
         let q_val = item.get("quotaInfo").unwrap_or(item);
-        let remaining_fraction = q_val.get("remainingFraction").and_then(|f| f.as_f64());
+        let remaining_fraction = q_val
+            .get("remainingFraction")
+            .and_then(|f| f.as_f64())
+            .filter(|f| f.is_finite());
         let reset_time = q_val
             .get("resetTime")
             .and_then(|r| r.as_str())
@@ -281,31 +287,44 @@ fn extract_raw_quotas(val: &serde_json::Value) -> Vec<RawQuota> {
     results
 }
 
-fn make_bucket(name: &str, raw: Option<&RawQuota>) -> QuotaBucket {
-    let (frac, exhausted, reset_label) = match raw {
-        Some(r) => {
-            let frac = r
-                .remaining_fraction
-                .unwrap_or(if r.disabled { 0.0 } else { 1.0 });
-            let exhausted = r.disabled || frac <= 0.0;
-            let label = if frac >= 1.0 {
-                "Quota available".to_string()
-            } else if let Some(ref rt) = r.reset_time {
-                format_reset_time(rt)
-            } else if exhausted {
-                "Quota exhausted".to_string()
-            } else {
-                "Quota available".to_string()
-            };
-            (frac, exhausted, label)
-        }
-        None => (1.0, false, "Quota available".to_string()),
+fn build_quota_bucket(
+    name: String,
+    frac_opt: Option<f64>,
+    disabled: bool,
+    reset_time: Option<&str>,
+) -> QuotaBucket {
+    let default_frac = if disabled { 0.0 } else { 1.0 };
+    let frac = frac_opt
+        .filter(|f| f.is_finite())
+        .unwrap_or(default_frac)
+        .clamp(0.0, 1.0);
+    let exhausted = disabled || frac <= 0.0;
+    let reset_label = if frac >= 1.0 {
+        "Quota available".to_string()
+    } else if let Some(rt) = reset_time {
+        format_reset_time(rt)
+    } else if exhausted {
+        "Quota exhausted".to_string()
+    } else {
+        "Quota available".to_string()
     };
     QuotaBucket {
-        name: name.to_string(),
+        name,
         remaining_pct: (frac * 100.0).clamp(0.0, 100.0),
         reset_label,
         exhausted,
+    }
+}
+
+fn make_bucket(name: &str, raw: Option<&RawQuota>) -> QuotaBucket {
+    match raw {
+        Some(r) => build_quota_bucket(
+            name.to_string(),
+            r.remaining_fraction,
+            r.disabled,
+            r.reset_time.as_deref(),
+        ),
+        None => build_quota_bucket(name.to_string(), Some(1.0), false, None),
     }
 }
 
@@ -397,55 +416,40 @@ pub fn parse_quota_summary_groups(val: &serde_json::Value) -> Vec<QuotaGroup> {
     let Some(arr) = arr else { return Vec::new() };
     arr.iter()
         .filter_map(|item| {
-            let name = item
-                .get("displayName")
-                .or_else(|| item.get("name"))
-                .and_then(|d| d.as_str())
-                .unwrap_or("")
-                .to_uppercase();
+            let name = clean_text(
+                item.get("displayName")
+                    .or_else(|| item.get("name"))
+                    .and_then(|d| d.as_str())
+                    .unwrap_or(""),
+            )
+            .to_uppercase();
             let description = item
                 .get("description")
                 .and_then(|d| d.as_str())
-                .map(|s| s.to_string());
+                .map(clean_text);
             let buckets: Vec<QuotaBucket> = item
                 .get("buckets")
                 .and_then(|b| b.as_array())?
                 .iter()
                 .filter_map(|b| {
-                    let b_name = b
-                        .get("displayName")
-                        .or_else(|| b.get("name"))
-                        .and_then(|d| d.as_str())?
-                        .to_string();
+                    let b_name = clean_text(
+                        b.get("displayName")
+                            .or_else(|| b.get("name"))
+                            .and_then(|d| d.as_str())?,
+                    );
                     let frac = b
                         .get("remainingFraction")
                         .or_else(|| b.get("remaining_fraction"))
-                        .and_then(|f| f.as_f64())
-                        .unwrap_or(1.0);
-                    let exhausted = frac <= 0.0
-                        || b.get("disabled").and_then(|d| d.as_bool()).unwrap_or(false)
+                        .and_then(|f| f.as_f64());
+                    let disabled = b.get("disabled").and_then(|d| d.as_bool()).unwrap_or(false)
                         || b.get("isExhausted")
                             .and_then(|e| e.as_bool())
                             .unwrap_or(false);
-                    let reset_label = if frac >= 1.0 {
-                        "Quota available".to_string()
-                    } else if let Some(rt) = b
+                    let rt = b
                         .get("resetTime")
                         .or_else(|| b.get("reset_time"))
-                        .and_then(|s| s.as_str())
-                    {
-                        format_reset_time(rt)
-                    } else if exhausted {
-                        "Quota exhausted".to_string()
-                    } else {
-                        "Quota available".to_string()
-                    };
-                    Some(QuotaBucket {
-                        name: b_name,
-                        remaining_pct: (frac * 100.0).clamp(0.0, 100.0),
-                        reset_label,
-                        exhausted,
-                    })
+                        .and_then(|s| s.as_str());
+                    Some(build_quota_bucket(b_name, frac, disabled, rt))
                 })
                 .collect();
             if buckets.is_empty() {

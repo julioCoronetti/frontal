@@ -2,9 +2,9 @@ pub mod cli;
 pub mod fetch;
 pub mod opencode_api;
 pub mod render;
+pub mod stats;
 
 use std::cell::Cell;
-use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -14,12 +14,15 @@ use ratatui::layout::Rect;
 use ratatui::Frame;
 
 pub use fetch::format_reset_time;
+pub use stats::{
+    build_stats_lines, parse_opencode_stats_json, OpenCodeStats, StatsState, UsagePage,
+    OPENCODE_STATS_CACHE,
+};
 
 use crate::ui::modal::ModalAction;
 
 pub static USAGE_CACHE: Mutex<Option<(Instant, UsageSummary)>> = Mutex::new(None);
 pub static OPENCODE_USAGE_CACHE: Mutex<Option<(Instant, UsageSummary)>> = Mutex::new(None);
-pub static FETCH_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UsagePlanInfo {
@@ -63,7 +66,13 @@ pub struct UsageModal {
     pub scroll_offset: usize,
     pub max_scroll: Cell<usize>,
     pub allow_network: bool,
+    pub allow_stats_cli: bool,
+    pub is_opencode: bool,
+    pub page: UsagePage,
+    pub stats_state: Arc<Mutex<StatsState>>,
+    opencode_fallback: Option<UsageSummary>,
     rx: Option<Arc<Mutex<Receiver<UsageState>>>>,
+    stats_rx: Option<Arc<Mutex<Receiver<StatsState>>>>,
 }
 
 impl UsageModal {
@@ -72,10 +81,13 @@ impl UsageModal {
             return Self::offline_fallback();
         }
 
-        if let Ok(guard) = USAGE_CACHE.lock() {
+        {
+            let guard = USAGE_CACHE.lock().unwrap_or_else(|e| e.into_inner());
             if let Some((instant, ref summary)) = *guard {
                 if instant.elapsed() < Duration::from_secs(60) {
-                    return Self::with_data(summary.clone());
+                    let mut modal = Self::with_data(summary.clone());
+                    modal.allow_network = true;
+                    return modal;
                 }
             }
         }
@@ -88,7 +100,13 @@ impl UsageModal {
             scroll_offset: 0,
             max_scroll: Cell::new(0),
             allow_network: true,
+            allow_stats_cli: false,
+            is_opencode: false,
+            page: UsagePage::Main,
+            stats_state: Arc::new(Mutex::new(StatsState::Idle)),
+            opencode_fallback: None,
             rx: Some(Arc::new(Mutex::new(rx))),
+            stats_rx: None,
         }
     }
 
@@ -98,8 +116,19 @@ impl UsageModal {
             scroll_offset: 0,
             max_scroll: Cell::new(0),
             allow_network: false,
+            allow_stats_cli: false,
+            is_opencode: false,
+            page: UsagePage::Main,
+            stats_state: Arc::new(Mutex::new(StatsState::Idle)),
+            opencode_fallback: None,
             rx: None,
+            stats_rx: None,
         }
+    }
+
+    pub fn with_stats_cli(mut self, allow: bool) -> Self {
+        self.allow_stats_cli = allow;
+        self
     }
 
     pub fn load_opencode(
@@ -107,25 +136,36 @@ impl UsageModal {
         last_turn: Option<crate::protocol::TokenUsage>,
         accumulated: crate::protocol::TokenUsage,
     ) -> Self {
-        let Some(token) = opencode_api::resolve_go_token() else {
-            return Self::for_opencode(model, last_turn, accumulated);
-        };
-        if let Ok(guard) = OPENCODE_USAGE_CACHE.lock() {
+        let fallback = Self::local_opencode_summary(model, last_turn, accumulated);
+        {
+            let guard = OPENCODE_USAGE_CACHE
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             if let Some((instant, ref summary)) = *guard {
                 if instant.elapsed() < Duration::from_secs(60) {
-                    return Self::with_data(summary.clone());
+                    let mut modal = Self::with_data(summary.clone());
+                    modal.is_opencode = true;
+                    modal.allow_network = true;
+                    modal.allow_stats_cli = true;
+                    modal.opencode_fallback = Some(fallback);
+                    return modal;
                 }
             }
         }
-        let fallback = Self::local_opencode_summary(model, last_turn, accumulated);
         let (tx, rx) = channel();
-        opencode_api::fetch_async(token, fallback, tx);
+        opencode_api::fetch_async(fallback.clone(), tx);
         Self {
             state: Arc::new(Mutex::new(UsageState::Loading)),
             scroll_offset: 0,
             max_scroll: Cell::new(0),
             allow_network: true,
+            allow_stats_cli: true,
+            is_opencode: true,
+            page: UsagePage::Main,
+            stats_state: Arc::new(Mutex::new(StatsState::Idle)),
+            opencode_fallback: Some(fallback),
             rx: Some(Arc::new(Mutex::new(rx))),
+            stats_rx: None,
         }
     }
 
@@ -134,7 +174,12 @@ impl UsageModal {
         last_turn: Option<crate::protocol::TokenUsage>,
         accumulated: crate::protocol::TokenUsage,
     ) -> Self {
-        Self::with_data(Self::local_opencode_summary(model, last_turn, accumulated))
+        let summary = Self::local_opencode_summary(model, last_turn, accumulated);
+        let mut modal = Self::with_data(summary.clone());
+        modal.is_opencode = true;
+        modal.allow_stats_cli = true;
+        modal.opencode_fallback = Some(summary);
+        modal
     }
 
     pub(crate) fn local_opencode_summary(
@@ -142,67 +187,7 @@ impl UsageModal {
         last_turn: Option<crate::protocol::TokenUsage>,
         accumulated: crate::protocol::TokenUsage,
     ) -> UsageSummary {
-        let spec = crate::model_spec::ModelSpec::resolve(&[model], None, &[]);
-        let used = last_turn
-            .map(|usage| usage.input_tokens.saturating_add(usage.cache_read_tokens))
-            .unwrap_or(0);
-        let (context_description, context_buckets) = match spec.usable() {
-            Some(window) => {
-                let remaining_pct =
-                    (100.0 - (used as f64 / window as f64) * 100.0).clamp(0.0, 100.0);
-                (
-                    format!("{} / {} tokens", used, window),
-                    vec![QuotaBucket {
-                        name: "Context capacity".to_string(),
-                        remaining_pct,
-                        reset_label: "latest turn".to_string(),
-                        exhausted: remaining_pct <= 0.0,
-                    }],
-                )
-            }
-            None => (format!("{} tokens · window unresolved", used), Vec::new()),
-        };
-        let cache_pct = accumulated.cache_hit_percentage();
-        let total_tokens = accumulated.effective_total();
-        let summary = UsageSummary {
-            plan: UsagePlanInfo {
-                tier_name: format!(
-                    "OpenCode · {}",
-                    crate::ui::labels::model_display_name(model)
-                ),
-                account_email: None,
-                upgrade_url: None,
-                manage_url: None,
-            },
-            groups: vec![
-                QuotaGroup {
-                    name: "Context Window".to_string(),
-                    description: Some(context_description),
-                    buckets: context_buckets,
-                },
-                QuotaGroup {
-                    name: "Prompt Cache".to_string(),
-                    description: None,
-                    buckets: vec![QuotaBucket {
-                        name: "Cache hit rate".to_string(),
-                        remaining_pct: cache_pct,
-                        reset_label: format!("{:.1}%", cache_pct),
-                        exhausted: false,
-                    }],
-                },
-                QuotaGroup {
-                    name: "Session Tokens".to_string(),
-                    description: None,
-                    buckets: vec![QuotaBucket {
-                        name: "Accumulated".to_string(),
-                        remaining_pct: 100.0,
-                        reset_label: format!("{} tokens", total_tokens),
-                        exhausted: false,
-                    }],
-                },
-            ],
-        };
-        summary
+        opencode_api::local_opencode_summary(model, last_turn, accumulated)
     }
 
     pub fn offline_fallback() -> Self {
@@ -271,7 +256,10 @@ impl UsageModal {
     }
 
     pub fn scroll_up(&mut self, n: usize) {
-        self.scroll_offset = self.scroll_offset.saturating_sub(n);
+        self.scroll_offset = self
+            .scroll_offset
+            .saturating_sub(n)
+            .min(self.max_scroll.get());
     }
 
     pub fn scroll_down(&mut self, n: usize) {
@@ -280,21 +268,128 @@ impl UsageModal {
     }
 
     pub fn refresh(&mut self) {
+        if self.page == UsagePage::OpenCodeStats {
+            self.refresh_stats();
+            return;
+        }
         if !self.allow_network || self.is_loading() {
             return;
         }
-        if let Ok(mut cache) = USAGE_CACHE.lock() {
+        if self.is_opencode {
+            {
+                let mut cache = OPENCODE_USAGE_CACHE
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                *cache = None;
+            }
+            let fallback = self
+                .opencode_fallback
+                .clone()
+                .unwrap_or_else(|| Self::local_opencode_summary("", None, Default::default()));
+            let (tx, rx) = channel();
+            *self.state.lock().unwrap_or_else(|e| e.into_inner()) = UsageState::Loading;
+            self.rx = Some(Arc::new(Mutex::new(rx)));
+            opencode_api::fetch_async(fallback, tx);
+            return;
+        }
+        {
+            let mut cache = USAGE_CACHE.lock().unwrap_or_else(|e| e.into_inner());
             *cache = None;
         }
         let (tx, rx) = channel();
-        *self.state.lock().unwrap() = UsageState::Loading;
+        *self.state.lock().unwrap_or_else(|e| e.into_inner()) = UsageState::Loading;
         self.rx = Some(Arc::new(Mutex::new(rx)));
         fetch::fetch_quota_async(tx);
     }
 
+    pub fn open_stats_subpage(&mut self) {
+        if !self.is_opencode {
+            return;
+        }
+        self.page = UsagePage::OpenCodeStats;
+        self.scroll_offset = 0;
+        self.max_scroll.set(0);
+        let already_loaded = matches!(
+            *self.stats_state.lock().unwrap_or_else(|e| e.into_inner()),
+            StatsState::Ready(_) | StatsState::Loading
+        );
+        if already_loaded {
+            return;
+        }
+        {
+            let guard = OPENCODE_STATS_CACHE
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some((instant, ref stats)) = *guard {
+                if instant.elapsed() < Duration::from_secs(60) {
+                    *self.stats_state.lock().unwrap_or_else(|e| e.into_inner()) =
+                        StatsState::Ready(stats.clone());
+                    return;
+                }
+            }
+        }
+        if !self.allow_stats_cli {
+            *self.stats_state.lock().unwrap_or_else(|e| e.into_inner()) =
+                StatsState::Unavailable("Offline mode".to_string());
+            return;
+        }
+        self.start_stats_fetch();
+    }
+
+    pub fn refresh_stats(&mut self) {
+        if !self.is_opencode {
+            return;
+        }
+        if matches!(
+            *self.stats_state.lock().unwrap_or_else(|e| e.into_inner()),
+            StatsState::Loading
+        ) {
+            return;
+        }
+        if !self.allow_stats_cli {
+            *self.stats_state.lock().unwrap_or_else(|e| e.into_inner()) =
+                StatsState::Unavailable("Offline mode".to_string());
+            return;
+        }
+        {
+            let mut cache = OPENCODE_STATS_CACHE
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            *cache = None;
+        }
+        self.start_stats_fetch();
+    }
+
+    fn start_stats_fetch(&mut self) {
+        let (tx, rx) = channel();
+        *self.stats_state.lock().unwrap_or_else(|e| e.into_inner()) = StatsState::Loading;
+        self.stats_rx = Some(Arc::new(Mutex::new(rx)));
+        stats::fetch_stats_async(tx);
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) -> ModalAction {
         match key.code {
-            KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') => ModalAction::Close,
+            KeyCode::Esc => {
+                if self.page == UsagePage::OpenCodeStats {
+                    self.page = UsagePage::Main;
+                    self.scroll_offset = 0;
+                    self.max_scroll.set(0);
+                    ModalAction::None
+                } else {
+                    ModalAction::Close
+                }
+            }
+            KeyCode::Enter => {
+                if self.is_opencode && self.page == UsagePage::Main {
+                    self.open_stats_subpage();
+                    ModalAction::None
+                } else if self.page == UsagePage::OpenCodeStats {
+                    ModalAction::None
+                } else {
+                    ModalAction::Close
+                }
+            }
+            KeyCode::Char('q') => ModalAction::Close,
             KeyCode::Up | KeyCode::Char('k') => {
                 self.scroll_up(1);
                 ModalAction::None
@@ -342,30 +437,40 @@ impl UsageModal {
     }
 
     pub fn is_loading(&self) -> bool {
-        if let Ok(st) = self.state.lock() {
-            matches!(*st, UsageState::Loading)
-        } else {
-            false
-        }
+        let primary_loading = matches!(
+            *self.state.lock().unwrap_or_else(|e| e.into_inner()),
+            UsageState::Loading
+        );
+        let stats_loading = self.page == UsagePage::OpenCodeStats
+            && matches!(
+                *self.stats_state.lock().unwrap_or_else(|e| e.into_inner()),
+                StatsState::Loading
+            );
+        primary_loading || stats_loading
     }
 
     pub fn poll_rx(&self) -> bool {
+        let mut updated = false;
         if let Some(ref rx_lock) = self.rx {
-            if let Ok(rx) = rx_lock.lock() {
-                if let Ok(new_state) = rx.try_recv() {
-                    if let UsageState::Ready(ref summary) = new_state {
-                        if let Ok(mut cache) = USAGE_CACHE.lock() {
-                            *cache = Some((Instant::now(), summary.clone()));
-                        }
-                    }
-                    if let Ok(mut current) = self.state.lock() {
-                        *current = new_state;
-                        return true;
-                    }
-                }
+            let rx = rx_lock.lock().unwrap_or_else(|e| e.into_inner());
+            if let Ok(new_state) = rx.try_recv() {
+                let mut current = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                *current = new_state;
+                updated = true;
             }
         }
-        false
+        if let Some(ref rx_lock) = self.stats_rx {
+            let rx = rx_lock.lock().unwrap_or_else(|e| e.into_inner());
+            if let Ok(new_stats) = rx.try_recv() {
+                let mut current = self.stats_state.lock().unwrap_or_else(|e| e.into_inner());
+                *current = new_stats;
+                updated = true;
+            }
+        }
+        if updated {
+            self.max_scroll.set(0);
+        }
+        updated
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect) {

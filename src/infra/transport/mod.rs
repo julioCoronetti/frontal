@@ -11,8 +11,9 @@ use tokio::time::sleep;
 mod opencode;
 
 pub use opencode::{
-    build_opencode_args, build_opencode_payload_args, fetch_opencode_models, model_with_variant,
-    opencode_variant, parse_opencode_models_output, resolve_opencode_binary,
+    build_opencode_args, build_opencode_payload_args, delete_opencode_session,
+    fetch_opencode_models, is_valid_opencode_session_id, model_with_variant, opencode_variant,
+    parse_opencode_models_output, resolve_opencode_binary, run_opencode_command, strip_ansi,
 };
 
 use crate::config::BackendKind;
@@ -166,20 +167,20 @@ impl EngineConfig {
     }
 
     pub async fn fetch_available_models(agy_bin: &Path) -> Vec<(String, String)> {
-        let output = match tokio::time::timeout(
-            Duration::from_secs(3),
-            tokio::process::Command::new(agy_bin).arg("models").output(),
-        )
+        let bin_owned = agy_bin.to_path_buf();
+        let Ok(Ok(output)) = tokio::task::spawn_blocking(move || {
+            opencode::run_opencode_command_with_bin(&bin_owned, &["models"], Duration::from_secs(3))
+        })
         .await
-        {
-            Ok(Ok(out)) if out.status.success() => out.stdout,
-            _ => return Self::default_fallback_models(),
+        else {
+            return Self::default_fallback_models();
         };
 
         let text = String::from_utf8_lossy(&output);
         let mut models = Vec::new();
         for line in text.lines() {
-            let trimmed = line.trim();
+            let cleaned = strip_ansi(line);
+            let trimmed = cleaned.trim();
             if trimmed.is_empty() || trimmed.starts_with("Fetching") {
                 continue;
             }
@@ -187,13 +188,16 @@ impl EngineConfig {
             if parts.len() == 2 {
                 let id = parts[0].trim().to_string();
                 let name = parts[1].trim().to_string();
-                if !id.is_empty() {
+                if !id.is_empty() && !id.chars().any(|c| c.is_whitespace() || c.is_control()) {
                     models.push((id, name));
                 }
             } else {
                 let space_parts: Vec<&str> = trimmed.split_whitespace().collect();
                 if !space_parts.is_empty() {
                     let id = space_parts[0].to_string();
+                    if id.chars().any(char::is_control) {
+                        continue;
+                    }
                     let name = if space_parts.len() > 1 {
                         space_parts[1..].join(" ")
                     } else {
@@ -226,21 +230,41 @@ impl EngineConfig {
         Self::split_model_effort(model).0
     }
 
+    fn sanitize_cli_value(raw: &str) -> String {
+        raw.chars()
+            .filter(|c| !c.is_control())
+            .collect::<String>()
+            .trim()
+            .trim_start_matches('-')
+            .trim()
+            .to_string()
+    }
+
     pub fn build_args(&self, resolved_conversation_id: &str) -> Vec<String> {
+        let conv = Self::sanitize_cli_value(resolved_conversation_id);
         let mut args = vec![
             "--input-format".to_string(),
             "stream-json".to_string(),
             "--output-format".to_string(),
             "stream-json".to_string(),
             "--conversation".to_string(),
-            resolved_conversation_id.to_string(),
+            if conv.is_empty() {
+                "default".to_string()
+            } else {
+                conv
+            },
         ];
         if let Some(project) = &self.project {
-            args.push("--project".to_string());
-            args.push(project.clone());
+            let project = Self::sanitize_cli_value(project);
+            if !project.is_empty() {
+                args.push("--project".to_string());
+                args.push(project);
+            }
         }
         if let Some(model) = &self.model {
-            let model = crate::config::sanitize_model_id(model);
+            let model = crate::config::sanitize_model_id(model)
+                .trim_start_matches('-')
+                .to_string();
             if !model.is_empty() {
                 args.push("--model".to_string());
                 let final_model = if self.effort.is_some() {
@@ -252,12 +276,18 @@ impl EngineConfig {
             }
         }
         if let Some(mode) = &self.mode {
-            args.push("--mode".to_string());
-            args.push(mode.clone());
+            let mode = Self::sanitize_cli_value(mode);
+            if !mode.is_empty() {
+                args.push("--mode".to_string());
+                args.push(mode);
+            }
         }
         if let Some(effort) = &self.effort {
-            args.push("--effort".to_string());
-            args.push(effort.clone());
+            let effort = Self::sanitize_cli_value(effort);
+            if !effort.is_empty() {
+                args.push("--effort".to_string());
+                args.push(effort);
+            }
         }
         if self.dangerously_skip_permissions {
             args.push("--dangerously-skip-permissions".to_string());

@@ -111,8 +111,36 @@ impl App {
         }
     }
 
+    pub(crate) fn open_tab_conversation_ids(&self) -> std::collections::HashSet<String> {
+        let mut open_ids = std::collections::HashSet::new();
+        for tab in &self.tabs {
+            open_ids.insert(tab.session_id.as_str().to_string());
+            if let Some(Some(cid)) = self
+                .session_manager
+                .get_metadata(&tab.session_id)
+                .map(|m| m.conversation_id.clone())
+            {
+                open_ids.insert(cid);
+            }
+            for s in self
+                .history
+                .sessions()
+                .iter()
+                .filter(|s| s.id == tab.session_id.as_str())
+            {
+                if let Some(ref cid) = s.conversation_id {
+                    open_ids.insert(cid.clone());
+                }
+            }
+        }
+        open_ids
+    }
+
     pub fn open_resume_modal(&mut self, initial_query: Option<&str>) {
-        self.sync_session_to_history(&self.active_session.clone());
+        let tab_session_ids: Vec<_> = self.tabs.iter().map(|t| t.session_id.clone()).collect();
+        for sid in tab_session_ids {
+            self.sync_session_to_history(&sid);
+        }
 
         let mut items = Vec::new();
         let mut refresh_cids = Vec::new();
@@ -155,27 +183,7 @@ impl App {
             );
         }
 
-        let mut open_ids = std::collections::HashSet::new();
-        for tab in &self.tabs {
-            open_ids.insert(tab.session_id.as_str().to_string());
-            if let Some(Some(cid)) = self
-                .session_manager
-                .get_metadata(&tab.session_id)
-                .map(|m| m.conversation_id.clone())
-            {
-                open_ids.insert(cid);
-            }
-            for s in self
-                .history
-                .sessions()
-                .iter()
-                .filter(|s| s.id == tab.session_id.as_str())
-            {
-                if let Some(ref cid) = s.conversation_id {
-                    open_ids.insert(cid.clone());
-                }
-            }
-        }
+        let open_ids = self.open_tab_conversation_ids();
 
         let mut past_sessions = self.history.resumable_sessions();
         if !self.history.is_in_memory() {
@@ -253,7 +261,8 @@ impl App {
                 )
                 .with_badge(badge)
                 .with_shortcut(rel_time)
-                .with_category("Past Sessions"),
+                .with_category("Past Sessions")
+                .with_deletable(true),
             );
         }
 

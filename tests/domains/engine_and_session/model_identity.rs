@@ -1,6 +1,7 @@
 use frontal::config::{sanitize_model_id, UserConfig};
-use frontal::transport::build_opencode_args;
-use frontal::transport::EngineConfig;
+use frontal::transport::{
+    build_opencode_args, model_with_variant, parse_opencode_models_output, strip_ansi, EngineConfig,
+};
 use frontal::ui::labels::model_display_name;
 
 #[test]
@@ -88,5 +89,63 @@ fn test_labels_clean_stray_punctuation() {
     assert_eq!(
         model_display_name("anthropic/claude-3-5-sonnet@20241022"),
         "Claude 3.5 Sonnet20241022"
+    );
+}
+
+#[test]
+fn test_transport_sanitization_and_ansi_control_filtering() {
+    let mut cfg = EngineConfig::new_isolated();
+    cfg.project = Some("--malicious\nproj".to_string());
+    cfg.mode = Some("-ask\r".to_string());
+    cfg.effort = Some("--high\x00".to_string());
+    cfg.model = Some("--opencode-go/deepseek-v4.1-flash".to_string());
+
+    let args = cfg.build_args("--conv\x07-1");
+    assert_eq!(
+        args.iter()
+            .skip_while(|a| *a != "--conversation")
+            .nth(1)
+            .map(String::as_str),
+        Some("conv-1")
+    );
+    assert_eq!(
+        args.iter()
+            .skip_while(|a| *a != "--project")
+            .nth(1)
+            .map(String::as_str),
+        Some("maliciousproj")
+    );
+    assert_eq!(
+        args.iter()
+            .skip_while(|a| *a != "--mode")
+            .nth(1)
+            .map(String::as_str),
+        Some("ask")
+    );
+    assert_eq!(
+        args.iter()
+            .skip_while(|a| *a != "--effort")
+            .nth(1)
+            .map(String::as_str),
+        Some("high")
+    );
+
+    assert_eq!(
+        model_with_variant("--provider/model", Some("medium")),
+        "provider/model#high"
+    );
+
+    let cleaned = strip_ansi("\x1b(B\x1b[32mopencode-go/deepseek\x1b[0m\x07\n\t");
+    assert_eq!(cleaned, "opencode-go/deepseek\n\t");
+
+    let parsed = parse_opencode_models_output(
+        "\x1b(Bopencode-go/deepseek-v4.1-flash\nbad provider/model\nprovider/bad model\n",
+    );
+    assert_eq!(
+        parsed,
+        vec![(
+            "opencode-go/deepseek-v4.1-flash".to_string(),
+            "deepseek-v4.1-flash".to_string()
+        )]
     );
 }

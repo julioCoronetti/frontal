@@ -4,8 +4,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
-use super::{UsageModal, UsageState, UsageSummary};
-use crate::ui::theme::{ACCENT_HIGHLIGHT, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY};
+use super::{build_stats_lines, UsageModal, UsagePage, UsageState, UsageSummary};
+use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_RUBY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY};
 
 pub fn render_modal(modal: &UsageModal, frame: &mut Frame, area: Rect) {
     modal.poll_rx();
@@ -21,8 +21,13 @@ pub fn render_modal(modal: &UsageModal, frame: &mut Frame, area: Rect) {
         .style(Style::default().bg(Color::Reset));
 
     let mut lines = Vec::new();
-    let title = " Model Quotas:";
-    let esc_pad = (area.width as usize).saturating_sub(title.chars().count() + 5);
+    let (title, esc_label) = match modal.page {
+        UsagePage::Main => (" Model Quotas:", "esc "),
+        UsagePage::OpenCodeStats => (" OpenCode Global Stats:", "esc: Back "),
+    };
+    let esc_pad = (area.width as usize)
+        .saturating_sub(title.chars().count() + 5)
+        .max(esc_label.chars().count() + 1);
     lines.push(Line::from(vec![
         Span::styled(
             title,
@@ -31,16 +36,20 @@ pub fn render_modal(modal: &UsageModal, frame: &mut Frame, area: Rect) {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            format!("{:>esc_pad$}", "esc "),
+            format!("{:>esc_pad$}", esc_label),
             Style::default().fg(TEXT_MUTED),
         ),
     ]));
     lines.push(Line::raw(""));
 
-    let info_title = "   Account & Subscription:";
-    let nav_hint = "↑/↓: Scroll  r: Refresh ";
+    let (info_title, nav_hint) = match (modal.is_opencode, modal.page) {
+        (true, UsagePage::Main) => ("   Account & Subscription:", "Enter: Stats"),
+        (_, UsagePage::OpenCodeStats) => ("   Global Usage & Stats:", "r: Refresh"),
+        (false, UsagePage::Main) => ("   Account & Subscription:", "r: Refresh"),
+    };
     let nav_pad = (area.width as usize)
-        .saturating_sub(info_title.chars().count() + nav_hint.chars().count() + 5);
+        .saturating_sub(info_title.chars().count() + nav_hint.chars().count() + 5)
+        .max(1);
     lines.push(Line::from(vec![
         Span::styled(info_title, Style::default().fg(TEXT_PRIMARY)),
         Span::styled(
@@ -59,35 +68,67 @@ pub fn render_modal(modal: &UsageModal, frame: &mut Frame, area: Rect) {
 
     let inner_height = (area.height as usize).saturating_sub(7);
 
-    let current_state = modal.state.lock().unwrap().clone();
-    let body_lines = match current_state {
-        UsageState::Loading => vec![Line::from(vec![Span::styled(
-            "   Loading subscription and quota...",
-            Style::default().fg(TEXT_MUTED),
-        )])],
-        UsageState::Unavailable(err) => vec![
-            Line::from(vec![
-                Span::raw("   Your Plan: "),
-                Span::styled(
-                    "Antigravity Subscriber (Offline)",
-                    Style::default()
-                        .fg(ACCENT_HIGHLIGHT)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]),
-            Line::raw(""),
-            Line::from(vec![Span::styled(
-                format!("   Status: {}", err),
-                Style::default().fg(Color::Yellow),
-            )]),
-            Line::raw(""),
-            Line::from(vec![Span::styled(
-                "   Press 'r' to retry.",
-                Style::default().fg(TEXT_MUTED),
-            )]),
-        ],
-        UsageState::Ready(ref summary) => build_summary_lines(summary),
+    let body_lines = match modal.page {
+        UsagePage::OpenCodeStats => {
+            let stats_state = modal.stats_state.lock().unwrap_or_else(|e| e.into_inner());
+            build_stats_lines(&stats_state)
+        }
+        UsagePage::Main => {
+            let current_state = modal.state.lock().unwrap_or_else(|e| e.into_inner());
+            let mut body = match &*current_state {
+                UsageState::Loading => vec![Line::from(vec![Span::styled(
+                    "   Loading subscription and quota...",
+                    Style::default().fg(TEXT_MUTED),
+                )])],
+                UsageState::Unavailable(err) => vec![
+                    Line::from(vec![
+                        Span::raw("   Your Plan: "),
+                        Span::styled(
+                            "Antigravity Subscriber (Offline)",
+                            Style::default()
+                                .fg(ACCENT_HIGHLIGHT)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                    ]),
+                    Line::raw(""),
+                    Line::from(vec![Span::styled(
+                        format!("   Status: {}", err),
+                        Style::default().fg(Color::Yellow),
+                    )]),
+                    Line::raw(""),
+                    Line::from(vec![Span::styled(
+                        "   Press 'r' to retry.",
+                        Style::default().fg(TEXT_MUTED),
+                    )]),
+                ],
+                UsageState::Ready(summary) => build_summary_lines(summary),
+            };
+            if modal.is_opencode {
+                body.push(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled(
+                        " ● Global Usage & Tool Stats ",
+                        Style::default()
+                            .bg(ACCENT_RUBY)
+                            .fg(TEXT_PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        "[Enter] ",
+                        Style::default()
+                            .bg(ACCENT_RUBY)
+                            .fg(ACCENT_HIGHLIGHT)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]));
+                body.push(Line::raw(""));
+            }
+            body
+        }
     };
+
+    let wrap_width = (area.width as usize).saturating_sub(5).max(1);
+    let body_lines = crate::ui::markdown::wrap_lines_preserving_indent(body_lines, wrap_width);
 
     let total_body = body_lines.len();
     let limit = total_body.saturating_sub(inner_height);

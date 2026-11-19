@@ -94,8 +94,6 @@ impl AutocompletePopover {
             ("/model", "Select model and reasoning effort"),
             ("/resume", "Resume past session from history"),
             ("/rename", "Rename active session"),
-            ("/diff", "View local git diff"),
-            ("/sidebar", "Show or hide the context sidebar"),
             ("/quota", "Show model quotas and plan limits"),
             ("/quit", "Quit Frontal"),
         ];

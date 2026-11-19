@@ -1,4 +1,4 @@
-use crossterm::event::{KeyEvent, MouseEvent, MouseEventKind};
+use crossterm::event::{KeyEvent, MouseEvent};
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::Frame;
@@ -7,14 +7,12 @@ use crate::ui::theme::{BACKDROP_BG, BACKDROP_FG};
 
 pub mod commands;
 pub mod danger;
-pub mod diff;
 pub mod model_effort;
 pub mod select;
 pub mod usage;
 
 pub use commands::{CommandItem, CommandsModal};
 pub use danger::DangerConfirmationModal;
-pub use diff::DiffModal;
 pub use model_effort::{ModelEffortModal, ModelEffortStep, ModelItem};
 pub use select::{DialogSelect, SelectItem, SelectResult};
 pub use usage::UsageModal;
@@ -37,12 +35,14 @@ pub enum ModalAction {
     },
     SwitchTab(usize),
     ExecuteCommand(String),
+    DeleteSession {
+        conversation_id: String,
+    },
 }
 
 pub enum Modal {
     ModelEffort(ModelEffortModal),
     Commands(CommandsModal),
-    Diff(DiffModal),
     Select(DialogSelect<ModalAction>),
     DangerConfirmation(DangerConfirmationModal),
     Usage(UsageModal),
@@ -53,9 +53,11 @@ impl Modal {
         match self {
             Self::ModelEffort(m) => m.handle_key(key),
             Self::Commands(m) => m.handle_key(key),
-            Self::Diff(m) => m.handle_key(key),
             Self::Select(m) => match m.handle_key(key) {
                 SelectResult::Selected(item) => item.value.clone(),
+                SelectResult::Deleted(item) => ModalAction::DeleteSession {
+                    conversation_id: item.id,
+                },
                 SelectResult::Cancel => ModalAction::Close,
                 SelectResult::None => ModalAction::None,
             },
@@ -68,21 +70,13 @@ impl Modal {
         match self {
             Self::Select(m) => match m.handle_mouse(mouse) {
                 SelectResult::Selected(item) => item.value.clone(),
+                SelectResult::Deleted(item) => ModalAction::DeleteSession {
+                    conversation_id: item.id,
+                },
                 SelectResult::Cancel => ModalAction::Close,
                 SelectResult::None => ModalAction::None,
             },
             Self::Commands(m) => m.handle_mouse(mouse),
-            Self::Diff(m) => match mouse.kind {
-                MouseEventKind::ScrollUp => {
-                    m.viewer.scroll_up(3);
-                    ModalAction::None
-                }
-                MouseEventKind::ScrollDown => {
-                    m.viewer.scroll_down(3);
-                    ModalAction::None
-                }
-                _ => ModalAction::None,
-            },
             Self::Usage(m) => m.handle_mouse(mouse),
             _ => ModalAction::None,
         }
@@ -92,7 +86,6 @@ impl Modal {
         match self {
             Self::ModelEffort(m) => m.render(frame, area),
             Self::Commands(m) => m.render(frame, area),
-            Self::Diff(m) => m.render(frame, area),
             Self::Select(m) => m.render(frame, area),
             Self::DangerConfirmation(m) => m.render(frame, area),
             Self::Usage(m) => m.render(frame, area),
@@ -108,7 +101,6 @@ impl Modal {
 
     pub fn popup_area(&self, screen: Rect) -> Rect {
         match self {
-            Self::Diff(_) => ModalStack::centered_rect_bounded(85, 75, 50, 160, 14, 40, screen),
             Self::ModelEffort(_) => {
                 ModalStack::centered_rect_bounded(56, 62, 48, 72, 16, 26, screen)
             }

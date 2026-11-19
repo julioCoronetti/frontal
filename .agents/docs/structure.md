@@ -24,19 +24,18 @@ Reference documentation for on-demand inspection of repository modules.
   - `src/ui/app/mod.rs`: `App` struct with `Deref`/`DerefMut` to active `TabState`, `AppAction` enum, and constructors.
   - `src/ui/app/tabs.rs`: Multi-session management with O(1) tab switching and `TabState` single source of truth.
   - `src/ui/app/events/`: Non-blocking terminal event routing partitioned into `mod.rs`, `keyboard.rs`, and `mouse.rs`.
-  - `src/ui/app/commands/`: Command dispatch, modal actions, session resume, and git diff partitioned into `mod.rs`, `modals.rs`, `resume.rs`, and `git_diff.rs`.
+  - `src/ui/app/commands/`: Command dispatch, modal actions, and session resume partitioned into `mod.rs`, `modals.rs`, and `resume.rs`.
   - `src/ui/app/stream.rs`: Streamlined asynchronous IPC engine envelope dispatch and per-turn conversation persistence.
   - `src/ui/app/render/`: 60 FPS drawing methods, layout calculation, and TUI widgets partitioned into `mod.rs`, `chrome.rs`, `input.rs`, `panes.rs`, and `welcome.rs`.
 - `src/ui/tab.rs`: Tab state management (`TabState`) and unified stream event handling (`apply_stream_event`).
 - `src/ui/history.rs`: Visual cache hydration and telemetry/model resolution bridge (`hydrate_session_blocking`, `resolve_session_telemetry`, `hydrate_conversation`) with Agy transcript, OpenCode SQLite, and Frontal store persistence.
 - `src/ui/cache/`: Partitioned 2-level render cache (`mod.rs`, `format.rs`, `slice.rs`, `user_format.rs`).
 - `src/ui/viewport.rs`: Conversation viewport with state machine for sticky scroll and clean text selection.
-- `src/ui/markdown/`: Partitioned incremental `pulldown-cmark` parser (`mod.rs`, `normalize.rs`, `parse.rs`, `render.rs`).
+- `src/ui/markdown/`: Partitioned incremental `pulldown-cmark` parser (`mod.rs`, `normalize.rs`, `parse.rs`, `render.rs`, `wrap.rs`).
 - `src/ui/highlight.rs`: Incremental line-by-line syntax highlighting via `syntect` with state checkpoints.
 - `src/ui/editor/`: Multi-line prompt editor backed by B-Tree (`ropey`), atomic extmarks (`@`, `/`), and paste pills (`mod.rs`, `mutations.rs`, `navigation.rs`).
 - `src/ui/autocomplete.rs`: Floating popover autocompletion for commands and files (`FileSearchWorker`).
-- `src/ui/modal/`: Partitioned floating modal stack (`mod.rs`, `commands.rs`, `danger.rs`, `diff.rs`, `model_effort/`, `select.rs`, `usage/`).
-- `src/ui/diff.rs`: Integrated unified diff viewer.
+- `src/ui/modal/`: Partitioned floating modal stack (`mod.rs`, `commands.rs`, `danger.rs`, `model_effort/{mod.rs,render.rs}`, `select/{mod.rs,render.rs}`, `usage/{mod.rs,cli.rs,fetch.rs,opencode_api.rs,render.rs,stats.rs}`).
 - `src/ui/notify.rs`: Terminal sensory notifications (audio bell and visual flash).
 - `src/ui/terminal.rs`: Raw mode bootstrap, bracketed paste, and TTY recovery panic hook.
 - `src/ui/theme.rs`: Visual theme definitions and color palette inspired by OpenCode.

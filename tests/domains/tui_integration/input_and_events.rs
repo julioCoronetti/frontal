@@ -222,9 +222,9 @@ fn test_contextual_ctrl_c_and_slash_commands_routing() {
         .set_session_status(&sid, SessionStatus::Ready);
     let enter = press_key(KeyCode::Enter, KeyModifiers::NONE);
 
-    app.editor.insert_str("/diff");
+    app.editor.insert_str("/model");
     app.handle_terminal_event(enter.clone());
-    assert!(matches!(app.modals.top(), Some(Modal::Diff(_))));
+    assert!(matches!(app.modals.top(), Some(Modal::ModelEffort(_))));
     app.modals.pop();
 
     app.editor.insert_str("/unknown_cmd");

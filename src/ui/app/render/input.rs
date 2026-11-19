@@ -33,21 +33,62 @@ fn char_input_style(
     style
 }
 
+pub(crate) fn visual_line_count(text: &str, inner_width: usize) -> usize {
+    if inner_width == 0 {
+        return text.split('\n').count().max(1);
+    }
+    text.split('\n')
+        .map(|line| (line.chars().count() / inner_width) + 1)
+        .sum()
+}
+
+pub(crate) fn visual_cursor_position(
+    text: &str,
+    cur_line: usize,
+    cur_col: usize,
+    inner_width: usize,
+) -> (usize, usize) {
+    if inner_width == 0 {
+        return (cur_line, cur_col);
+    }
+    let mut vis_row = 0usize;
+    for (idx, line) in text.split('\n').enumerate() {
+        if idx < cur_line {
+            vis_row += (line.chars().count() / inner_width) + 1;
+        } else {
+            return (vis_row + (cur_col / inner_width), cur_col % inner_width);
+        }
+    }
+    (vis_row, 0)
+}
+
 pub(crate) fn build_input_text(
     full_text: &str,
     extmarks: &[Extmark],
     selection: Option<(usize, usize)>,
+    inner_width: usize,
 ) -> Text<'static> {
     let mut lines = Vec::new();
-    let mut global_char_idx = 0;
+    let mut global_char_idx = 0usize;
+    let wrap_w = inner_width.max(1);
 
     for line_str in full_text.split('\n') {
         let mut spans: Vec<Span<'static>> = Vec::new();
         let mut current_style: Option<Style> = None;
         let mut current_buf = String::new();
-        let mut line_len = 0;
+        let mut line_len = 0usize;
+        let mut col_in_row = 0usize;
 
         for ch in line_str.chars() {
+            if col_in_row == wrap_w {
+                if let Some(active) = current_style.take() {
+                    if !current_buf.is_empty() {
+                        spans.push(Span::styled(std::mem::take(&mut current_buf), active));
+                    }
+                }
+                lines.push(Line::from(std::mem::take(&mut spans)));
+                col_in_row = 0;
+            }
             let style = char_input_style(global_char_idx + line_len, extmarks, selection);
             match current_style {
                 Some(active) if active == style => current_buf.push(ch),
@@ -62,6 +103,7 @@ pub(crate) fn build_input_text(
                 }
             }
             line_len += 1;
+            col_in_row += 1;
         }
 
         if let Some(active) = current_style {
@@ -70,6 +112,9 @@ pub(crate) fn build_input_text(
             }
         }
         lines.push(Line::from(spans));
+        if line_len > 0 && col_in_row == wrap_w {
+            lines.push(Line::default());
+        }
         global_char_idx += line_len + 1;
     }
 
@@ -87,25 +132,24 @@ impl App {
         };
         let display_content = self.editor.text();
         let (cur_line, cur_col) = self.editor.cursor_coordinates();
+        let inner_width = input_area.width.saturating_sub(4) as usize;
+        let (vis_row, vis_col) =
+            visual_cursor_position(&display_content, cur_line, cur_col, inner_width);
 
         let max_visible = input_area.height.saturating_sub(2) as usize;
-        let scroll_y = if max_visible > 0 && cur_line >= max_visible {
-            (cur_line + 1 - max_visible) as u16
+        let scroll_y = if max_visible > 0 && vis_row >= max_visible {
+            (vis_row + 1 - max_visible) as u16
         } else {
             0
         };
 
         let selection = self.editor.selection_range();
-        let has_media_extmarks = self
-            .editor
-            .extmarks()
-            .iter()
-            .any(|ext| matches!(ext.kind, ExtmarkKind::Media { .. }));
-        let input_text = if selection.is_some() || has_media_extmarks {
-            build_input_text(&display_content, self.editor.extmarks(), selection)
-        } else {
-            Text::from(display_content)
-        };
+        let input_text = build_input_text(
+            &display_content,
+            self.editor.extmarks(),
+            selection,
+            inner_width,
+        );
 
         let mut input_widget = Paragraph::new(input_text).block(
             Block::default()
@@ -123,14 +167,17 @@ impl App {
         frame.render_widget(Clear, input_area);
         frame.render_widget(input_widget, input_area);
 
+        if inner_width == 0 || input_area.height < 3 {
+            return None;
+        }
         let cursor_x = input_area
             .x
             .saturating_add(2)
-            .saturating_add(cur_col as u16);
+            .saturating_add(vis_col as u16);
         let cursor_y = input_area
             .y
             .saturating_add(1)
-            .saturating_add(cur_line.saturating_sub(scroll_y as usize) as u16);
+            .saturating_add(vis_row.saturating_sub(scroll_y as usize) as u16);
         if cursor_x > input_area.x
             && cursor_x
                 < input_area

@@ -1,9 +1,8 @@
-mod git_diff;
 mod modals;
 mod resume;
 
 use crate::ui::app::{App, AppAction};
-use crate::ui::modal::{DiffModal, Modal, ModelEffortModal};
+use crate::ui::modal::{Modal, ModelEffortModal};
 
 impl App {
     pub fn is_turn_active(&self) -> bool {
@@ -16,47 +15,50 @@ impl App {
                 .unwrap_or(false)
     }
 
+    pub(crate) fn clear_active_tab(&mut self) {
+        self.cache.clear();
+        self.viewport.clear_selection();
+        self.viewport.scroll_to_bottom();
+        self.last_turn_usage = None;
+        self.in_flight_usage = None;
+        self.accumulated_usage = crate::protocol::TokenUsage::default();
+        self.context_window_hint = None;
+        self.steps_seen = 0;
+        self.last_step_index = None;
+        self.turns_completed = 0;
+        self.last_turn_duration_seconds = None;
+        self.queued_prompts.clear();
+        self.esc_armed_at = None;
+        self.status_text = String::from("Cleared");
+        self.dirty = true;
+    }
+
+    pub(crate) fn request_new_tab(&mut self) -> Option<Option<AppAction>> {
+        self.sync_session_to_history(&self.active_session.clone());
+        self.status_text = String::from("New tab");
+        self.dirty = true;
+        Some(Some(AppAction::NewTab))
+    }
+
     pub(crate) fn execute_local_command(&mut self, trimmed: &str) -> Option<Option<AppAction>> {
         if trimmed == "/quit" || trimmed == "/exit" {
             self.should_quit = true;
             Some(Some(AppAction::Quit))
         } else if trimmed == "/clear" {
-            self.cache.clear();
-            self.viewport.clear_selection();
-            self.viewport.scroll_to_bottom();
-            self.last_turn_usage = None;
-            self.in_flight_usage = None;
-            self.accumulated_usage = crate::protocol::TokenUsage::default();
-            self.context_window_hint = None;
-            self.steps_seen = 0;
-            self.last_step_index = None;
-            self.turns_completed = 0;
-            self.last_turn_duration_seconds = None;
-            self.queued_prompts.clear();
-            self.esc_armed_at = None;
-            self.status_text = String::from("Cleared");
-            self.dirty = true;
+            self.clear_active_tab();
             Some(None)
         } else if trimmed == "/new" {
-            self.sync_session_to_history(&self.active_session.clone());
-            self.status_text = String::from("New tab");
-            self.dirty = true;
-            Some(Some(AppAction::NewTab))
-        } else if trimmed == "/sidebar" {
-            self.sidebar_visible = !self.sidebar_visible;
-            self.status_text = if self.sidebar_visible {
-                String::from("Context sidebar shown")
-            } else {
-                String::from("Context sidebar hidden")
-            };
-            self.dirty = true;
-            Some(None)
+            self.request_new_tab()
         } else if trimmed == "/quota" {
             let modal = if self.backend == crate::config::BackendKind::OpenCode {
                 crate::ui::modal::UsageModal::load_opencode(
                     &self.active_model_name(),
                     self.last_turn_usage,
                     self.accumulated_usage,
+                )
+                .with_stats_cli(
+                    !self.history.is_in_memory()
+                        || std::env::var_os("FRONTAL_OPENCODE_BIN").is_some(),
                 )
             } else {
                 crate::ui::modal::UsageModal::load(!self.history.is_in_memory())
@@ -75,11 +77,6 @@ impl App {
                 modal.set_query(query.trim());
             }
             self.modals.push(Modal::ModelEffort(modal));
-            self.dirty = true;
-            Some(None)
-        } else if trimmed == "/diff" {
-            self.modals
-                .push(Modal::Diff(DiffModal::new(&Self::load_git_diff())));
             self.dirty = true;
             Some(None)
         } else if trimmed == "/resume" || trimmed.starts_with("/resume ") {
@@ -120,7 +117,7 @@ impl App {
         } else if trimmed == "/help" {
             self.cache.push_user_message("/help");
             self.cache.push_error(&format!(
-                "Frontal v{} - Available local commands: /clear, /new, /quota, /sidebar, /quit, /exit, /help, /model, /diff, /resume, /rename",
+                "Frontal v{} - Available local commands: /clear, /new, /quota, /quit, /exit, /help, /model, /resume, /rename",
                 env!("CARGO_PKG_VERSION")
             ));
             self.status_text = String::from("Ready");

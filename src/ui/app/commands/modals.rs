@@ -1,5 +1,5 @@
 use crate::ui::app::{App, AppAction};
-use crate::ui::modal::{DiffModal, Modal, ModalAction, ModelEffortModal};
+use crate::ui::modal::{Modal, ModalAction, ModelEffortModal};
 
 impl App {
     pub fn dispatch_modal_action(&mut self, action: ModalAction) -> Option<Option<AppAction>> {
@@ -87,10 +87,31 @@ impl App {
                 }
                 Some(Some(AppAction::SwitchTab(idx)))
             }
+            ModalAction::DeleteSession { conversation_id } => {
+                if !self.open_tab_conversation_ids().contains(&conversation_id) {
+                    self.history.delete_session(&conversation_id);
+                    self.status_text = format!("Deleted session {}", conversation_id);
+                } else {
+                    let preserved_query = match self.modals.top() {
+                        Some(Modal::Select(select)) => {
+                            let q = select.query.clone();
+                            self.modals.pop();
+                            Some(q)
+                        }
+                        _ => None,
+                    };
+                    if let Some(q) = preserved_query {
+                        self.open_resume_modal(if q.is_empty() { None } else { Some(q.as_str()) });
+                    }
+                    self.status_text = format!("Cannot delete open session {}", conversation_id);
+                }
+                self.dirty = true;
+                Some(None)
+            }
             ModalAction::ExecuteCommand(cmd) => {
                 self.modals.pop();
                 match cmd.as_str() {
-                    "new_tab" => Some(Some(AppAction::NewTab)),
+                    "new_tab" => self.request_new_tab(),
                     "close_tab" => Some(Some(AppAction::CloseTab(self.active_tab_index))),
                     "select_model" => {
                         let mut modal =
@@ -112,17 +133,16 @@ impl App {
                         self.dirty = true;
                         Some(None)
                     }
-                    "view_diff" => {
-                        self.modals
-                            .push(Modal::Diff(DiffModal::new(&Self::load_git_diff())));
-                        Some(None)
-                    }
                     "view_usage" => {
                         let modal = if self.backend == crate::config::BackendKind::OpenCode {
                             crate::ui::modal::UsageModal::load_opencode(
                                 &self.active_model_name(),
                                 self.last_turn_usage,
                                 self.accumulated_usage,
+                            )
+                            .with_stats_cli(
+                                !self.history.is_in_memory()
+                                    || std::env::var_os("FRONTAL_OPENCODE_BIN").is_some(),
                             )
                         } else {
                             crate::ui::modal::UsageModal::load(!self.history.is_in_memory())
@@ -136,14 +156,7 @@ impl App {
                         Some(None)
                     }
                     "clear" => {
-                        self.cache.clear();
-                        self.viewport.clear_selection();
-                        self.viewport.scroll_to_bottom();
-                        self.last_turn_usage = None;
-                        self.accumulated_usage = crate::protocol::TokenUsage::default();
-                        self.queued_prompts.clear();
-                        self.esc_armed_at = None;
-                        self.status_text = String::from("Cleared");
+                        self.clear_active_tab();
                         Some(None)
                     }
                     "quit" => {

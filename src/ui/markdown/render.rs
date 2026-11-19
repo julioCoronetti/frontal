@@ -1,114 +1,12 @@
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
+use super::wrap::wrap_styled_spans;
 use crate::ui::highlight::IncrementalCodeHighlighter;
 use crate::ui::markdown::parse::{parse_markdown_segments, MarkdownSegment};
 use crate::ui::theme::{
     ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY,
 };
-
-pub fn wrap_styled_spans(
-    spans: &[Span<'static>],
-    max_width: usize,
-    first_prefix: &[Span<'static>],
-    cont_prefix: &[Span<'static>],
-) -> Vec<Line<'static>> {
-    let target_width = max_width.max(1);
-    let first_pw: usize = first_prefix.iter().map(|s| s.content.chars().count()).sum();
-    let cont_pw: usize = cont_prefix.iter().map(|s| s.content.chars().count()).sum();
-
-    let mut lines = Vec::new();
-    let mut current_line = first_prefix.to_vec();
-    let mut current_width = first_pw;
-    let mut on_cont = false;
-
-    for span in spans {
-        let style = span.style;
-        let mut words = Vec::new();
-        let mut current_word = String::new();
-
-        for c in span.content.chars() {
-            if c.is_whitespace() {
-                if !current_word.is_empty() {
-                    words.push((current_word.clone(), false));
-                    current_word.clear();
-                }
-                words.push((c.to_string(), true));
-            } else {
-                current_word.push(c);
-            }
-        }
-        if !current_word.is_empty() {
-            words.push((current_word, false));
-        }
-
-        for (token, is_ws) in words {
-            let token_len = token.chars().count();
-            if is_ws {
-                if current_width + token_len <= target_width {
-                    current_line.push(Span::styled(token, style));
-                    current_width += token_len;
-                } else {
-                    let active_prefix_len = if on_cont {
-                        cont_prefix.len()
-                    } else {
-                        first_prefix.len()
-                    };
-                    if current_line.len() > active_prefix_len {
-                        lines.push(Line::from(current_line));
-                        current_line = cont_prefix.to_vec();
-                        current_width = cont_pw;
-                        on_cont = true;
-                    }
-                }
-            } else if current_width + token_len <= target_width {
-                current_line.push(Span::styled(token, style));
-                current_width += token_len;
-            } else if token_len > target_width.saturating_sub(cont_pw) {
-                for ch in token.chars() {
-                    let active_prefix_len = if on_cont {
-                        cont_prefix.len()
-                    } else {
-                        first_prefix.len()
-                    };
-                    if current_width >= target_width && current_line.len() > active_prefix_len {
-                        lines.push(Line::from(current_line));
-                        current_line = cont_prefix.to_vec();
-                        current_width = cont_pw;
-                        on_cont = true;
-                    }
-                    current_line.push(Span::styled(ch.to_string(), style));
-                    current_width += 1;
-                }
-            } else {
-                let active_prefix_len = if on_cont {
-                    cont_prefix.len()
-                } else {
-                    first_prefix.len()
-                };
-                if current_line.len() > active_prefix_len {
-                    lines.push(Line::from(current_line));
-                    current_line = cont_prefix.to_vec();
-                    current_width = cont_pw;
-                    on_cont = true;
-                }
-                current_line.push(Span::styled(token, style));
-                current_width += token_len;
-            }
-        }
-    }
-
-    let active_prefix_len = if on_cont {
-        cont_prefix.len()
-    } else {
-        first_prefix.len()
-    };
-    if current_line.len() > active_prefix_len || lines.is_empty() {
-        lines.push(Line::from(current_line));
-    }
-
-    lines
-}
 
 pub fn render_markdown_to_lines(
     markdown_text: &str,
@@ -211,23 +109,39 @@ pub fn render_segments_to_lines(
                 code_block_idx += 1;
 
                 let border_style = Style::default().fg(BORDER_SUBTLE);
+                let max_border_w = width.max(1);
                 let lang_label = if language.is_empty() {
                     String::from("code")
                 } else {
                     language.clone()
                 };
                 let status_label = if *is_unclosed { " [streaming...]" } else { "" };
-                let top_border = format!("┌─ {}{} ─", lang_label, status_label);
+                let top_border: String = format!("┌─ {}{} ─", lang_label, status_label)
+                    .chars()
+                    .take(max_border_w)
+                    .collect();
                 output_lines.push(Line::from(vec![Span::styled(top_border, border_style)]));
 
-                let bar = Span::styled("│ ", border_style);
-                for hl_spans in highlighted_lines {
-                    let mut line_spans = vec![bar.clone()];
-                    line_spans.extend(hl_spans);
-                    output_lines.push(Line::from(line_spans));
+                if max_border_w > 2 {
+                    let bar = Span::styled("│ ", border_style);
+                    let inner_code_w = max_border_w - 2;
+                    let raw_lines: Vec<Line<'static>> =
+                        highlighted_lines.into_iter().map(Line::from).collect();
+                    for wrapped in
+                        super::wrap::wrap_lines_preserving_indent(raw_lines, inner_code_w)
+                    {
+                        let mut spans = vec![bar.clone()];
+                        spans.extend(wrapped.spans);
+                        output_lines.push(Line::from(spans));
+                    }
+                } else {
+                    for hl_spans in highlighted_lines {
+                        output_lines.extend(wrap_styled_spans(&hl_spans, max_border_w, &[], &[]));
+                    }
                 }
 
-                output_lines.push(Line::from(vec![Span::styled("└────", border_style)]));
+                let bottom_border: String = "└────".chars().take(max_border_w).collect();
+                output_lines.push(Line::from(vec![Span::styled(bottom_border, border_style)]));
             }
             MarkdownSegment::Table { headers, rows } => {
                 let col_count = headers
@@ -248,7 +162,7 @@ pub fn render_segments_to_lines(
                         border_style,
                     ));
                     if !headers.is_empty() {
-                        output_lines.push(build_table_row_line(
+                        output_lines.extend(build_table_row_lines(
                             headers,
                             &col_widths,
                             border_style,
@@ -265,7 +179,7 @@ pub fn render_segments_to_lines(
                         }
                     }
                     for (r_idx, row) in rows.iter().enumerate() {
-                        output_lines.push(build_table_row_line(
+                        output_lines.extend(build_table_row_lines(
                             row,
                             &col_widths,
                             border_style,
@@ -330,12 +244,20 @@ fn compute_table_col_widths(
     let target_avail = ((avail * 85) / 100).max(col_count.min(avail));
 
     if sum_w > avail {
-        let min_w = usize::from(avail >= col_count);
+        let min_w = if avail >= col_count * 3 {
+            3
+        } else if avail >= col_count * 2 {
+            2
+        } else {
+            usize::from(avail >= col_count)
+        };
         for w in col_widths.iter_mut() {
             *w = ((*w * avail) / sum_w).max(min_w);
         }
         while col_widths.iter().sum::<usize>() > avail {
-            if let Some(widest) = col_widths.iter_mut().filter(|w| **w > 0).max() {
+            if let Some(widest) = col_widths.iter_mut().filter(|w| **w > min_w).max() {
+                *widest -= 1;
+            } else if let Some(widest) = col_widths.iter_mut().filter(|w| **w > 0).max() {
                 *widest -= 1;
             } else {
                 break;
@@ -378,56 +300,71 @@ fn build_table_border_line(
     Line::from(spans)
 }
 
-fn build_table_row_line(
+fn build_table_row_lines(
     cells: &[Vec<Span<'static>>],
     col_widths: &[usize],
     border_style: Style,
     cell_base_style: Option<Style>,
-) -> Line<'static> {
-    let mut spans = vec![Span::styled("│", border_style)];
+) -> Vec<Line<'static>> {
+    let mut wrapped_cols: Vec<Vec<Vec<Span<'static>>>> = Vec::with_capacity(col_widths.len());
     for (i, &col_w) in col_widths.iter().enumerate() {
-        if col_w == 0 {
-            spans.push(Span::styled("│", border_style));
+        if col_w <= 1 {
+            wrapped_cols.push(vec![Vec::new()]);
             continue;
         }
-        spans.push(Span::raw(" "));
-        let max_cell_w = col_w - 1;
+        let max_cell_w = if col_w >= 3 { col_w - 2 } else { 1 };
         if let Some(cell) = cells.get(i) {
-            let len: usize = cell.iter().map(|s| s.content.chars().count()).sum();
-            if len > max_cell_w {
-                let mut budget = max_cell_w;
-                for sp in cell {
+            let styled_cell: Vec<Span<'static>> = cell
+                .iter()
+                .map(|sp| {
                     let style = match cell_base_style {
                         Some(base) => sp.style.patch(base),
                         None => sp.style,
                     };
-                    let sp_len = sp.content.chars().count();
-                    if sp_len <= budget {
-                        spans.push(Span::styled(sp.content.clone(), style));
-                        budget -= sp_len;
-                    } else if budget > 0 {
-                        let sub: String = sp.content.chars().take(budget).collect();
-                        spans.push(Span::styled(sub, style));
-                        budget = 0;
-                    }
-                }
-            } else {
-                for sp in cell {
-                    let style = match cell_base_style {
-                        Some(base) => sp.style.patch(base),
-                        None => sp.style,
-                    };
-                    spans.push(Span::styled(sp.content.clone(), style));
-                }
-                let pad = max_cell_w - len;
-                if pad > 0 {
-                    spans.push(Span::raw(" ".repeat(pad)));
+                    Span::styled(sp.content.clone(), style)
+                })
+                .collect();
+            let lines = wrap_styled_spans(&styled_cell, max_cell_w, &[], &[]);
+            wrapped_cols.push(lines.into_iter().map(|l| l.spans).collect());
+        } else {
+            wrapped_cols.push(vec![Vec::new()]);
+        }
+    }
+
+    let row_height = wrapped_cols
+        .iter()
+        .map(|col| col.len())
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let mut out = Vec::with_capacity(row_height);
+    for sub_row in 0..row_height {
+        let mut spans = vec![Span::styled("│", border_style)];
+        for (i, &col_w) in col_widths.iter().enumerate() {
+            if col_w == 0 {
+                spans.push(Span::styled("│", border_style));
+                continue;
+            }
+            if col_w == 1 {
+                spans.push(Span::raw(" "));
+                spans.push(Span::styled("│", border_style));
+                continue;
+            }
+            spans.push(Span::raw(" "));
+            let max_content_w = col_w - 1;
+            let mut used = 0usize;
+            if let Some(cell_spans) = wrapped_cols[i].get(sub_row) {
+                for sp in cell_spans {
+                    used += sp.content.chars().count();
+                    spans.push(sp.clone());
                 }
             }
-        } else if max_cell_w > 0 {
-            spans.push(Span::raw(" ".repeat(max_cell_w)));
+            if max_content_w > used {
+                spans.push(Span::raw(" ".repeat(max_content_w - used)));
+            }
+            spans.push(Span::styled("│", border_style));
         }
-        spans.push(Span::styled("│", border_style));
+        out.push(Line::from(spans));
     }
-    Line::from(spans)
+    out
 }

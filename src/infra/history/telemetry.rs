@@ -68,6 +68,17 @@ pub fn load(path: &Path, conversation_id: &str) -> Option<TelemetrySnapshot> {
     serde_json::from_str(&payload).ok()
 }
 
+pub fn delete(conn: &Connection, conversation_id: &str) -> rusqlite::Result<()> {
+    if conversation_id.trim().is_empty() {
+        return Ok(());
+    }
+    conn.execute(
+        "DELETE FROM conversation_telemetry WHERE conversation_id = ?1",
+        [conversation_id],
+    )?;
+    Ok(())
+}
+
 fn now_epoch() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

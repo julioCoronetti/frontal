@@ -1,13 +1,10 @@
+pub mod render;
+
 use std::cell::Cell;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
-
-use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_RUBY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SelectItem<T = String> {
@@ -17,6 +14,7 @@ pub struct SelectItem<T = String> {
     pub description: Option<String>,
     pub shortcut: Option<String>,
     pub badge: Option<String>,
+    pub deletable: bool,
     pub value: T,
 }
 
@@ -29,6 +27,7 @@ impl<T> SelectItem<T> {
             description: None,
             shortcut: None,
             badge: None,
+            deletable: false,
             value,
         }
     }
@@ -52,6 +51,11 @@ impl<T> SelectItem<T> {
         self.badge = Some(badge.into());
         self
     }
+
+    pub fn with_deletable(mut self, deletable: bool) -> Self {
+        self.deletable = deletable;
+        self
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,6 +63,7 @@ pub enum SelectResult<T> {
     None,
     Cancel,
     Selected(SelectItem<T>),
+    Deleted(SelectItem<T>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -68,6 +73,7 @@ pub struct DialogSelect<T = String> {
     pub query: String,
     pub items: Vec<SelectItem<T>>,
     pub selected_idx: usize,
+    pub pending_delete: Option<String>,
     pub scroll_offset: Cell<usize>,
     pub last_area: Cell<Rect>,
 }
@@ -80,6 +86,7 @@ impl<T: Clone> DialogSelect<T> {
             query: String::new(),
             items,
             selected_idx: 0,
+            pending_delete: None,
             scroll_offset: Cell::new(0),
             last_area: Cell::new(Rect::default()),
         }
@@ -134,8 +141,25 @@ impl<T: Clone> DialogSelect<T> {
 
     pub fn handle_key(&mut self, key: KeyEvent) -> SelectResult<T> {
         let filtered = self.filtered_indices();
+        let is_delete_key = matches!(key.code, KeyCode::Delete)
+            || matches!(
+                key.code,
+                KeyCode::Char('d' | 'D') if key.modifiers.contains(KeyModifiers::CONTROL)
+            );
+        if is_delete_key {
+            return self.handle_delete_key(&filtered);
+        }
+
+        if key.code == KeyCode::Esc {
+            if self.pending_delete.take().is_some() {
+                return SelectResult::None;
+            }
+            return SelectResult::Cancel;
+        }
+
+        self.pending_delete = None;
+
         match key.code {
-            KeyCode::Esc => SelectResult::Cancel,
             KeyCode::Enter => {
                 if let Some(&item_idx) = filtered.get(self.selected_idx) {
                     SelectResult::Selected(self.items[item_idx].clone())
@@ -196,8 +220,10 @@ impl<T: Clone> DialogSelect<T> {
             }
             KeyCode::Char(c)
                 if !key.modifiers.contains(KeyModifiers::CONTROL)
-                    && !key.modifiers.contains(KeyModifiers::ALT) =>
+                    && !key.modifiers.contains(KeyModifiers::ALT)
+                    && !c.is_control() =>
             {
+                self.pending_delete = None;
                 self.query.push(c);
                 self.selected_idx = 0;
                 self.scroll_offset.set(0);
@@ -213,7 +239,34 @@ impl<T: Clone> DialogSelect<T> {
         }
     }
 
-    fn build_visual_rows(&self, filtered: &[usize]) -> Vec<(bool, String, usize)> {
+    fn handle_delete_key(&mut self, filtered: &[usize]) -> SelectResult<T> {
+        let Some(&item_idx) = filtered.get(self.selected_idx) else {
+            self.pending_delete = None;
+            return SelectResult::None;
+        };
+        if !self.items[item_idx].deletable {
+            self.pending_delete = None;
+            return SelectResult::None;
+        }
+        let item_id = self.items[item_idx].id.clone();
+        if self.pending_delete.as_deref() == Some(item_id.as_str()) {
+            self.pending_delete = None;
+            let removed = self.items.remove(item_idx);
+            let new_len = self.filtered_indices().len();
+            if new_len == 0 {
+                self.selected_idx = 0;
+                self.scroll_offset.set(0);
+            } else if self.selected_idx >= new_len {
+                self.selected_idx = new_len - 1;
+            }
+            SelectResult::Deleted(removed)
+        } else {
+            self.pending_delete = Some(item_id);
+            SelectResult::None
+        }
+    }
+
+    pub(crate) fn build_visual_rows(&self, filtered: &[usize]) -> Vec<(bool, String, usize)> {
         let mut rows = Vec::new();
         let mut last_category: Option<&str> = None;
         for (filtered_pos, &item_idx) in filtered.iter().enumerate() {
@@ -233,16 +286,19 @@ impl<T: Clone> DialogSelect<T> {
         let filtered = self.filtered_indices();
         match mouse.kind {
             MouseEventKind::ScrollUp => {
+                self.pending_delete = None;
                 self.selected_idx = self.selected_idx.saturating_sub(1);
                 SelectResult::None
             }
             MouseEventKind::ScrollDown => {
+                self.pending_delete = None;
                 if !filtered.is_empty() {
                     self.selected_idx = (self.selected_idx + 1).min(filtered.len() - 1);
                 }
                 SelectResult::None
             }
             MouseEventKind::Down(MouseButton::Left) => {
+                self.pending_delete = None;
                 let area = self.last_area.get();
                 if area.width < 4 || area.height < 4 {
                     return SelectResult::None;
@@ -278,194 +334,6 @@ impl<T: Clone> DialogSelect<T> {
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect) {
-        self.last_area.set(area);
-        if area.width < 4 || area.height < 4 {
-            frame.render_widget(Clear, area);
-            return;
-        }
-
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(BORDER_SUBTLE))
-            .style(Style::default().bg(Color::Reset));
-
-        let filtered = self.filtered_indices();
-        let mut lines = Vec::new();
-
-        let title = format!(" {}:", self.title.trim_end_matches(':'));
-        let esc_pad = (area.width as usize).saturating_sub(title.chars().count() + 5);
-        lines.push(Line::from(vec![
-            Span::styled(
-                title,
-                Style::default()
-                    .fg(TEXT_PRIMARY)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("{:>esc_pad$}", "esc "),
-                Style::default().fg(TEXT_MUTED),
-            ),
-        ]));
-        lines.push(Line::raw(""));
-
-        let display_query = if self.query.is_empty() && !self.placeholder.is_empty() {
-            Span::styled(
-                format!("Search: {}", self.placeholder),
-                Style::default().fg(TEXT_MUTED),
-            )
-        } else if self.query.is_empty() {
-            Span::styled("Search: ", Style::default().fg(TEXT_MUTED))
-        } else {
-            Span::styled(
-                format!("Search: {}", self.query),
-                Style::default()
-                    .fg(TEXT_PRIMARY)
-                    .add_modifier(Modifier::BOLD),
-            )
-        };
-
-        lines.push(Line::from(vec![
-            Span::styled(
-                "   > ",
-                Style::default()
-                    .fg(ACCENT_HIGHLIGHT)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            display_query,
-            Span::styled("█", Style::default().fg(ACCENT_HIGHLIGHT)),
-        ]));
-        let line_w = (area.width as usize).saturating_sub(8);
-        let divider = "─".repeat(line_w);
-        lines.push(Line::from(vec![Span::styled(
-            format!("   {}", divider),
-            Style::default().fg(BORDER_SUBTLE),
-        )]));
-        lines.push(Line::raw(""));
-
-        let rows = self.build_visual_rows(&filtered);
-
-        let selected_row_idx = rows
-            .iter()
-            .position(|(is_cat, _, pos)| !*is_cat && *pos == self.selected_idx)
-            .unwrap_or(0);
-
-        let inner_height = area.height.saturating_sub(7) as usize;
-        let mut offset = self.scroll_offset.get();
-        if selected_row_idx < offset {
-            offset = if selected_row_idx > 0 && rows[selected_row_idx - 1].0 {
-                selected_row_idx - 1
-            } else {
-                selected_row_idx
-            };
-        } else if inner_height > 0 && selected_row_idx >= offset + inner_height {
-            offset = selected_row_idx + 1 - inner_height;
-        }
-        self.scroll_offset.set(offset);
-
-        let visible_slice = if inner_height > 0 && !rows.is_empty() {
-            let end = (offset + inner_height).min(rows.len());
-            &rows[offset..end]
-        } else {
-            &[]
-        };
-
-        for (is_cat, cat_name, pos) in visible_slice {
-            if *is_cat {
-                lines.push(Line::from(vec![Span::styled(
-                    format!("  [{}]", cat_name),
-                    Style::default().fg(TEXT_MUTED).add_modifier(Modifier::BOLD),
-                )]));
-            } else {
-                let item = &self.items[filtered[*pos]];
-                let is_sel = *pos == self.selected_idx;
-                let (style, badge_style, shortcut_style, desc_style) = if is_sel {
-                    (
-                        Style::default()
-                            .bg(ACCENT_RUBY)
-                            .fg(TEXT_PRIMARY)
-                            .add_modifier(Modifier::BOLD),
-                        Style::default()
-                            .bg(ACCENT_RUBY)
-                            .fg(ACCENT_HIGHLIGHT)
-                            .add_modifier(Modifier::BOLD),
-                        Style::default().bg(ACCENT_RUBY).fg(TEXT_PRIMARY),
-                        Style::default().bg(ACCENT_RUBY).fg(TEXT_MUTED),
-                    )
-                } else {
-                    (
-                        Style::default().fg(TEXT_PRIMARY),
-                        Style::default().fg(ACCENT_HIGHLIGHT),
-                        Style::default().fg(TEXT_MUTED),
-                        Style::default().fg(TEXT_MUTED),
-                    )
-                };
-                let prefix = if is_sel { " ● " } else { "   " };
-                let inner_w = (area.width as usize).saturating_sub(2);
-
-                let (display_title, title_chars) =
-                    if item.shortcut.is_some() && item.description.is_none() {
-                        let badge_cols = item
-                            .badge
-                            .as_ref()
-                            .map(|b| b.chars().count() + 3)
-                            .unwrap_or(0);
-                        let shortcut_cols = item
-                            .shortcut
-                            .as_ref()
-                            .map(|s| s.chars().count() + 2)
-                            .unwrap_or(0);
-                        let max_title_cols = inner_w.saturating_sub(3 + badge_cols + shortcut_cols);
-                        let count = item.title.chars().count();
-                        if count > max_title_cols && max_title_cols > 3 {
-                            let take = max_title_cols - 3;
-                            let mut truncated: String = item.title.chars().take(take).collect();
-                            truncated.push_str("...");
-                            let t_count = truncated.chars().count();
-                            (truncated, t_count)
-                        } else {
-                            (item.title.clone(), count)
-                        }
-                    } else {
-                        let count = item.title.chars().count();
-                        (item.title.clone(), count)
-                    };
-
-                let mut spans = vec![
-                    Span::styled(prefix, style),
-                    Span::styled(display_title, style),
-                ];
-                let mut left_len = 3 + title_chars;
-                if let Some(ref badge) = item.badge {
-                    spans.push(Span::styled(format!(" [{}]", badge), badge_style));
-                    left_len += badge.chars().count() + 3;
-                }
-                if let Some(ref desc) = item.description {
-                    spans.push(Span::styled(format!(" - {}", desc), desc_style));
-                    left_len += desc.chars().count() + 3;
-                }
-                if let Some(ref shortcut) = item.shortcut {
-                    let shortcut_len = shortcut.chars().count() + 2;
-                    let spaces = inner_w.saturating_sub(left_len + shortcut_len);
-                    if spaces > 0 {
-                        spans.push(Span::styled(" ".repeat(spaces), style));
-                    }
-                    spans.push(Span::styled(format!(" {} ", shortcut), shortcut_style));
-                } else if is_sel && inner_w > left_len {
-                    spans.push(Span::styled(" ".repeat(inner_w - left_len), style));
-                }
-                lines.push(Line::from(spans));
-            }
-        }
-
-        if filtered.is_empty() {
-            lines.push(Line::from(vec![Span::styled(
-                "   (No matching results)",
-                Style::default().fg(TEXT_MUTED),
-            )]));
-        }
-
-        let widget = Paragraph::new(lines).block(block);
-        frame.render_widget(Clear, area);
-        frame.render_widget(widget, area);
+        render::render_select(self, frame, area);
     }
 }

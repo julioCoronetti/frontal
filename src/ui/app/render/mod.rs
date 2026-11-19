@@ -48,8 +48,6 @@ impl App {
             padded_area.width
         };
 
-        let input_lines = (self.editor.line_count() as u16).clamp(1, 8);
-        let bottom_height = input_lines + 3;
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -86,6 +84,10 @@ impl App {
             self.render_version_footer(frame, footer_area);
             self.render_popover(frame, input_area, area, true);
         } else {
+            let inner_w = main_width.saturating_sub(4) as usize;
+            let input_lines =
+                (input::visual_line_count(&self.editor.text(), inner_w) as u16).clamp(1, 8);
+            let bottom_height = input_lines + 3;
             let body_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Min(3), Constraint::Length(bottom_height)])

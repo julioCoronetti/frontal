@@ -1,4 +1,5 @@
 use rusqlite::{params, Connection};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, RwLock};
@@ -46,7 +47,13 @@ pub enum HistoryCommand {
         conversation_id: String,
         snapshot: TelemetrySnapshot,
     },
-    Flush(Sender<()>),
+    DeleteSession {
+        keys: Vec<String>,
+    },
+    Flush {
+        wait_external: bool,
+        done_tx: Sender<()>,
+    },
 }
 
 pub struct PromptHistory {
@@ -58,6 +65,7 @@ pub struct PromptHistory {
     write_tx: Option<Sender<HistoryCommand>>,
     agent_cache: Arc<RwLock<Vec<SessionRecord>>>,
     agent_updates_rx: Option<Receiver<(String, String)>>,
+    deleted_ids: HashSet<String>,
 }
 
 impl PromptHistory {
@@ -88,7 +96,9 @@ impl PromptHistory {
         let conn = Connection::open(db_path)?;
         worker::init_connection(&conn)?;
         let entries = Self::load_recent_entries(&conn, 500)?;
-        let sessions = Self::load_recent_sessions(&conn, 500)?;
+        let deleted_ids = Self::load_deleted_ids(&conn);
+        let mut sessions = Self::load_recent_sessions(&conn, 500)?;
+        sessions.retain(|s| !sessions::is_deleted_record(s, &deleted_ids));
         drop(conn);
 
         let (tx, rx) = channel::<HistoryCommand>();
@@ -117,6 +127,7 @@ impl PromptHistory {
             agent_updates_tx,
             pinned_titles,
             known_models,
+            deleted_ids.clone(),
         );
 
         Ok(Self {
@@ -128,6 +139,7 @@ impl PromptHistory {
             write_tx: Some(tx),
             agent_cache,
             agent_updates_rx: Some(agent_updates_rx),
+            deleted_ids,
         })
     }
 
@@ -146,7 +158,20 @@ impl PromptHistory {
             write_tx: None,
             agent_cache: Arc::new(RwLock::new(Vec::new())),
             agent_updates_rx: None,
+            deleted_ids: HashSet::new(),
         })
+    }
+
+    fn load_deleted_ids(conn: &Connection) -> HashSet<String> {
+        let mut deleted = HashSet::new();
+        if let Ok(mut stmt) = conn.prepare("SELECT conversation_id FROM deleted_sessions") {
+            if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
+                for id in rows.flatten() {
+                    deleted.insert(id);
+                }
+            }
+        }
+        deleted
     }
 
     fn load_recent_entries(
@@ -184,9 +209,23 @@ impl PromptHistory {
     }
 
     pub fn flush(&self) {
+        self.send_flush(true);
+    }
+
+    fn flush_db(&self) {
+        self.send_flush(false);
+    }
+
+    fn send_flush(&self, wait_external: bool) {
         if let Some(ref tx) = self.write_tx {
             let (done_tx, done_rx) = channel();
-            if tx.send(HistoryCommand::Flush(done_tx)).is_ok() {
+            if tx
+                .send(HistoryCommand::Flush {
+                    wait_external,
+                    done_tx,
+                })
+                .is_ok()
+            {
                 let _ = done_rx.recv();
             }
         }
@@ -254,6 +293,6 @@ impl PromptHistory {
 
 impl Drop for PromptHistory {
     fn drop(&mut self) {
-        self.flush();
+        self.flush_db();
     }
 }

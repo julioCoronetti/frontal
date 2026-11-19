@@ -265,11 +265,16 @@ fn test_custom_rename_blocks_semantic_upgrade_for_opencode_and_agy() {
         ..Default::default()
     });
     history.rename_agent_title("ses_pinned", "Operator Custom Title");
-    history.request_agent_refresh(Some("ses_pinned".to_string()));
+    history.rename_session_with_source("local-only", "Local PreInit", TitleSource::Custom);
+    history.request_agent_refresh(Some("ext-ses_pinned".to_string()));
     history.request_agent_refresh(None);
     history.flush();
 
     assert!(history.poll_agent_title_updates().is_empty());
+    assert!(!history
+        .cached_agent_conversations()
+        .iter()
+        .any(|s| s.id == "ext-local-only" || s.id == "ext-ext-ses_pinned"));
     let reopened = PromptHistory::open_with_external_dbs(&history_db, None, None).unwrap();
     let rec = reopened
         .resumable_sessions()
@@ -278,4 +283,60 @@ fn test_custom_rename_blocks_semantic_upgrade_for_opencode_and_agy() {
         .unwrap();
     assert_eq!(rec.title.as_deref(), Some("Operator Custom Title"));
     assert_eq!(rec.title_source, TitleSource::Custom);
+}
+
+#[tokio::test]
+async fn test_delete_ext_prefix_tombstone_and_nonblocking_drop() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{Duration, Instant};
+
+    let _lock = crate::common::PGID_TEST_LOCK.lock().await;
+    let dir = TempDirGuard::new("ext_tombstone_drop");
+    let history_db = dir.path().join("history.db");
+    let opencode_db = dir.path().join("opencode.db");
+    create_opencode_db(&opencode_db);
+    {
+        let conn = Connection::open(&opencode_db).unwrap();
+        conn.execute(
+            "INSERT INTO session_v2 (id, parent_id, title, model, time_created, time_updated)
+             VALUES ('ses_ext_del', NULL, 'External To Delete', '{\"id\":\"deepseek-v4.1-flash\",\"providerID\":\"opencode-go\"}', 1795032813708, 1795032818345)",
+            [],
+        )
+        .unwrap();
+    }
+
+    let slow_script = dir.path().join("opencode_slow");
+    std::fs::write(&slow_script, "#!/usr/bin/env bash\nsleep 1\n").unwrap();
+    let mut perms = std::fs::metadata(&slow_script).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&slow_script, perms).unwrap();
+    let prev_bin = std::env::var("FRONTAL_OPENCODE_BIN").ok();
+    std::env::set_var("FRONTAL_OPENCODE_BIN", &slow_script);
+
+    let mut history =
+        PromptHistory::open_with_external_dbs(&history_db, None, Some(opencode_db.clone()))
+            .unwrap();
+    history.request_agent_refresh(None);
+    history.flush();
+    assert_eq!(history.cached_agent_conversations().len(), 1);
+
+    history.delete_session("ext-ses_ext_del");
+    let drop_start = Instant::now();
+    drop(history);
+    assert!(
+        drop_start.elapsed() < Duration::from_millis(500),
+        "PromptHistory::drop blocked on pending external delete"
+    );
+
+    match prev_bin {
+        Some(v) => std::env::set_var("FRONTAL_OPENCODE_BIN", v),
+        None => std::env::remove_var("FRONTAL_OPENCODE_BIN"),
+    }
+
+    let reopened =
+        PromptHistory::open_with_external_dbs(&history_db, None, Some(opencode_db)).unwrap();
+    reopened.request_agent_refresh(None);
+    reopened.flush();
+    assert!(reopened.cached_agent_conversations().is_empty());
+    assert!(reopened.resumable_sessions().is_empty());
 }

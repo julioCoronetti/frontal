@@ -55,11 +55,6 @@ impl CommandsModal {
                 shortcut: "/rename".to_string(),
             },
             CommandItem {
-                id: "view_diff".to_string(),
-                title: "View Git/Patch Diff".to_string(),
-                shortcut: "/diff".to_string(),
-            },
-            CommandItem {
                 id: "view_usage".to_string(),
                 title: "View Model Quotas".to_string(),
                 shortcut: "/quota".to_string(),
@@ -67,7 +62,7 @@ impl CommandsModal {
             CommandItem {
                 id: "toggle_sidebar".to_string(),
                 title: "Toggle Context Sidebar".to_string(),
-                shortcut: "/sidebar".to_string(),
+                shortcut: "Ctrl+B".to_string(),
             },
             CommandItem {
                 id: "clear".to_string(),
@@ -118,7 +113,7 @@ impl CommandsModal {
         match res {
             SelectResult::Selected(item) => ModalAction::ExecuteCommand(item.value),
             SelectResult::Cancel => ModalAction::Close,
-            SelectResult::None => ModalAction::None,
+            SelectResult::None | SelectResult::Deleted(_) => ModalAction::None,
         }
     }
 
@@ -131,7 +126,7 @@ impl CommandsModal {
         match res {
             SelectResult::Selected(item) => ModalAction::ExecuteCommand(item.value),
             SelectResult::Cancel => ModalAction::Close,
-            SelectResult::None => ModalAction::None,
+            SelectResult::None | SelectResult::Deleted(_) => ModalAction::None,
         }
     }
 
@@ -143,6 +138,8 @@ impl CommandsModal {
             select.query = self.query.clone();
             select.selected_idx = self.selected_idx;
             select.render(frame, area);
+            self.select.last_area.set(select.last_area.get());
+            self.select.scroll_offset.set(select.scroll_offset.get());
         }
     }
 }

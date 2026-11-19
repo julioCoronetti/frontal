@@ -461,9 +461,15 @@ fn test_sidebar_toggle_via_command_and_commands_modal() {
 
     app.editor.insert_str("/sidebar");
     app.handle_terminal_event(crate::common::press_key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(app.status_text, "Unknown command: /sidebar");
+    assert!(app.sidebar_visible);
+
+    let ctrl_b = crate::common::press_key(KeyCode::Char('b'), KeyModifiers::CONTROL);
+    app.handle_terminal_event(ctrl_b.clone());
     assert!(!app.sidebar_visible);
     let (_, text) = crate::common::render_app(&mut app, 120, 30);
     assert!(!text.contains("tokens"));
+    assert_eq!(app.viewport_bounds.2, 116);
 
     let mut commands = CommandsModal::new();
     for ch in ['s', 'i', 'd', 'e', 'b', 'a', 'r'] {
@@ -471,6 +477,7 @@ fn test_sidebar_toggle_via_command_and_commands_modal() {
     }
     let filtered = commands.filtered_indices();
     assert_eq!(commands.items[filtered[0]].id, "toggle_sidebar");
+    assert_eq!(commands.items[filtered[0]].shortcut, "Ctrl+B");
     let action = commands.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(
         action,
@@ -480,20 +487,8 @@ fn test_sidebar_toggle_via_command_and_commands_modal() {
     assert!(app.sidebar_visible);
     let (_, text) = crate::common::render_app(&mut app, 120, 30);
     assert!(text.contains("tokens"));
-
-    app.handle_terminal_event(crate::common::press_key(
-        KeyCode::Char('b'),
-        KeyModifiers::CONTROL,
-    ));
-    assert!(!app.sidebar_visible);
-    let (_, text) = crate::common::render_app(&mut app, 120, 30);
-    assert!(!text.contains("tokens"));
-    assert_eq!(app.viewport_bounds.2, 116);
-    app.handle_terminal_event(crate::common::press_key(
-        KeyCode::Char('b'),
-        KeyModifiers::CONTROL,
-    ));
-    assert!(app.sidebar_visible);
-    crate::common::render_app(&mut app, 120, 30);
     assert_eq!(app.viewport_bounds.2, 76);
+
+    app.handle_terminal_event(ctrl_b);
+    assert!(!app.sidebar_visible);
 }

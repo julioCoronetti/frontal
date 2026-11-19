@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection};
@@ -41,6 +42,48 @@ pub struct SessionRecord {
     pub title: Option<String>,
     pub title_source: TitleSource,
     pub created_at: i64,
+}
+
+pub(super) fn is_deleted_key(deleted_ids: &HashSet<String>, key: &str) -> bool {
+    let raw = key.strip_prefix("ext-").unwrap_or(key);
+    deleted_ids.contains(key) || deleted_ids.contains(raw)
+}
+
+pub(super) fn is_deleted_record(record: &SessionRecord, deleted_ids: &HashSet<String>) -> bool {
+    !deleted_ids.is_empty()
+        && (is_deleted_key(deleted_ids, &record.id)
+            || record
+                .conversation_id
+                .as_deref()
+                .is_some_and(|cid| is_deleted_key(deleted_ids, cid)))
+}
+
+fn matches_id(s: &SessionRecord, key: &str, norm: &str) -> bool {
+    s.id == key
+        || s.id == norm
+        || s.id.strip_prefix("ext-") == Some(norm)
+        || s.conversation_id
+            .as_deref()
+            .is_some_and(|c| c == key || c.strip_prefix("ext-").unwrap_or(c) == norm)
+}
+
+fn collect_matching_keys(records: &[SessionRecord], keys: &mut HashSet<String>) {
+    for s in records {
+        if keys.contains(&s.id)
+            || s.conversation_id
+                .as_deref()
+                .is_some_and(|c| keys.contains(c))
+        {
+            keys.insert(s.id.clone());
+            if let Some(cid) = s
+                .conversation_id
+                .as_deref()
+                .filter(|c| !c.trim().is_empty())
+            {
+                keys.insert(cid.to_string());
+            }
+        }
+    }
 }
 
 pub fn format_relative_time(created_at: i64) -> String {
@@ -132,15 +175,11 @@ impl PromptHistory {
                 created_at: row.get(6)?,
             })
         })?;
-        let mut result = Vec::new();
-        for r in rows.flatten() {
-            result.push(r);
-        }
-        Ok(result)
+        Ok(rows.flatten().collect())
     }
 
     pub fn record_session(&mut self, mut record: SessionRecord) {
-        if record.id.trim().is_empty() {
+        if record.id.trim().is_empty() || is_deleted_record(&record, &self.deleted_ids) {
             return;
         }
         record.title_source = normalize_title_source(&record.title, record.title_source);
@@ -189,10 +228,21 @@ impl PromptHistory {
             self.sessions.remove(pos);
         }
 
-        if record.created_at <= 0 && !self.is_in_memory() {
+        if !self.is_in_memory() {
             if let Some(ref cid) = record.conversation_id {
-                if let Some(ts) = self.cached_agent_timestamp(cid) {
-                    record.created_at = ts;
+                if let Some((cached_title, cached_source)) = self.cached_agent_entry(cid) {
+                    if cached_source == TitleSource::Custom
+                        || (record.title_source != TitleSource::Custom
+                            && cached_source > record.title_source)
+                    {
+                        record.title = Some(cached_title);
+                        record.title_source = cached_source;
+                    }
+                }
+                if record.created_at <= 0 {
+                    if let Some(ts) = self.cached_agent_timestamp(cid) {
+                        record.created_at = ts;
+                    }
                 }
             }
         }
@@ -248,21 +298,50 @@ impl PromptHistory {
         new_title: &str,
         source: TitleSource,
     ) {
+        let key = id_or_conv.trim();
+        let norm = key.strip_prefix("ext-").unwrap_or(key);
         let trimmed = new_title.trim();
-        if trimmed.is_empty() {
+        if trimmed.is_empty() || norm.is_empty() || is_deleted_key(&self.deleted_ids, key) {
             return;
         }
+        let mut resolved_cid: Option<String> = None;
         for s in &mut self.sessions {
-            if (s.id == id_or_conv || s.conversation_id.as_deref() == Some(id_or_conv))
-                && source >= s.title_source
-            {
-                s.title = Some(trimmed.to_string());
-                s.title_source = source;
+            if matches_id(s, key, norm) {
+                if is_deleted_record(s, &self.deleted_ids) {
+                    return;
+                }
+                if resolved_cid.is_none() {
+                    resolved_cid = s.conversation_id.clone().filter(|c| !c.trim().is_empty());
+                }
+                if source == TitleSource::Custom || source >= s.title_source {
+                    s.title = Some(trimmed.to_string());
+                    s.title_source = source;
+                }
+            }
+        }
+        if resolved_cid
+            .as_deref()
+            .is_some_and(|c| is_deleted_key(&self.deleted_ids, c))
+        {
+            return;
+        }
+        let target_norm = resolved_cid.as_deref().unwrap_or(norm);
+        if source == TitleSource::Custom {
+            if let Ok(mut guard) = self.agent_cache.write() {
+                for item in guard.iter_mut() {
+                    if !is_deleted_record(item, &self.deleted_ids)
+                        && (matches_id(item, key, norm)
+                            || matches_id(item, target_norm, target_norm))
+                    {
+                        item.title = Some(trimmed.to_string());
+                        item.title_source = TitleSource::Custom;
+                    }
+                }
             }
         }
         if let Some(ref tx) = self.write_tx {
             let _ = tx.send(HistoryCommand::RenameSession {
-                id: id_or_conv.to_string(),
+                id: target_norm.to_string(),
                 title: trimmed.to_string(),
                 source,
             });
@@ -271,11 +350,12 @@ impl PromptHistory {
 
     pub fn rename_agent_title(&mut self, conv_id: &str, new_title: &str) {
         let trimmed = new_title.trim();
-        if trimmed.is_empty() {
+        let norm = conv_id.strip_prefix("ext-").unwrap_or(conv_id);
+        if trimmed.is_empty() || norm.is_empty() || is_deleted_key(&self.deleted_ids, conv_id) {
             return;
         }
         for s in &mut self.sessions {
-            if s.id == conv_id || s.conversation_id.as_deref() == Some(conv_id) {
+            if matches_id(s, conv_id, norm) {
                 s.title = Some(trimmed.to_string());
                 s.title_source = TitleSource::Custom;
             }
@@ -283,15 +363,15 @@ impl PromptHistory {
         if let Ok(mut guard) = self.agent_cache.write() {
             if let Some(item) = guard
                 .iter_mut()
-                .find(|s| s.conversation_id.as_deref() == Some(conv_id))
+                .find(|s| s.conversation_id.as_deref() == Some(norm))
             {
                 item.title = Some(trimmed.to_string());
                 item.title_source = TitleSource::Custom;
             } else {
                 guard.push(SessionRecord {
-                    id: format!("ext-{}", conv_id),
-                    conversation_id: Some(conv_id.to_string()),
-                    backend: Some(infer_backend(Some(conv_id), None)),
+                    id: format!("ext-{}", norm),
+                    conversation_id: Some(norm.to_string()),
+                    backend: Some(infer_backend(Some(norm), None)),
                     model: None,
                     mode: None,
                     effort: None,
@@ -303,7 +383,7 @@ impl PromptHistory {
         }
         if let Some(ref tx) = self.write_tx {
             let _ = tx.send(HistoryCommand::RenameAgentTitle {
-                conv_id: conv_id.to_string(),
+                conv_id: norm.to_string(),
                 title: trimmed.to_string(),
             });
         }
@@ -338,8 +418,40 @@ impl PromptHistory {
     pub fn cached_agent_conversations(&self) -> Vec<SessionRecord> {
         self.agent_cache
             .read()
-            .map(|guard| guard.clone())
+            .map(|guard| {
+                guard
+                    .iter()
+                    .filter(|s| !is_deleted_record(s, &self.deleted_ids))
+                    .cloned()
+                    .collect()
+            })
             .unwrap_or_default()
+    }
+
+    pub fn delete_session(&mut self, id_or_conv: &str) {
+        let trimmed = id_or_conv.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        let mut keys = HashSet::from([trimmed.to_string()]);
+        if let Some(raw) = trimmed.strip_prefix("ext-").filter(|r| !r.is_empty()) {
+            keys.insert(raw.to_string());
+        }
+        collect_matching_keys(&self.sessions, &mut keys);
+        if let Ok(mut guard) = self.agent_cache.write() {
+            collect_matching_keys(&guard, &mut keys);
+            self.deleted_ids.extend(keys.iter().cloned());
+            guard.retain(|s| !is_deleted_record(s, &self.deleted_ids));
+        } else {
+            self.deleted_ids.extend(keys.iter().cloned());
+        }
+        self.sessions
+            .retain(|s| !is_deleted_record(s, &self.deleted_ids));
+        if let Some(ref tx) = self.write_tx {
+            let _ = tx.send(HistoryCommand::DeleteSession {
+                keys: keys.into_iter().collect(),
+            });
+        }
     }
 
     pub fn request_agent_refresh(&self, conv_id: Option<String>) {
@@ -348,10 +460,17 @@ impl PromptHistory {
         }
     }
 
-    pub fn poll_agent_title_updates(&self) -> Vec<(String, String)> {
+    pub fn poll_agent_title_updates(&mut self) -> Vec<(String, String)> {
         let mut updates = Vec::new();
         if let Some(ref rx) = self.agent_updates_rx {
             while let Ok(item) = rx.try_recv() {
+                let norm = item.0.strip_prefix("ext-").unwrap_or(&item.0);
+                for s in &mut self.sessions {
+                    if matches_id(s, &item.0, norm) && s.title_source <= TitleSource::Semantic {
+                        s.title = Some(item.1.clone());
+                        s.title_source = TitleSource::Semantic;
+                    }
+                }
                 updates.push(item);
             }
         }
@@ -366,10 +485,11 @@ impl PromptHistory {
         self.sessions
             .iter()
             .filter(|s| {
-                s.conversation_id
-                    .as_ref()
-                    .map(|c| !c.trim().is_empty())
-                    .unwrap_or(false)
+                !is_deleted_record(s, &self.deleted_ids)
+                    && s.conversation_id
+                        .as_ref()
+                        .map(|c| !c.trim().is_empty())
+                        .unwrap_or(false)
             })
             .cloned()
             .collect()

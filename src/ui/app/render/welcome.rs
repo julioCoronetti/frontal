@@ -152,7 +152,10 @@ impl App {
         };
         let overhead_h = logo_h + gap_h + meta_h;
         let max_input_lines = body_area.height.saturating_sub(overhead_h + 2).clamp(1, 8);
-        let input_lines = (self.editor.line_count() as u16).clamp(1, max_input_lines);
+        let input_w = body_area.width.min(HERO_INPUT_MAX_WIDTH);
+        let inner_w = input_w.saturating_sub(4) as usize;
+        let input_lines = (super::input::visual_line_count(&self.editor.text(), inner_w) as u16)
+            .clamp(1, max_input_lines);
         let input_h = (input_lines + 2).min(body_area.height.saturating_sub(overhead_h).max(3));
         let total_stack_h = (overhead_h + input_h).min(body_area.height);
 
@@ -177,7 +180,6 @@ impl App {
         let logo_widget = Paragraph::new(logo_lines).alignment(Alignment::Center);
         frame.render_widget(logo_widget, stack_chunks[0]);
 
-        let input_w = body_area.width.min(HERO_INPUT_MAX_WIDTH);
         let input_x = body_area
             .x
             .saturating_add(body_area.width.saturating_sub(input_w) / 2);

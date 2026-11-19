@@ -14,13 +14,39 @@ pub struct DangerConfirmationModal {
     pub assessment: DangerAssessment,
 }
 
+fn sanitize_and_truncate(raw: &str, max_w: usize) -> String {
+    if max_w == 0 {
+        return String::new();
+    }
+    let cleaned: String = raw
+        .chars()
+        .map(|c| match c {
+            '\n' | '\r' | '\t' => ' ',
+            other => other,
+        })
+        .filter(|c| !c.is_control())
+        .collect();
+    if cleaned.chars().count() <= max_w {
+        return cleaned;
+    }
+    if max_w > 3 {
+        let mut out: String = cleaned.chars().take(max_w - 3).collect();
+        out.push_str("...");
+        out
+    } else {
+        cleaned.chars().take(max_w).collect()
+    }
+}
+
 impl DangerConfirmationModal {
     pub fn new(assessment: DangerAssessment) -> Self {
         Self { assessment }
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> ModalAction {
-        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        if matches!(key.code, KeyCode::Char('c' | 'C'))
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+        {
             return ModalAction::RejectDanger;
         }
         match key.code {
@@ -52,10 +78,11 @@ impl DangerConfirmationModal {
         )));
         lines.push(Line::raw(""));
 
+        let field_budget = (area.width as usize).saturating_sub(12);
         lines.push(Line::from(vec![
             Span::styled(" Warning: ", Style::default().fg(TEXT_MUTED)),
             Span::styled(
-                &self.assessment.warning,
+                sanitize_and_truncate(&self.assessment.warning, field_budget),
                 Style::default()
                     .fg(TEXT_PRIMARY)
                     .add_modifier(Modifier::BOLD),
@@ -65,7 +92,7 @@ impl DangerConfirmationModal {
         lines.push(Line::from(vec![
             Span::styled(" Target:  ", Style::default().fg(TEXT_MUTED)),
             Span::styled(
-                &self.assessment.target,
+                sanitize_and_truncate(&self.assessment.target, field_budget),
                 Style::default().fg(ACCENT_HIGHLIGHT),
             ),
         ]));
@@ -76,16 +103,11 @@ impl DangerConfirmationModal {
             Style::default().fg(TEXT_MUTED),
         )]));
 
-        let clean_cmd = self.assessment.command.replace('\n', " ");
-        let char_count = clean_cmd.chars().count();
         let max_w = (area.width as usize).saturating_sub(6);
-        let cmd_preview = if char_count > max_w {
-            let limit = max_w.saturating_sub(3);
-            let truncated: String = clean_cmd.chars().take(limit).collect();
-            format!("   {}...", truncated)
-        } else {
-            format!("   {}", clean_cmd)
-        };
+        let cmd_preview = format!(
+            "   {}",
+            sanitize_and_truncate(&self.assessment.command, max_w)
+        );
         lines.push(Line::from(Span::styled(
             cmd_preview,
             Style::default()

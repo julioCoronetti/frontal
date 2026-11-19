@@ -4,7 +4,6 @@ use ratatui::style::{Color, Modifier};
 use ratatui::Terminal;
 
 use frontal::protocol::TokenUsage;
-use frontal::ui::diff::{DiffLineKind, DiffViewer};
 use frontal::ui::modal::{CommandsModal, ModalAction, ModelEffortModal};
 use frontal::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_RUBY, BORDER_SUBTLE, TEXT_PRIMARY};
 
@@ -32,47 +31,16 @@ fn test_modal_stack_push_pop_and_exclusive_focus() {
 #[test]
 fn test_commands_modal_filtering_and_action_dispatch() {
     let mut commands = CommandsModal::new();
-    for c in ['d', 'i', 'f'] {
+    for c in ['q', 'u', 'o'] {
         commands.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
     }
     let filtered = commands.filtered_indices();
     assert_eq!(filtered.len(), 1);
-    assert_eq!(commands.items[filtered[0]].id, "view_diff");
+    assert_eq!(commands.items[filtered[0]].id, "view_usage");
 
     let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
     let act = commands.handle_key(enter);
-    assert_eq!(act, ModalAction::ExecuteCommand("view_diff".to_string()));
-}
-
-#[test]
-fn test_integrated_diff_viewer_parsing_and_scrolling() {
-    let sample = r#"diff --git a/src/main.rs b/src/main.rs
-index 1234..5678 100644
---- a/src/main.rs
-+++ b/src/main.rs
-@@ -1,3 +1,4 @@
- fn test() {
--    let x = 1;
-+    let x = 2;
-+    let y = 3;
- }
-"#;
-
-    let mut viewer = DiffViewer::new(sample);
-    assert_eq!(viewer.line_count(), 10);
-    assert_eq!(viewer.lines[0].kind, DiffLineKind::Header);
-    assert_eq!(viewer.lines[4].kind, DiffLineKind::HunkHeader);
-    assert_eq!(viewer.lines[6].kind, DiffLineKind::Deletion);
-    assert_eq!(viewer.lines[7].kind, DiffLineKind::Addition);
-    assert_eq!(viewer.lines[8].kind, DiffLineKind::Addition);
-
-    let rendered = viewer.render_lines(5);
-    assert_eq!(rendered.len(), 5);
-
-    viewer.scroll_down(3);
-    assert_eq!(viewer.scroll_offset, 3);
-    viewer.scroll_up(2);
-    assert_eq!(viewer.scroll_offset, 1);
+    assert_eq!(act, ModalAction::ExecuteCommand("view_usage".to_string()));
 }
 
 #[test]
@@ -95,14 +63,6 @@ fn test_adversarial_modal_and_commands_inputs() {
     let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
     let act = commands.handle_key(enter);
     assert_eq!(act, ModalAction::None);
-
-    let mut empty_diff = DiffViewer::new("");
-    assert_eq!(empty_diff.line_count(), 0);
-    empty_diff.scroll_down(10);
-    assert_eq!(empty_diff.scroll_offset, 0);
-    empty_diff.scroll_up(10);
-    assert_eq!(empty_diff.scroll_offset, 0);
-    assert!(empty_diff.render_lines(10).is_empty());
 
     let mut modal = ModelEffortModal::new();
     let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);

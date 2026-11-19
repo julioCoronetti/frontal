@@ -9,20 +9,17 @@ use super::sessions::normalize_title_source;
 use super::{agent, infer_backend, opencode, transcript, SessionRecord, TitleSource};
 
 pub(super) fn load_pinned_titles(conn: &Connection) -> HashMap<String, String> {
-    let mut pinned = HashMap::new();
-    if let Ok(mut stmt) = conn.prepare(
+    let Ok(mut stmt) = conn.prepare(
         "SELECT conversation_id, title FROM sessions
          WHERE custom_title != 0 AND conversation_id IS NOT NULL AND title IS NOT NULL",
-    ) {
-        if let Ok(rows) = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        }) {
-            for (cid, title) in rows.flatten() {
-                pinned.insert(cid, title);
-            }
-        }
-    }
-    pinned
+    ) else {
+        return HashMap::new();
+    };
+    stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })
+    .map(|rows| rows.flatten().collect())
+    .unwrap_or_default()
 }
 
 pub(super) fn handle_record_session(
@@ -32,12 +29,35 @@ pub(super) fn handle_record_session(
     agent_db_path: Option<&Path>,
     opencode_db_path: Option<&Path>,
 ) {
+    if record.created_at <= 0 {
+        if let Some(ref cid) = record.conversation_id {
+            if !cid.trim().is_empty() {
+                let external_ts = if cid.starts_with("ses_") {
+                    opencode_db_path.and_then(|odb| opencode::query_opencode_timestamp_at(odb, cid))
+                } else {
+                    agent_db_path
+                        .and_then(|adb| agent::query_agent_conversation_timestamp_at(adb, cid))
+                };
+                if let Some(ts) = external_ts {
+                    record.created_at = ts;
+                }
+            }
+        }
+    }
+    if conn.execute_batch("BEGIN IMMEDIATE;").is_err() {
+        return;
+    }
     let mut is_custom = record.title_source == TitleSource::Custom;
     if let Some(ref cid) = record.conversation_id {
         if !cid.trim().is_empty() {
-            if let Some(pinned) = pinned_titles.get(cid) {
+            if let Some(pinned) = pinned_titles
+                .get(cid)
+                .cloned()
+                .or_else(|| pinned_titles.remove(&record.id))
+            {
+                pinned_titles.insert(cid.clone(), pinned.clone());
                 is_custom = true;
-                record.title = Some(pinned.clone());
+                record.title = Some(pinned);
             } else if let Ok(mut stmt) = conn.prepare(
                 "SELECT title FROM sessions
                  WHERE (conversation_id = ?1 OR id = ?2) AND custom_title != 0
@@ -53,18 +73,16 @@ pub(super) fn handle_record_session(
                     }
                 }
             }
-            let external_ts = if cid.starts_with("ses_") {
-                opencode_db_path.and_then(|odb| opencode::query_opencode_timestamp_at(odb, cid))
-            } else {
-                agent_db_path.and_then(|adb| agent::query_agent_conversation_timestamp_at(adb, cid))
-            };
-            if let Some(ts) = external_ts {
-                record.created_at = ts;
+            if conn
+                .execute(
+                    "DELETE FROM sessions WHERE conversation_id = ?1 AND id != ?2",
+                    params![cid, record.id],
+                )
+                .is_err()
+            {
+                let _ = conn.execute_batch("ROLLBACK;");
+                return;
             }
-            let _ = conn.execute(
-                "DELETE FROM sessions WHERE conversation_id = ?1 AND id != ?2",
-                params![cid, record.id],
-            );
         }
     }
     let title_source = if is_custom {
@@ -83,7 +101,7 @@ pub(super) fn handle_record_session(
         })
         .map(|b| b.as_str().to_string());
     let custom_flag = i64::from(is_custom);
-    let _ = conn.execute(
+    let upsert_res = conn.execute(
         "INSERT INTO sessions (id, conversation_id, backend, model, mode, effort, title, title_source, custom_title, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
          ON CONFLICT(id) DO UPDATE SET
@@ -117,6 +135,9 @@ pub(super) fn handle_record_session(
             record.created_at,
         ],
     );
+    if upsert_res.is_err() || conn.execute_batch("COMMIT;").is_err() {
+        let _ = conn.execute_batch("ROLLBACK;");
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -124,6 +145,7 @@ pub(super) fn handle_refresh_agent(
     conn: &Connection,
     maybe_cid: Option<String>,
     pinned_titles: &HashMap<String, String>,
+    deleted_ids: &HashSet<String>,
     agent_db_path: Option<&Path>,
     opencode_db_path: Option<&Path>,
     agent_cache: &Arc<RwLock<Vec<SessionRecord>>>,
@@ -131,7 +153,11 @@ pub(super) fn handle_refresh_agent(
     probed_empty: &mut HashSet<String>,
 ) {
     match maybe_cid {
-        Some(cid) => {
+        Some(raw_cid) => {
+            let cid = raw_cid.strip_prefix("ext-").unwrap_or(&raw_cid).to_string();
+            if cid.is_empty() || super::sessions::is_deleted_key(deleted_ids, &raw_cid) {
+                return;
+            }
             let pinned = pinned_titles.get(&cid).cloned();
             let (title, title_source, ts) = if cid.starts_with("ses_") {
                 let Some(odb) = opencode_db_path else {
@@ -191,13 +217,19 @@ pub(super) fn handle_refresh_agent(
                 &known_models,
                 probed_empty,
             );
-            apply_pinned_titles(&mut records, pinned_titles);
-            let in_tx = conn.execute_batch("BEGIN IMMEDIATE;").is_ok();
-            for rec in &records {
-                upsert_external_session(conn, rec);
-            }
-            if in_tx && conn.execute_batch("COMMIT;").is_err() {
-                let _ = conn.execute_batch("ROLLBACK;");
+            apply_pinned_titles(conn, &mut records, pinned_titles, deleted_ids);
+            records.retain(|r| !super::sessions::is_deleted_record(r, deleted_ids));
+            if conn.execute_batch("BEGIN IMMEDIATE;").is_ok() {
+                let mut db_ok = true;
+                for rec in &records {
+                    if upsert_external_session(conn, rec).is_err() {
+                        db_ok = false;
+                        break;
+                    }
+                }
+                if !db_ok || conn.execute_batch("COMMIT;").is_err() {
+                    let _ = conn.execute_batch("ROLLBACK;");
+                }
             }
             if let Ok(mut guard) = agent_cache.write() {
                 *guard = records;
@@ -207,10 +239,16 @@ pub(super) fn handle_refresh_agent(
 }
 
 pub(super) fn apply_pinned_titles(
+    conn: &Connection,
     records: &mut Vec<SessionRecord>,
     pinned_titles: &HashMap<String, String>,
+    deleted_ids: &HashSet<String>,
 ) {
+    let mut needs_sort = false;
     for (cid, pinned_title) in pinned_titles {
+        if super::sessions::is_deleted_key(deleted_ids, cid) {
+            continue;
+        }
         if let Some(existing) = records
             .iter_mut()
             .find(|s| s.conversation_id.as_deref() == Some(cid.as_str()))
@@ -218,6 +256,19 @@ pub(super) fn apply_pinned_titles(
             existing.title = Some(pinned_title.clone());
             existing.title_source = TitleSource::Custom;
         } else {
+            let known_ts: i64 = conn
+                .query_row(
+                    "SELECT created_at FROM sessions
+                     WHERE conversation_id = ?1 OR id = ?1
+                     ORDER BY created_at DESC LIMIT 1",
+                    params![cid],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0)
+                .max(0);
+            if known_ts > 0 {
+                needs_sort = true;
+            }
             records.push(SessionRecord {
                 id: format!("ext-{}", cid),
                 conversation_id: Some(cid.clone()),
@@ -227,18 +278,24 @@ pub(super) fn apply_pinned_titles(
                 effort: None,
                 title: Some(pinned_title.clone()),
                 title_source: TitleSource::Custom,
-                created_at: 0,
+                created_at: known_ts,
             });
         }
     }
+    if needs_sort {
+        records.sort_by_key(|r| std::cmp::Reverse(r.created_at));
+    }
 }
 
-pub(super) fn upsert_external_session(conn: &Connection, rec: &SessionRecord) {
+pub(super) fn upsert_external_session(
+    conn: &Connection,
+    rec: &SessionRecord,
+) -> rusqlite::Result<()> {
     let Some(ref cid) = rec.conversation_id else {
-        return;
+        return Ok(());
     };
     if cid.trim().is_empty() {
-        return;
+        return Ok(());
     }
     let backend = rec.effective_backend().as_str();
     let existing_id: Option<String> = conn
@@ -249,7 +306,7 @@ pub(super) fn upsert_external_session(conn: &Connection, rec: &SessionRecord) {
         )
         .ok();
     if let Some(row_id) = existing_id {
-        let _ = conn.execute(
+        conn.execute(
             "UPDATE sessions SET
                  backend = COALESCE(backend, ?2),
                  model = COALESCE(?3, model),
@@ -277,10 +334,10 @@ pub(super) fn upsert_external_session(conn: &Connection, rec: &SessionRecord) {
                 rec.title_source.as_i64(),
                 rec.created_at,
             ],
-        );
+        )?;
     } else {
         let custom_flag = i64::from(rec.title_source == TitleSource::Custom);
-        let _ = conn.execute(
+        conn.execute(
             "INSERT OR IGNORE INTO sessions
              (id, conversation_id, backend, model, mode, effort, title, title_source, custom_title, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
@@ -296,8 +353,9 @@ pub(super) fn upsert_external_session(conn: &Connection, rec: &SessionRecord) {
                 custom_flag,
                 rec.created_at,
             ],
-        );
+        )?;
     }
+    Ok(())
 }
 
 pub(super) fn update_cache_record(

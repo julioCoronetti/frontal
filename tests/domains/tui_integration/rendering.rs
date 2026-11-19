@@ -6,7 +6,7 @@ use frontal::protocol::{EngineEvent, SessionId, StepState, StreamEvent};
 use frontal::session::SessionManager;
 use frontal::ui::app::{App, AppAction};
 use frontal::ui::cache::{BlockKind, RenderCache, TurnMeta};
-use frontal::ui::modal::{CommandsModal, DiffModal, Modal, ModelEffortModal};
+use frontal::ui::modal::{CommandsModal, Modal, ModelEffortModal, UsageModal};
 use frontal::ui::theme::{
     ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BG_SIDEBAR, BG_USER_CONTAINER, BORDER_SUBTLE,
     TAB_ACTIVE_DOT, TEXT_MUTED, TEXT_PRIMARY,
@@ -142,20 +142,19 @@ fn test_multisession_tabs_ui_rendering_on_test_backend() {
     assert!(rendered_modal.contains("New Session Tab"));
 
     app.modals.pop();
-    app.modals.push(Modal::Diff(DiffModal::new(
-        "diff --git a/test b/test\n+new line\n-old line\n",
-    )));
+    app.modals
+        .push(Modal::Usage(UsageModal::offline_fallback()));
     terminal.draw(|f| app.render(f)).unwrap();
-    let buf_diff = terminal.backend().buffer();
-    let rendered_diff = buf_diff
+    let buf_usage = terminal.backend().buffer();
+    let rendered_usage = buf_usage
         .content()
         .iter()
         .map(|c| c.symbol())
         .collect::<Vec<_>>()
         .join("");
 
-    assert!(rendered_diff.contains("Integrated Diff Viewer"));
-    assert!(rendered_diff.contains("+new line"));
+    assert!(rendered_usage.contains("Model Quotas"));
+    assert!(rendered_usage.contains("GEMINI MODELS"));
 }
 
 #[test]
@@ -276,7 +275,7 @@ fn test_adversarial_terminal_dimensions_no_panic() {
 
     let model_modal = ModelEffortModal::new();
     let cmd_modal = CommandsModal::new();
-    let diff_modal = DiffModal::new("--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new");
+    let usage_modal = UsageModal::offline_fallback();
 
     for &(w, h) in &[(20, 8), (1, 1)] {
         let backend = TestBackend::new(w, h);
@@ -284,7 +283,7 @@ fn test_adversarial_terminal_dimensions_no_panic() {
 
         terminal.draw(|f| model_modal.render(f, f.area())).unwrap();
         terminal.draw(|f| cmd_modal.render(f, f.area())).unwrap();
-        terminal.draw(|f| diff_modal.render(f, f.area())).unwrap();
+        terminal.draw(|f| usage_modal.render(f, f.area())).unwrap();
     }
 }
 

@@ -163,3 +163,77 @@ fn test_hero_welcome_small_terminal_fallback_and_adversarial_sizes() {
         assert!(terminal.draw(|f| app.render(f)).is_ok());
     }
 }
+
+#[test]
+fn test_welcome_hero_and_chat_input_visual_wrapping_and_cursor() {
+    let (mut app, _) = test_app();
+    let backend = TestBackend::new(120, 30);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    app.editor.insert_str(&"b".repeat(72));
+    terminal.draw(|f| app.render(f)).unwrap();
+    let row_b = find_row_containing(terminal.backend().buffer(), &"b".repeat(72))
+        .expect("first wrapped input row");
+    let cursor_exact = terminal.get_cursor_position().unwrap();
+    assert_eq!(cursor_exact.y, row_b + 1);
+
+    app.editor.clear();
+    app.editor.insert_str(&format!("{}XYZ", "a".repeat(72)));
+    terminal.draw(|f| app.render(f)).unwrap();
+    let row_1 = find_row_containing(terminal.backend().buffer(), &"a".repeat(72))
+        .expect("first row with 72 chars");
+    let row_2 = find_row_containing(terminal.backend().buffer(), "XYZ")
+        .expect("wrapped second row with XYZ");
+    assert_eq!(row_2, row_1 + 1);
+    let cursor_pos = terminal.get_cursor_position().unwrap();
+    assert_eq!(cursor_pos.y, row_2);
+    assert!(cursor_pos.x > 0 && cursor_pos.x < 120);
+
+    app.cache.push_user_message("hello");
+    app.editor.clear();
+    app.editor.insert_str(&format!("{}TAIL", "c".repeat(76)));
+    let chat_backend = TestBackend::new(80, 24);
+    let mut chat_terminal = Terminal::new(chat_backend).unwrap();
+    chat_terminal.draw(|f| app.render(f)).unwrap();
+    let chat_row_1 = find_row_containing(chat_terminal.backend().buffer(), &"c".repeat(72))
+        .expect("chat wrapped first row");
+    let chat_row_2 = find_row_containing(chat_terminal.backend().buffer(), "TAIL")
+        .expect("chat wrapped tail row");
+    assert_eq!(chat_row_2, chat_row_1 + 1);
+    let chat_cursor = chat_terminal.get_cursor_position().unwrap();
+    assert_eq!(chat_cursor.y, chat_row_2);
+}
+
+#[test]
+fn test_welcome_scroll_extmark_wrap_and_clear_parity() {
+    let (mut app, _) = test_app();
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    app.editor.insert_str("line1 ");
+    app.editor.insert_extmark(
+        frontal::ui::editor::ExtmarkKind::Media {
+            mime_type: "image/png".to_string(),
+            uri: "file:///tmp/x.png".to_string(),
+        },
+        "[Image #1]",
+    );
+    app.editor.insert_str(&format!(" {}", "w".repeat(600)));
+    terminal.draw(|f| app.render(f)).unwrap();
+
+    let cursor = terminal.get_cursor_position().unwrap();
+    assert!(cursor.y < 24);
+    assert!(cursor.x < 80);
+    assert!(find_row_containing(terminal.backend().buffer(), "line1 [Image #1]").is_none());
+
+    app.steps_seen = 4;
+    app.turns_completed = 2;
+    app.last_turn_duration_seconds = Some(3.5);
+    app.dispatch_modal_action(frontal::ui::modal::ModalAction::ExecuteCommand(
+        "clear".to_string(),
+    ));
+    assert_eq!(app.steps_seen, 0);
+    assert_eq!(app.turns_completed, 0);
+    assert!(app.last_turn_duration_seconds.is_none());
+    assert!(app.in_flight_usage.is_none());
+}
