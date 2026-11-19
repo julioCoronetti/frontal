@@ -60,12 +60,24 @@ pub struct PromptHistory {
 
 impl PromptHistory {
     pub fn open(db_path: &Path) -> Result<Self, rusqlite::Error> {
-        Self::open_with_agent_db(db_path, agent::default_agent_db_path())
+        Self::open_with_external_dbs(
+            db_path,
+            agent::default_agent_db_path(),
+            opencode::default_path(),
+        )
     }
 
     pub fn open_with_agent_db(
         db_path: &Path,
         agent_db_path: Option<PathBuf>,
+    ) -> Result<Self, rusqlite::Error> {
+        Self::open_with_external_dbs(db_path, agent_db_path, None)
+    }
+
+    pub fn open_with_external_dbs(
+        db_path: &Path,
+        agent_db_path: Option<PathBuf>,
+        opencode_db_path: Option<PathBuf>,
     ) -> Result<Self, rusqlite::Error> {
         if let Some(parent) = db_path.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -83,6 +95,7 @@ impl PromptHistory {
             db_path.to_path_buf(),
             rx,
             agent_db_path,
+            opencode_db_path,
             Arc::clone(&agent_cache),
             agent_updates_tx,
         );

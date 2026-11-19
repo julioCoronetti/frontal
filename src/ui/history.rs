@@ -87,10 +87,16 @@ pub fn hydrate_session_blocking(
 ) -> HydratedSession {
     let mut cache = RenderCache::new();
     let hydrated = hydrate_conversation(conv_id, &mut cache, db_path);
-    let title = conversation_title(conv_id, db_path);
     let is_custom_title = db_path
         .map(|path| crate::infra::history::messages::is_custom_title_at(path, conv_id))
         .unwrap_or(false);
+    let title = if is_custom_title {
+        db_path
+            .and_then(|path| conversation_title_at(path, conv_id))
+            .or_else(|| conversation_title(conv_id, db_path))
+    } else {
+        conversation_title(conv_id, db_path)
+    };
     let telemetry = resolve_session_telemetry(conv_id, db_path);
     HydratedSession {
         hydrated,
@@ -139,16 +145,30 @@ pub fn hydrate_conversation(
     cache: &mut RenderCache,
     db_path: Option<&std::path::Path>,
 ) -> bool {
-    if hydrate_cache_from_transcript(conv_id, cache) {
+    if !conv_id.starts_with("ses_") && hydrate_cache_from_transcript(conv_id, cache) {
         return true;
     }
-    let Some(path) = db_path else {
-        return false;
+    let local_messages = db_path
+        .map(|path| crate::infra::history::conversation_messages_at(path, conv_id))
+        .unwrap_or_default();
+    let messages = if conv_id.starts_with("ses_") {
+        let opencode_messages = crate::infra::history::opencode::load_opencode_messages(conv_id);
+        if opencode_messages.len() > local_messages.len() {
+            opencode_messages
+        } else {
+            local_messages
+        }
+    } else {
+        local_messages
     };
-    let messages = crate::infra::history::conversation_messages_at(path, conv_id);
     if messages.is_empty() {
         return false;
     }
+    hydrate_stored_messages(&messages, cache);
+    true
+}
+
+fn hydrate_stored_messages(messages: &[StoredMessage], cache: &mut RenderCache) {
     for message in messages {
         match message.role.as_str() {
             "user" => {
@@ -175,12 +195,15 @@ pub fn hydrate_conversation(
             _ => {}
         }
     }
-    true
 }
 
 pub fn conversation_title(conv_id: &str, db_path: Option<&std::path::Path>) -> Option<String> {
-    query_agent_conversation_title(conv_id)
-        .or_else(|| db_path.and_then(|path| conversation_title_at(path, conv_id)))
+    let external = if conv_id.starts_with("ses_") {
+        crate::infra::history::opencode::query_opencode_title(conv_id)
+    } else {
+        query_agent_conversation_title(conv_id)
+    };
+    external.or_else(|| db_path.and_then(|path| conversation_title_at(path, conv_id)))
 }
 
 pub fn hydrate_cache_from_transcript(conv_id: &str, cache: &mut RenderCache) -> bool {
