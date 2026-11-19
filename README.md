@@ -6,7 +6,7 @@ Decoupled, asynchronous, high-performance Terminal User Interface (TUI) harness 
 
 ## 1. Overview
 
-Frontal provides a high-performance terminal presentation layer designed for the stable, responsive rendering of continuous LLM token streams. The harness consumes structured events (NDJSON) over process pipes (`stdin`/`stdout`), fully decoupling the AI engine lifecycle from the visual interface. Architectural stability is verified by a unified suite of **255 tests across 8 domains**.
+Frontal provides a high-performance terminal presentation layer designed for the stable, responsive rendering of continuous LLM token streams. The harness consumes structured events (NDJSON) over process pipes (`stdin`/`stdout`), fully decoupling the AI engine lifecycle from the visual interface. Architectural stability is verified by a unified suite of **262 tests across 8 domains**.
 
 The design is informed by comparative analysis of two reference harnesses:
 - **Antigravity CLI (`agy`)**: Benchmark for operational simplicity, process stability, and a streamlined `stream-json` protocol.
@@ -63,7 +63,7 @@ The codebase enforces strict decoupling into three cohesive architectural layers
 
 ## 5. Consolidated Capabilities and Continuous Evolution
 
-Frontal is operational in production (version `0.18.0`), fully verified by **255 tests across 8 domains**. Development progresses continuously via GitHub Project Board #8 cards across these consolidated domains:
+Frontal is operational in production (version `0.18.0`), fully verified by **262 tests across 8 domains**. Development progresses continuously via GitHub Project Board #8 cards across these consolidated domains:
 
 - **Foundation, `stream-json` & ACP Protocols, and Headless IPC:**
   - Single Cargo crate, session multiplexing via `SessionId`, typed `stream-json` and JSON-RPC 2.0 ACP (`agy acp --stdio`) protocols, `AcpEngine` with RFC 4648 Base64 `ImageContentBlock` and async permission handling, `AgyEngine`, `OpenCodeEngine`, `FixtureReplayEngine`, async line decoding via `LinesCodec` (16 MB buffer), structured `PromptPayload` (`text` + `media`), and POSIX process isolation (`setpgid`/`killpg`/`PR_SET_PDEATHSIG`).
@@ -93,7 +93,7 @@ Frontal is operational in production (version `0.18.0`), fully verified by **255
 # Optimized release build
 cargo build --release
 
-# Execute full 255 tests across 8 domains
+# Execute full 262 tests across 8 domains
 cargo test --quiet
 ```
 
@@ -119,7 +119,7 @@ cargo run --release -- --headless -p "Describe the project architecture"
 Detailed technical documentation is available on the [GitHub Wiki](https://github.com/julioCoronetti/frontal/wiki):
 
 - **[Home](https://github.com/julioCoronetti/frontal/wiki/Home)**: Central documentation index.
-- **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: Official Rust implementation architecture (v0.18.0), modules, Atlas Crimson theme, and 255 tests suite.
+- **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: Official Rust implementation architecture (v0.18.0), modules, Atlas Crimson theme, and 262 tests suite.
 - **[Board-Roadmap](https://github.com/julioCoronetti/frontal/wiki/Board-Roadmap)**: Architecture specification, Rust tech stack, decision matrix, consolidated capabilities, and Project Board evolution.
 - **Antigravity CLI (`agy`) Dossier**:
   - [Agy](https://github.com/julioCoronetti/frontal/wiki/Agy): Official CLI overview.

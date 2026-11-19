@@ -5,5 +5,6 @@ mod resume;
 mod select;
 mod tab_bar_mouse;
 mod tabs;
+mod unified_resume;
 mod usage;
 mod usage_telemetry;

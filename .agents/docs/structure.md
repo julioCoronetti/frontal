@@ -16,7 +16,7 @@ Reference documentation for on-demand inspection of repository modules.
 - `src/infra/transport/`: `EngineTransport` implementations (`AgyEngine` config with 16 MB `LinesCodec` buffer and `FixtureReplayEngine`) partitioned into `mod.rs` and `opencode.rs`.
 - `src/infra/session.rs`: Session multiplexing and management via `SessionId` and `SessionManager`.
 - `src/infra/clipboard/`: System clipboard integration via `arboard`, zero-dep PNG encoding (`image_codec.rs`), platform media fallbacks (`platform.rs`), isolated in-memory buffer, and OSC 52 fallback.
-- `src/infra/history/`: Command history persistence in SQLite WAL (`PromptHistory`) with dedicated background worker (`worker.rs`), RAII `Drop` flush, non-blocking external `conversation_summaries.db` cache (`agent.rs`), JSONL transcript block & telemetry parser (`transcript.rs`), OpenCode usage reader (`opencode.rs`), and per-conversation message/telemetry storage (`messages.rs`, `telemetry.rs`) for cross-engine resume.
+- `src/infra/history/`: Command history and unified session persistence in SQLite WAL (`PromptHistory`) with dedicated background worker (`worker.rs`), partitioned session methods (`sessions.rs`), external Agy/OpenCode synchronization (`sync.rs`), RAII `Drop` flush, non-blocking external `conversation_summaries.db` cache (`agent.rs`), JSONL transcript block & telemetry parser (`transcript.rs`), OpenCode SQLite discovery/hydration/usage reader (`opencode.rs`), and per-conversation message/telemetry storage (`messages.rs`, `telemetry.rs`) for cross-engine resume.
 
 ## Terminal Interface (`src/ui/`)
 - `src/ui/mod.rs`: Asynchronous 60 FPS TUI event loop (crossterm `EventStream`, cancellation, render ticks).
@@ -28,7 +28,7 @@ Reference documentation for on-demand inspection of repository modules.
   - `src/ui/app/stream.rs`: Streamlined asynchronous IPC engine envelope dispatch and per-turn conversation persistence.
   - `src/ui/app/render/`: 60 FPS drawing methods, layout calculation, and TUI widgets partitioned into `mod.rs`, `chrome.rs`, `input.rs`, `panes.rs`, and `welcome.rs`.
 - `src/ui/tab.rs`: Tab state management (`TabState`) and unified stream event handling (`apply_stream_event`).
-- `src/ui/history.rs`: Visual cache hydration and telemetry/model resolution bridge (`hydrate_session_blocking`, `resolve_session_telemetry`, `hydrate_conversation`) with Agy transcript fallback and Frontal store persistence.
+- `src/ui/history.rs`: Visual cache hydration and telemetry/model resolution bridge (`hydrate_session_blocking`, `resolve_session_telemetry`, `hydrate_conversation`) with Agy transcript, OpenCode SQLite, and Frontal store persistence.
 - `src/ui/cache/`: Partitioned 2-level render cache (`mod.rs`, `format.rs`, `slice.rs`, `user_format.rs`).
 - `src/ui/viewport.rs`: Conversation viewport with state machine for sticky scroll and clean text selection.
 - `src/ui/markdown/`: Partitioned incremental `pulldown-cmark` parser (`mod.rs`, `normalize.rs`, `parse.rs`, `render.rs`).
