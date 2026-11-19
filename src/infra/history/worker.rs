@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, RwLock};
 use std::thread;
@@ -7,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection};
 
-use super::{agent, messages, opencode, telemetry, HistoryCommand, SessionRecord};
+use super::{agent, messages, sync, telemetry, HistoryCommand, SessionRecord, TitleSource};
 
 pub(super) fn init_connection(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.busy_timeout(Duration::from_millis(5000))?;
@@ -22,10 +21,12 @@ pub(super) fn init_connection(conn: &Connection) -> Result<(), rusqlite::Error> 
          CREATE TABLE IF NOT EXISTS sessions (
              id TEXT PRIMARY KEY,
              conversation_id TEXT,
+             backend TEXT,
              model TEXT,
              mode TEXT,
              effort TEXT,
              title TEXT,
+             title_source INTEGER NOT NULL DEFAULT 0,
              created_at INTEGER NOT NULL
          );
          CREATE TABLE IF NOT EXISTS messages (
@@ -49,7 +50,23 @@ pub(super) fn init_connection(conn: &Connection) -> Result<(), rusqlite::Error> 
         "ALTER TABLE sessions ADD COLUMN custom_title INTEGER NOT NULL DEFAULT 0",
         [],
     );
+    let _ = conn.execute("ALTER TABLE sessions ADD COLUMN backend TEXT", []);
+    let _ = conn.execute(
+        "ALTER TABLE sessions ADD COLUMN title_source INTEGER NOT NULL DEFAULT 0",
+        [],
+    );
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN turn_meta TEXT", []);
+    let _ = conn.execute_batch(
+        "UPDATE sessions SET title_source = 3 WHERE custom_title != 0 AND title_source < 3;
+         UPDATE sessions SET title_source = 2
+             WHERE custom_title = 0 AND title_source = 0
+               AND title IS NOT NULL AND title != '' AND title != 'New session';
+         UPDATE sessions SET backend = CASE
+             WHEN conversation_id LIKE 'ses_%' THEN 'opencode'
+             ELSE 'agy'
+         END
+         WHERE backend IS NULL AND conversation_id IS NOT NULL AND conversation_id != '';",
+    );
     Ok(())
 }
 
@@ -66,7 +83,8 @@ pub(super) fn spawn_history_worker(
         let adb_clone = agent_db_path.clone();
         let odb_clone = opencode_db_path.clone();
         thread::spawn(move || {
-            let records = load_external_conversations(adb_clone.as_deref(), odb_clone.as_deref());
+            let records =
+                sync::load_external_conversations(adb_clone.as_deref(), odb_clone.as_deref());
             if let Ok(mut guard) = cache_clone.write() {
                 if guard.is_empty() {
                     *guard = records;
@@ -90,19 +108,7 @@ pub(super) fn spawn_history_worker(
             return;
         };
         let _ = init_connection(&bg_conn);
-        let mut pinned_titles: HashMap<String, String> = HashMap::new();
-        if let Ok(mut stmt) = bg_conn.prepare(
-            "SELECT conversation_id, title FROM sessions
-             WHERE custom_title != 0 AND conversation_id IS NOT NULL AND title IS NOT NULL",
-        ) {
-            if let Ok(rows) = stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            }) {
-                for (cid, title) in rows.flatten() {
-                    pinned_titles.insert(cid, title);
-                }
-            }
-        }
+        let mut pinned_titles = sync::load_pinned_titles(&bg_conn);
         while let Ok(cmd) = rx.recv() {
             match cmd {
                 HistoryCommand::Record(prompt) => {
@@ -115,78 +121,13 @@ pub(super) fn spawn_history_worker(
                         params![prompt, now],
                     );
                 }
-                HistoryCommand::RecordSession(mut record) => {
-                    let mut is_custom = false;
-                    if let Some(ref cid) = record.conversation_id {
-                        if !cid.trim().is_empty() {
-                            if let Some(pinned) = pinned_titles.get(cid) {
-                                is_custom = true;
-                                record.title = Some(pinned.clone());
-                            } else if let Ok(mut stmt) = bg_conn.prepare(
-                                "SELECT title FROM sessions
-                                 WHERE (conversation_id = ?1 OR id = ?2) AND custom_title != 0
-                                 LIMIT 1",
-                            ) {
-                                if let Ok(existing_title) = stmt
-                                    .query_row(params![cid, record.id], |row| {
-                                        row.get::<_, Option<String>>(0)
-                                    })
-                                {
-                                    is_custom = true;
-                                    if let Some(t) = existing_title.filter(|t| !t.trim().is_empty())
-                                    {
-                                        pinned_titles.insert(cid.clone(), t.clone());
-                                        record.title = Some(t);
-                                    }
-                                }
-                            }
-                            let external_ts = if cid.starts_with("ses_") {
-                                opencode_db_path
-                                    .as_deref()
-                                    .and_then(|odb| opencode::query_opencode_timestamp_at(odb, cid))
-                            } else {
-                                agent_db_path.as_deref().and_then(|adb| {
-                                    agent::query_agent_conversation_timestamp_at(adb, cid)
-                                })
-                            };
-                            if let Some(ts) = external_ts {
-                                record.created_at = ts;
-                            }
-                            let _ = bg_conn.execute(
-                                "DELETE FROM sessions WHERE conversation_id = ?1 AND id != ?2",
-                                params![cid, record.id],
-                            );
-                        }
-                    }
-                    let custom_flag = i64::from(is_custom);
-                    let _ = bg_conn.execute(
-                        "INSERT INTO sessions (id, conversation_id, model, mode, effort, title, custom_title, created_at)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-                         ON CONFLICT(id) DO UPDATE SET
-                             conversation_id = COALESCE(excluded.conversation_id, sessions.conversation_id),
-                             model = COALESCE(excluded.model, sessions.model),
-                             mode = COALESCE(excluded.mode, sessions.mode),
-                             effort = COALESCE(excluded.effort, sessions.effort),
-                             title = CASE
-                                 WHEN excluded.custom_title != 0 AND excluded.title IS NOT NULL THEN excluded.title
-                                 WHEN sessions.title IS NULL OR sessions.title = '' OR sessions.title = 'New session' THEN COALESCE(excluded.title, sessions.title)
-                                 ELSE COALESCE(sessions.title, excluded.title)
-                             END,
-                             custom_title = MAX(sessions.custom_title, excluded.custom_title),
-                             created_at = CASE
-                                 WHEN excluded.created_at > 0 THEN excluded.created_at
-                                 ELSE sessions.created_at
-                             END",
-                        params![
-                            record.id,
-                            record.conversation_id,
-                            record.model,
-                            record.mode,
-                            record.effort,
-                            record.title,
-                            custom_flag,
-                            record.created_at,
-                        ],
+                HistoryCommand::RecordSession(record) => {
+                    sync::handle_record_session(
+                        &bg_conn,
+                        record,
+                        &mut pinned_titles,
+                        agent_db_path.as_deref(),
+                        opencode_db_path.as_deref(),
                     );
                 }
                 HistoryCommand::TouchSession { id, timestamp } => {
@@ -195,16 +136,28 @@ pub(super) fn spawn_history_worker(
                         params![timestamp, id],
                     );
                 }
-                HistoryCommand::RenameSession { id, title } => {
-                    let _ = bg_conn.execute(
-                        "UPDATE sessions SET title = ?1 WHERE id = ?2 OR conversation_id = ?2",
-                        params![title, id],
-                    );
+                HistoryCommand::RenameSession { id, title, source } => {
+                    if source == TitleSource::Custom {
+                        let _ = bg_conn.execute(
+                            "UPDATE sessions SET title = ?1, title_source = 3, custom_title = 1
+                             WHERE id = ?2 OR conversation_id = ?2",
+                            params![title, id],
+                        );
+                    } else {
+                        let _ = bg_conn.execute(
+                            "UPDATE sessions SET title = ?1, title_source = ?2
+                             WHERE (id = ?3 OR conversation_id = ?3)
+                               AND custom_title = 0
+                               AND title_source <= ?2",
+                            params![title, source.as_i64(), id],
+                        );
+                    }
                 }
                 HistoryCommand::RenameAgentTitle { conv_id, title } => {
                     pinned_titles.insert(conv_id.clone(), title.clone());
                     let _ = bg_conn.execute(
-                        "UPDATE sessions SET title = ?1, custom_title = 1 WHERE id = ?2 OR conversation_id = ?2",
+                        "UPDATE sessions SET title = ?1, title_source = 3, custom_title = 1
+                         WHERE id = ?2 OR conversation_id = ?2",
                         params![title, conv_id],
                     );
                     if !conv_id.starts_with("ses_") {
@@ -213,109 +166,25 @@ pub(super) fn spawn_history_worker(
                                 agent::update_agent_conversation_title_at(adb, &conv_id, &title);
                         }
                     }
-                    if let Ok(mut guard) = agent_cache.write() {
-                        if let Some(item) = guard
-                            .iter_mut()
-                            .find(|s| s.conversation_id.as_deref() == Some(conv_id.as_str()))
-                        {
-                            item.title = Some(title);
-                        } else {
-                            guard.push(SessionRecord {
-                                id: format!("ext-{}", conv_id),
-                                conversation_id: Some(conv_id),
-                                model: None,
-                                mode: None,
-                                effort: None,
-                                title: Some(title),
-                                created_at: 0,
-                            });
-                        }
-                    }
+                    sync::update_cache_record(
+                        &agent_cache,
+                        &conv_id,
+                        Some(title),
+                        TitleSource::Custom,
+                        0,
+                    );
                 }
-                HistoryCommand::RefreshAgent(maybe_cid) => match maybe_cid {
-                    Some(cid) => {
-                        let pinned = pinned_titles.get(&cid).cloned();
-                        let (title, ts) = if cid.starts_with("ses_") {
-                            let Some(ref odb) = opencode_db_path else {
-                                continue;
-                            };
-                            let t = if pinned.is_some() {
-                                None
-                            } else {
-                                opencode::query_opencode_title_at(odb, &cid)
-                            };
-                            let ts = opencode::query_opencode_timestamp_at(odb, &cid).unwrap_or(0);
-                            (t, ts)
-                        } else {
-                            let Some(ref adb) = agent_db_path else {
-                                continue;
-                            };
-                            let t = if pinned.is_some() {
-                                None
-                            } else {
-                                agent::query_agent_conversation_title_at(adb, &cid)
-                            };
-                            let ts = agent::query_agent_conversation_timestamp_at(adb, &cid)
-                                .unwrap_or(0);
-                            (t, ts)
-                        };
-                        if let Ok(mut guard) = agent_cache.write() {
-                            if let Some(existing) = guard
-                                .iter_mut()
-                                .find(|s| s.conversation_id.as_deref() == Some(cid.as_str()))
-                            {
-                                if let Some(ref pinned_title) = pinned {
-                                    existing.title = Some(pinned_title.clone());
-                                } else if title.is_some() {
-                                    existing.title = title.clone();
-                                }
-                                if ts > 0 {
-                                    existing.created_at = ts;
-                                }
-                            } else {
-                                guard.push(SessionRecord {
-                                    id: format!("ext-{}", cid),
-                                    conversation_id: Some(cid.clone()),
-                                    model: None,
-                                    mode: None,
-                                    effort: None,
-                                    title: pinned.clone().or_else(|| title.clone()),
-                                    created_at: ts,
-                                });
-                            }
-                        }
-                        if let Some(resolved_title) = title {
-                            let _ = agent_updates_tx.send((cid, resolved_title));
-                        }
-                    }
-                    None => {
-                        let mut records = load_external_conversations(
-                            agent_db_path.as_deref(),
-                            opencode_db_path.as_deref(),
-                        );
-                        for (cid, pinned_title) in &pinned_titles {
-                            if let Some(existing) = records
-                                .iter_mut()
-                                .find(|s| s.conversation_id.as_deref() == Some(cid.as_str()))
-                            {
-                                existing.title = Some(pinned_title.clone());
-                            } else {
-                                records.push(SessionRecord {
-                                    id: format!("ext-{}", cid),
-                                    conversation_id: Some(cid.clone()),
-                                    model: None,
-                                    mode: None,
-                                    effort: None,
-                                    title: Some(pinned_title.clone()),
-                                    created_at: 0,
-                                });
-                            }
-                        }
-                        if let Ok(mut guard) = agent_cache.write() {
-                            *guard = records;
-                        }
-                    }
-                },
+                HistoryCommand::RefreshAgent(maybe_cid) => {
+                    sync::handle_refresh_agent(
+                        &bg_conn,
+                        maybe_cid,
+                        &pinned_titles,
+                        agent_db_path.as_deref(),
+                        opencode_db_path.as_deref(),
+                        &agent_cache,
+                        &agent_updates_tx,
+                    );
+                }
                 HistoryCommand::AppendMessages {
                     conversation_id,
                     messages,
@@ -334,27 +203,4 @@ pub(super) fn spawn_history_worker(
             }
         }
     });
-}
-
-fn load_external_conversations(
-    agent_db: Option<&Path>,
-    opencode_db: Option<&Path>,
-) -> Vec<SessionRecord> {
-    let mut records = agent_db
-        .map(agent::load_agent_conversations_at)
-        .unwrap_or_default();
-    if let Some(odb) = opencode_db {
-        for rec in opencode::load_opencode_conversations_at(odb) {
-            if let Some(ref cid) = rec.conversation_id {
-                if !records
-                    .iter()
-                    .any(|existing| existing.conversation_id.as_deref() == Some(cid))
-                {
-                    records.push(rec);
-                }
-            }
-        }
-    }
-    records.sort_by_key(|r| std::cmp::Reverse(r.created_at));
-    records
 }

@@ -358,7 +358,7 @@ fn test_resume_command_opens_dialog_select_and_filters_query() {
             mode: Some("auto".to_string()),
             effort: Some("high".to_string()),
             title: Some("Fix backend parsing".to_string()),
-            created_at: 0,
+            ..Default::default()
         });
     app.history
         .record_session(frontal::ui::history::SessionRecord {
@@ -368,7 +368,7 @@ fn test_resume_command_opens_dialog_select_and_filters_query() {
             mode: Some("plan".to_string()),
             effort: Some("low".to_string()),
             title: Some("Refactor UI cache".to_string()),
-            created_at: 0,
+            ..Default::default()
         });
 
     app.editor.insert_str("/resume backend");

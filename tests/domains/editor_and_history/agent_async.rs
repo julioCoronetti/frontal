@@ -63,6 +63,7 @@ fn test_agent_db_helpers_and_nonblocking_worker_cache() {
         effort: None,
         title: None,
         created_at: 0,
+        ..Default::default()
     });
     history.rename_agent_title("conv-ext-1", "Renamed Off-Thread");
     assert_eq!(
@@ -221,6 +222,7 @@ async fn test_custom_title_persists_across_restart_and_resume() {
             effort: None,
             title: Some("Alpha Title".to_string()),
             created_at: 100,
+            ..Default::default()
         });
         history.rename_agent_title("conv-ext-1", "User Custom Resume");
         history.flush();

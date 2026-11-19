@@ -5,9 +5,10 @@ use rusqlite::{params, Connection, OpenFlags};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::config::BackendKind;
 use crate::protocol::{fnv1a_64, TokenUsage};
 
-use super::{SessionRecord, StoredMessage};
+use super::{SessionRecord, StoredMessage, TitleSource};
 
 #[derive(Deserialize, Default)]
 struct AssistantPayload {
@@ -191,13 +192,20 @@ pub fn load_opencode_conversations_at(path: &Path) -> Vec<SessionRecord> {
                 .as_deref()
                 .map(parse_opencode_model_json)
                 .unwrap_or((None, None));
+            let title_source = if final_title.is_some() {
+                TitleSource::Semantic
+            } else {
+                TitleSource::Default
+            };
             records.push(SessionRecord {
                 id: format!("ext-{}", session_id),
                 conversation_id: Some(session_id),
+                backend: Some(BackendKind::OpenCode),
                 model,
                 mode: None,
                 effort,
                 title: final_title,
+                title_source,
                 created_at: normalize_timestamp_secs(raw_ts),
             });
         }

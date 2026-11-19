@@ -8,6 +8,7 @@ mod api;
 pub mod messages;
 pub mod opencode;
 mod sessions;
+mod sync;
 pub mod telemetry;
 pub mod transcript;
 mod worker;
@@ -16,7 +17,7 @@ pub use agent::*;
 pub use messages::{
     conversation_messages_at, conversation_title_at, default_history_path, StoredMessage,
 };
-pub use sessions::{format_relative_time, SessionRecord};
+pub use sessions::{format_relative_time, infer_backend, SessionRecord, TitleSource};
 pub use telemetry::TelemetrySnapshot;
 pub use transcript::*;
 
@@ -30,6 +31,7 @@ pub enum HistoryCommand {
     RenameSession {
         id: String,
         title: String,
+        source: TitleSource,
     },
     RenameAgentTitle {
         conv_id: String,

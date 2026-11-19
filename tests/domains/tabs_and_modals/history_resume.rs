@@ -74,6 +74,7 @@ fn test_conversation_title_fallback_from_store() {
         effort: None,
         title: Some("Titulo persistido".to_string()),
         created_at: 1,
+        ..Default::default()
     });
     history.flush();
 

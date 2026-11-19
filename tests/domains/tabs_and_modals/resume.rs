@@ -107,10 +107,9 @@ fn test_prompt_history_created_at_preservation_and_touch() {
         id: "sess-1".to_string(),
         conversation_id: Some("conv-abc".to_string()),
         model: Some("gemini-3.8-flash".to_string()),
-        mode: None,
-        effort: None,
         title: Some("Initial Title".to_string()),
         created_at: initial_ts,
+        ..Default::default()
     };
     history.record_session(rec1);
 
@@ -122,10 +121,7 @@ fn test_prompt_history_created_at_preservation_and_touch() {
         id: "sess-1".to_string(),
         conversation_id: Some("conv-abc".to_string()),
         model: Some("gemini-3.8-flash".to_string()),
-        mode: None,
-        effort: None,
-        title: None,
-        created_at: 0,
+        ..Default::default()
     };
     history.record_session(rec2);
 

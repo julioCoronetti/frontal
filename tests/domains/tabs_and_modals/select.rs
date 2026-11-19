@@ -277,6 +277,7 @@ fn test_prompt_history_session_persistence_and_deduplication() {
         effort: Some("high".to_string()),
         title: Some("Initial Prompt".to_string()),
         created_at: 0,
+        ..Default::default()
     };
     history.record_session(record1);
     assert!(history.resumable_sessions().is_empty());
@@ -289,6 +290,7 @@ fn test_prompt_history_session_persistence_and_deduplication() {
         effort: None,
         title: None,
         created_at: 0,
+        ..Default::default()
     };
     history.record_session(record2);
     let resumable = history.resumable_sessions();
@@ -319,6 +321,7 @@ fn test_prompt_history_session_persistence_and_deduplication() {
         effort: Some("low".to_string()),
         title: Some("Follow-up Prompt".to_string()),
         created_at: 0,
+        ..Default::default()
     };
     history.record_session(record3);
     let after_respawn = history.resumable_sessions();
@@ -355,6 +358,7 @@ fn test_resume_modal_dialog_select_selection_and_respawn_action() {
         effort: Some("medium".to_string()),
         title: Some("Build AST parser".to_string()),
         created_at: 0,
+        ..Default::default()
     });
 
     app.open_resume_modal(None);
@@ -412,6 +416,7 @@ fn test_relative_time_and_resume_dialog_rendering() {
             effort: Some("high".to_string()),
             title: Some("eae".to_string()),
             created_at: now - 120,
+            ..Default::default()
         });
 
     app.open_resume_modal(None);
@@ -470,6 +475,7 @@ fn test_relative_time_and_resume_dialog_rendering() {
             effort: Some("high".to_string()),
             title: Some("Very Long Session Title Exceeding Column Limits For Testing".to_string()),
             created_at: now - 3600,
+            ..Default::default()
         });
 
     app_long.open_resume_modal(None);

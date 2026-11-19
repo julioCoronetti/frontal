@@ -3,7 +3,9 @@ use std::time::Duration;
 
 use rusqlite::{params, Connection};
 
-use super::SessionRecord;
+use crate::config::BackendKind;
+
+use super::{SessionRecord, TitleSource};
 
 const AGENT_READ_BUSY_TIMEOUT: Duration = Duration::from_millis(500);
 const AGENT_WRITE_BUSY_TIMEOUT: Duration = Duration::from_millis(5000);
@@ -63,6 +65,13 @@ pub fn query_agent_conversation_title(conv_id: &str) -> Option<String> {
 }
 
 pub fn query_agent_conversation_title_at(db_path: &Path, conv_id: &str) -> Option<String> {
+    query_agent_conversation_title_with_source_at(db_path, conv_id).map(|(title, _)| title)
+}
+
+pub fn query_agent_conversation_title_with_source_at(
+    db_path: &Path,
+    conv_id: &str,
+) -> Option<(String, TitleSource)> {
     let conn =
         Connection::open_with_flags(db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
     let _ = conn.busy_timeout(AGENT_READ_BUSY_TIMEOUT);
@@ -75,11 +84,14 @@ pub fn query_agent_conversation_title_at(db_path: &Path, conv_id: &str) -> Optio
         let preview: String = row.get(1).unwrap_or_default();
         let trimmed_title = title.trim();
         if !trimmed_title.is_empty() {
-            return Some(trimmed_title.to_string());
+            return Some((trimmed_title.to_string(), TitleSource::Semantic));
         }
         let trimmed_preview = preview.trim();
         if !trimmed_preview.is_empty() {
-            return Some(clean_session_title(trimmed_preview));
+            return Some((
+                clean_session_title(trimmed_preview),
+                TitleSource::Provisional,
+            ));
         }
     }
     None
@@ -158,20 +170,25 @@ pub fn load_agent_conversations_at(db_path: &Path) -> Vec<SessionRecord> {
             let title: String = row.get(1).unwrap_or_default();
             let preview: String = row.get(2).unwrap_or_default();
             let created_at: i64 = row.get(3).unwrap_or(0);
-            let final_title = if !title.trim().is_empty() {
-                Some(title.trim().to_string())
+            let (final_title, title_source) = if !title.trim().is_empty() {
+                (Some(title.trim().to_string()), TitleSource::Semantic)
             } else if !preview.trim().is_empty() {
-                Some(clean_session_title(&preview))
+                (
+                    Some(clean_session_title(&preview)),
+                    TitleSource::Provisional,
+                )
             } else {
-                None
+                (None, TitleSource::Default)
             };
             records.push(SessionRecord {
                 id: format!("ext-{}", conv_id),
                 conversation_id: Some(conv_id),
+                backend: Some(BackendKind::Agy),
                 model: None,
                 mode: None,
                 effort: None,
                 title: final_title,
+                title_source,
                 created_at,
             });
         }

@@ -59,13 +59,20 @@ impl App {
                 .map(|s| s.created_at)
                 .unwrap_or(0);
 
+            let backend = self
+                .tabs
+                .iter()
+                .find(|t| &t.session_id == session_id)
+                .map(|t| t.backend);
             let record = crate::ui::history::SessionRecord {
                 id: session_id.as_str().to_string(),
                 conversation_id: meta.conversation_id.clone(),
+                backend,
                 model: meta.model.clone(),
                 mode: meta.mode.clone(),
                 effort: meta.effort.clone(),
                 title: final_title,
+                title_source: crate::ui::history::TitleSource::Default,
                 created_at: existing_ts,
             };
             self.history.record_session(record);
