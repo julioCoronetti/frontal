@@ -116,6 +116,11 @@ impl<T: Clone> DialogSelect<T> {
                             .as_ref()
                             .map(|s| s.to_lowercase().contains(&q))
                             .unwrap_or(false)
+                        || it
+                            .badge
+                            .as_ref()
+                            .map(|b| b.to_lowercase().contains(&q))
+                            .unwrap_or(false)
                 }
             })
             .map(|(idx, _)| idx)
@@ -397,30 +402,33 @@ impl<T: Clone> DialogSelect<T> {
                 let prefix = if is_sel { " ● " } else { "   " };
                 let inner_w = (area.width as usize).saturating_sub(2);
 
-                let (display_title, title_chars) = if item.shortcut.is_some()
-                    && item.badge.is_none()
-                    && item.description.is_none()
-                {
-                    let shortcut_cols = item
-                        .shortcut
-                        .as_ref()
-                        .map(|s| s.chars().count() + 2)
-                        .unwrap_or(0);
-                    let max_title_cols = inner_w.saturating_sub(3 + shortcut_cols);
-                    let count = item.title.chars().count();
-                    if count > max_title_cols && max_title_cols > 3 {
-                        let take = max_title_cols - 3;
-                        let mut truncated: String = item.title.chars().take(take).collect();
-                        truncated.push_str("...");
-                        let t_count = truncated.chars().count();
-                        (truncated, t_count)
+                let (display_title, title_chars) =
+                    if item.shortcut.is_some() && item.description.is_none() {
+                        let badge_cols = item
+                            .badge
+                            .as_ref()
+                            .map(|b| b.chars().count() + 3)
+                            .unwrap_or(0);
+                        let shortcut_cols = item
+                            .shortcut
+                            .as_ref()
+                            .map(|s| s.chars().count() + 2)
+                            .unwrap_or(0);
+                        let max_title_cols = inner_w.saturating_sub(3 + badge_cols + shortcut_cols);
+                        let count = item.title.chars().count();
+                        if count > max_title_cols && max_title_cols > 3 {
+                            let take = max_title_cols - 3;
+                            let mut truncated: String = item.title.chars().take(take).collect();
+                            truncated.push_str("...");
+                            let t_count = truncated.chars().count();
+                            (truncated, t_count)
+                        } else {
+                            (item.title.clone(), count)
+                        }
                     } else {
+                        let count = item.title.chars().count();
                         (item.title.clone(), count)
-                    }
-                } else {
-                    let count = item.title.chars().count();
-                    (item.title.clone(), count)
-                };
+                    };
 
                 let mut spans = vec![
                     Span::styled(prefix, style),

@@ -95,6 +95,7 @@ impl App {
             }
             self.title = new_title.to_string();
             self.custom_title = true;
+            self.title_source = crate::infra::history::TitleSource::Custom;
             self.sync_session_to_history(&self.active_session.clone());
             self.history
                 .rename_session(self.active_session.as_str(), new_title);

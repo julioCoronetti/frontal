@@ -74,18 +74,32 @@ impl App {
                         None,
                         None,
                     );
-                    if self.tabs[tab_idx].custom_title {
+                    if self.tabs[tab_idx].custom_title
+                        || self.tabs[tab_idx].title_source
+                            == crate::infra::history::TitleSource::Custom
+                    {
                         self.sync_session_to_history(&envelope.session_id);
                         let custom = self.tabs[tab_idx].title.clone();
-                        self.history.rename_session(&cid, &custom);
+                        self.history.rename_session_with_source(
+                            &cid,
+                            &custom,
+                            crate::infra::history::TitleSource::Custom,
+                        );
                         if !self.history.is_in_memory() {
                             self.history.rename_agent_title(&cid, &custom);
                         }
                     } else {
                         if !self.history.is_in_memory() {
-                            if let Some(agent_title) = self.history.cached_agent_title(&cid) {
-                                self.tabs[tab_idx].title = agent_title.clone();
-                                self.history.rename_session(&cid, &agent_title);
+                            if let Some((agent_title, source)) =
+                                self.history.cached_agent_entry(&cid)
+                            {
+                                if source == crate::infra::history::TitleSource::Semantic
+                                    && source >= self.tabs[tab_idx].title_source
+                                {
+                                    self.tabs[tab_idx].title = agent_title.clone();
+                                    self.tabs[tab_idx].title_source = source;
+                                    self.history.rename_session(&cid, &agent_title);
+                                }
                             }
                             self.history.request_agent_refresh(Some(cid.clone()));
                         }

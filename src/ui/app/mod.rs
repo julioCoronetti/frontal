@@ -233,11 +233,14 @@ impl App {
                     .session_manager
                     .get_metadata(&tab.session_id)
                     .and_then(|m| m.conversation_id.clone());
-                if tab_cid.as_deref() == Some(cid.as_str()) && !tab.custom_title {
+                let can_upgrade = !tab.custom_title
+                    && tab.title_source < crate::infra::history::TitleSource::Semantic;
+                if tab_cid.as_deref() == Some(cid.as_str()) && can_upgrade {
                     if tab.title != title {
                         tab.title = title.clone();
                         changed = true;
                     }
+                    tab.title_source = crate::infra::history::TitleSource::Semantic;
                     matched = true;
                 }
             }

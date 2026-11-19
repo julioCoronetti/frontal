@@ -1,5 +1,19 @@
+use crate::config::BackendKind;
+use crate::infra::history::TitleSource;
 use crate::ui::app::App;
 use crate::ui::modal::{Modal, ModalAction};
+
+fn backend_badge(backend: BackendKind) -> &'static str {
+    match backend {
+        BackendKind::Agy => "Agy",
+        BackendKind::OpenCode => "OpenCode",
+    }
+}
+
+fn is_default_tab_title(title: &str) -> bool {
+    let trimmed = title.trim();
+    trimmed.is_empty() || trimmed == "New session" || trimmed.starts_with("Session ")
+}
 
 impl App {
     pub(crate) fn sync_session_to_history(&mut self, session_id: &crate::protocol::SessionId) {
@@ -8,38 +22,61 @@ impl App {
                 .tabs
                 .iter()
                 .find(|t| &t.session_id == session_id)
-                .map(|t| (t.title.clone(), t.custom_title));
-            let tab_custom = tab_state.as_ref().map(|(_, c)| *c).unwrap_or(false);
-            let tab_title = tab_state.map(|(t, _)| t).filter(|t| {
-                !t.starts_with("Session ") && t != "New session" && !t.trim().is_empty()
-            });
+                .map(|t| (t.title.clone(), t.custom_title, t.title_source, t.backend));
+            let (tab_raw_title, tab_custom, tab_source, backend) = tab_state
+                .map(|(title, custom, source, backend)| {
+                    let effective_source = if custom { TitleSource::Custom } else { source };
+                    (Some(title), custom, effective_source, Some(backend))
+                })
+                .unwrap_or((None, false, TitleSource::Default, None));
+            let tab_title = tab_raw_title.filter(|t| !is_default_tab_title(t));
 
-            let agent_title = if self.history.is_in_memory() {
+            let agent_entry = if self.history.is_in_memory() {
                 None
             } else {
                 meta.conversation_id
                     .as_deref()
-                    .and_then(|cid| self.history.cached_agent_title(cid))
+                    .and_then(|cid| self.history.cached_agent_entry(cid))
             };
-            let final_title = if tab_custom {
-                tab_title.or(agent_title)
+            let semantic_agent = agent_entry
+                .as_ref()
+                .filter(|(_, src)| *src == TitleSource::Semantic)
+                .map(|(t, _)| t.clone());
+            let provisional_agent = agent_entry
+                .as_ref()
+                .filter(|(_, src)| *src == TitleSource::Provisional)
+                .map(|(t, _)| t.clone());
+
+            let (final_title, final_source) = if tab_custom || tab_source == TitleSource::Custom {
+                (tab_title.or(semantic_agent), TitleSource::Custom)
+            } else if let Some(semantic) = semantic_agent {
+                (Some(semantic), TitleSource::Semantic)
+            } else if let Some(existing) = tab_title {
+                let src = if tab_source == TitleSource::Default {
+                    TitleSource::Provisional
+                } else {
+                    tab_source
+                };
+                (Some(existing), src)
+            } else if let Some(prompt_title) = meta
+                .last_prompt
+                .as_deref()
+                .map(crate::ui::history::clean_session_title)
+            {
+                (Some(prompt_title), TitleSource::Provisional)
+            } else if let Some(prov) = provisional_agent {
+                (Some(prov), TitleSource::Provisional)
             } else {
-                agent_title
-                    .or_else(|| {
-                        meta.last_prompt
-                            .as_deref()
-                            .map(crate::ui::history::clean_session_title)
-                    })
-                    .or(tab_title)
+                (None, TitleSource::Default)
             };
 
             if let Some(ref t) = final_title {
                 if let Some(tab) = self.tabs.iter_mut().find(|tb| &tb.session_id == session_id) {
-                    if tab.title.starts_with("Session ")
-                        || tab.title == "New session"
-                        || tab.title.trim().is_empty()
+                    if !tab.custom_title
+                        && (final_source > tab.title_source || is_default_tab_title(&tab.title))
                     {
                         tab.title = t.clone();
+                        tab.title_source = final_source;
                     }
                 }
             }
@@ -59,11 +96,6 @@ impl App {
                 .map(|s| s.created_at)
                 .unwrap_or(0);
 
-            let backend = self
-                .tabs
-                .iter()
-                .find(|t| &t.session_id == session_id)
-                .map(|t| t.backend);
             let record = crate::ui::history::SessionRecord {
                 id: session_id.as_str().to_string(),
                 conversation_id: meta.conversation_id.clone(),
@@ -72,7 +104,7 @@ impl App {
                 mode: meta.mode.clone(),
                 effort: meta.effort.clone(),
                 title: final_title,
-                title_source: crate::ui::history::TitleSource::Default,
+                title_source: final_source,
                 created_at: existing_ts,
             };
             self.history.record_session(record);
@@ -83,6 +115,7 @@ impl App {
         self.sync_session_to_history(&self.active_session.clone());
 
         let mut items = Vec::new();
+        let mut refresh_cids = Vec::new();
 
         for (idx, tab) in self.tabs.iter().enumerate() {
             let display_title = if tab.title.trim().is_empty() {
@@ -94,6 +127,11 @@ impl App {
                 .session_manager
                 .get_metadata(&tab.session_id)
                 .and_then(|m| m.conversation_id.clone());
+            if !tab.custom_title && tab.title_source < TitleSource::Semantic {
+                if let Some(ref cid) = tab_conv {
+                    refresh_cids.push(cid.clone());
+                }
+            }
             let rel_time = self
                 .history
                 .sessions()
@@ -111,6 +149,7 @@ impl App {
                     display_title,
                     ModalAction::SwitchTab(idx),
                 )
+                .with_badge(backend_badge(tab.backend))
                 .with_shortcut(rel_time)
                 .with_category("Current Sessions"),
             );
@@ -146,16 +185,35 @@ impl App {
                         .iter_mut()
                         .find(|p| p.conversation_id.as_ref() == Some(cid))
                     {
-                        if (existing.title.is_none()
-                            || existing.title.as_deref() == Some(cid.as_str()))
+                        let title_missing = existing.title.is_none()
+                            || existing.title.as_deref() == Some(cid.as_str());
+                        if (title_missing
+                            || (existing.title_source < ext.title_source
+                                && existing.title_source < TitleSource::Custom))
                             && ext.title.is_some()
                         {
                             existing.title = ext.title.clone();
+                            existing.title_source = ext.title_source;
+                        }
+                        if existing.backend.is_none() {
+                            existing.backend = ext.backend;
+                        }
+                        if existing.model.is_none() {
+                            existing.model = ext.model.clone();
+                        }
+                        if existing.effort.is_none() {
+                            existing.effort = ext.effort.clone();
+                        }
+                        if existing.created_at <= 0 && ext.created_at > 0 {
+                            existing.created_at = ext.created_at;
                         }
                     } else {
                         past_sessions.push(ext);
                     }
                 }
+            }
+            for cid in refresh_cids {
+                self.history.request_agent_refresh(Some(cid));
             }
             self.history.request_agent_refresh(None);
         }
@@ -181,6 +239,7 @@ impl App {
                 None => continue,
             };
             let rel_time = s.relative_time();
+            let badge = backend_badge(s.effective_backend());
             items.push(
                 crate::ui::modal::SelectItem::new(
                     conv_id.clone(),
@@ -192,6 +251,7 @@ impl App {
                         mode: s.mode,
                     },
                 )
+                .with_badge(badge)
                 .with_shortcut(rel_time)
                 .with_category("Past Sessions"),
             );
