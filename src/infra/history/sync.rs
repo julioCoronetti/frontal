@@ -174,7 +174,7 @@ pub(super) fn handle_refresh_agent(
                     let _ = conn.execute(
                         "UPDATE sessions SET title = ?1, title_source = 2
                          WHERE (id = ?2 OR conversation_id = ?2)
-                           AND custom_title = 0 AND title_source < 2",
+                           AND custom_title = 0 AND title_source <= 2",
                         params![resolved_title, cid],
                     );
                     let _ = agent_updates_tx.send((cid, resolved_title));
@@ -182,7 +182,9 @@ pub(super) fn handle_refresh_agent(
             }
         }
         None => {
-            let mut records = load_external_conversations(agent_db_path, opencode_db_path);
+            let known_models = collect_known_models(conn, agent_cache);
+            let mut records =
+                load_external_conversations(agent_db_path, opencode_db_path, &known_models);
             for (cid, pinned_title) in pinned_titles {
                 if let Some(existing) = records
                     .iter_mut()
@@ -237,7 +239,7 @@ pub(super) fn upsert_external_session(conn: &Connection, rec: &SessionRecord) {
                  effort = COALESCE(?4, effort),
                  title = CASE
                      WHEN custom_title != 0 THEN title
-                     WHEN ?5 IS NOT NULL AND ?6 > title_source THEN ?5
+                     WHEN ?5 IS NOT NULL AND ?6 >= title_source THEN ?5
                      ELSE COALESCE(title, ?5)
                  END,
                  title_source = CASE
@@ -318,17 +320,61 @@ pub(super) fn update_cache_record(
     }
 }
 
+fn collect_known_models(
+    conn: &Connection,
+    agent_cache: &Arc<RwLock<Vec<SessionRecord>>>,
+) -> HashMap<String, (Option<String>, Option<String>)> {
+    let mut known = HashMap::new();
+    if let Ok(guard) = agent_cache.read() {
+        for rec in guard.iter() {
+            if rec.model.is_some() {
+                if let Some(ref cid) = rec.conversation_id {
+                    known.insert(cid.clone(), (rec.model.clone(), rec.effort.clone()));
+                }
+            }
+        }
+    }
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT conversation_id, model, effort FROM sessions
+         WHERE conversation_id IS NOT NULL AND model IS NOT NULL AND model != ''",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        }) {
+            for (cid, model, effort) in rows.flatten() {
+                known.entry(cid).or_insert((model, effort));
+            }
+        }
+    }
+    known
+}
+
 pub(super) fn load_external_conversations(
     agent_db: Option<&Path>,
     opencode_db: Option<&Path>,
+    known_models: &HashMap<String, (Option<String>, Option<String>)>,
 ) -> Vec<SessionRecord> {
     let mut records = agent_db
         .map(agent::load_agent_conversations_at)
         .unwrap_or_default();
+    let mut enriched = 0usize;
     for rec in &mut records {
         if rec.model.is_none() {
             if let Some(ref cid) = rec.conversation_id {
+                if let Some((model, effort)) = known_models.get(cid) {
+                    rec.model = model.clone();
+                    rec.effort = effort.clone();
+                    continue;
+                }
+                if enriched >= 15 {
+                    continue;
+                }
                 if let Some(snapshot) = transcript::load_usage(cid) {
+                    enriched += 1;
                     if let Some(raw_model) = snapshot.model.as_deref() {
                         let (base, effort) =
                             crate::transport::EngineConfig::split_model_effort(raw_model);

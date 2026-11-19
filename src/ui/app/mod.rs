@@ -234,7 +234,7 @@ impl App {
                     .get_metadata(&tab.session_id)
                     .and_then(|m| m.conversation_id.clone());
                 let can_upgrade = !tab.custom_title
-                    && tab.title_source < crate::infra::history::TitleSource::Semantic;
+                    && tab.title_source <= crate::infra::history::TitleSource::Semantic;
                 if tab_cid.as_deref() == Some(cid.as_str()) && can_upgrade {
                     if tab.title != title {
                         tab.title = title.clone();

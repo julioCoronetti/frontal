@@ -97,14 +97,21 @@ impl App {
             self.custom_title = true;
             self.title_source = crate::infra::history::TitleSource::Custom;
             self.sync_session_to_history(&self.active_session.clone());
-            self.history
-                .rename_session(self.active_session.as_str(), new_title);
+            self.history.rename_session_with_source(
+                self.active_session.as_str(),
+                new_title,
+                crate::infra::history::TitleSource::Custom,
+            );
             if let Some(conv_id) = self
                 .session_manager
                 .get_metadata(&self.active_session)
                 .and_then(|m| m.conversation_id.clone())
             {
-                self.history.rename_session(&conv_id, new_title);
+                self.history.rename_session_with_source(
+                    &conv_id,
+                    new_title,
+                    crate::infra::history::TitleSource::Custom,
+                );
                 self.history.rename_agent_title(&conv_id, new_title);
             }
             self.status_text = format!("Session renamed to: {}", new_title);

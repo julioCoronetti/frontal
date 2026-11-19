@@ -183,11 +183,7 @@ pub fn load_opencode_conversations_at(path: &Path) -> Vec<SessionRecord> {
             let title: Option<String> = row.get(1).ok().flatten();
             let model_raw: Option<String> = row.get(2).ok().flatten();
             let raw_ts: i64 = row.get(3).unwrap_or(0);
-            let final_title = title
-                .as_deref()
-                .map(str::trim)
-                .filter(|t| !t.is_empty())
-                .map(str::to_string);
+            let final_title = clean_opencode_title(title);
             let (model, effort) = model_raw
                 .as_deref()
                 .map(parse_opencode_model_json)
@@ -236,10 +232,18 @@ pub fn query_opencode_title_at(path: &Path, session_id: &str) -> Option<String> 
         session_id,
         "SELECT title FROM session_v2 WHERE id = ?1",
     )?;
-    title
-        .as_deref()
+    clean_opencode_title(title)
+}
+
+fn clean_opencode_title(raw: Option<String>) -> Option<String> {
+    raw.as_deref()
         .map(str::trim)
-        .filter(|t| !t.is_empty())
+        .filter(|t| {
+            !t.is_empty()
+                && !t.eq_ignore_ascii_case("new session")
+                && !t.starts_with("New session - ")
+                && !t.eq_ignore_ascii_case("untitled")
+        })
         .map(str::to_string)
 }
 
@@ -308,14 +312,7 @@ pub fn load_opencode_messages_at(path: &Path, session_id: &str) -> Vec<StoredMes
             match kind.as_str() {
                 "user" => {
                     if let Some(text) = extract_user_text(&raw_data) {
-                        messages.push(StoredMessage {
-                            role: "user".to_string(),
-                            content: text,
-                            tool_name: None,
-                            tool_args: None,
-                            step_index: None,
-                            turn_meta: None,
-                        });
+                        messages.push(text_message("user", text));
                     }
                 }
                 "assistant" => {
@@ -394,17 +391,12 @@ fn append_assistant_messages(raw: &str, out: &mut Vec<StoredMessage>) {
         let part_type = part.get("type").and_then(Value::as_str).unwrap_or("");
         match part_type {
             "reasoning" | "thought" => {
-                if let Some(text) = part.get("text").and_then(Value::as_str) {
-                    if !text.trim().is_empty() {
-                        out.push(StoredMessage {
-                            role: "thought".to_string(),
-                            content: text.to_string(),
-                            tool_name: None,
-                            tool_args: None,
-                            step_index: None,
-                            turn_meta: None,
-                        });
-                    }
+                if let Some(text) = part
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .filter(|t| !t.trim().is_empty())
+                {
+                    out.push(text_message("thought", text.to_string()));
                 }
             }
             "tool" | "tool_use" => {
@@ -440,18 +432,13 @@ fn append_assistant_messages(raw: &str, out: &mut Vec<StoredMessage>) {
                 });
             }
             "text" => {
-                if let Some(text) = part.get("text").and_then(Value::as_str) {
-                    if !text.trim().is_empty() {
-                        out.push(StoredMessage {
-                            role: "assistant".to_string(),
-                            content: text.to_string(),
-                            tool_name: None,
-                            tool_args: None,
-                            step_index: None,
-                            turn_meta: None,
-                        });
-                        last_assistant_idx = Some(out.len() - 1);
-                    }
+                if let Some(text) = part
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .filter(|t| !t.trim().is_empty())
+                {
+                    out.push(text_message("assistant", text.to_string()));
+                    last_assistant_idx = Some(out.len() - 1);
                 }
             }
             _ => {}
@@ -488,6 +475,17 @@ fn extract_tool_output(state: &Value) -> String {
         }
     }
     String::new()
+}
+
+fn text_message(role: &str, content: String) -> StoredMessage {
+    StoredMessage {
+        role: role.to_string(),
+        content,
+        tool_name: None,
+        tool_args: None,
+        step_index: None,
+        turn_meta: None,
+    }
 }
 
 fn sanitize_part(value: &str) -> Option<&str> {

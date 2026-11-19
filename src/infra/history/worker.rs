@@ -83,8 +83,11 @@ pub(super) fn spawn_history_worker(
         let adb_clone = agent_db_path.clone();
         let odb_clone = opencode_db_path.clone();
         thread::spawn(move || {
-            let records =
-                sync::load_external_conversations(adb_clone.as_deref(), odb_clone.as_deref());
+            let records = sync::load_external_conversations(
+                adb_clone.as_deref(),
+                odb_clone.as_deref(),
+                &std::collections::HashMap::new(),
+            );
             if let Ok(mut guard) = cache_clone.write() {
                 if guard.is_empty() {
                     *guard = records;
