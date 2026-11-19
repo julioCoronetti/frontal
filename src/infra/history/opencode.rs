@@ -68,6 +68,14 @@ struct MessageModel {
     variant: Option<String>,
 }
 
+impl MessageModel {
+    fn full_id(&self) -> Option<String> {
+        let provider = sanitize_part(self.provider_id.as_deref()?)?;
+        let id = sanitize_part(self.id.as_deref()?)?;
+        Some(format!("{}/{}", provider, id))
+    }
+}
+
 pub fn default_path() -> Option<PathBuf> {
     crate::model_catalog::ModelCatalog::default_path()
 }
@@ -86,11 +94,7 @@ pub fn parse_opencode_model_json(raw: &str) -> (Option<String>, Option<String>) 
     let Ok(parsed) = serde_json::from_str::<MessageModel>(raw) else {
         return (None, None);
     };
-    let model = parsed.provider_id.as_deref().and_then(|provider| {
-        let provider = sanitize_part(provider)?;
-        let id = sanitize_part(parsed.id.as_deref()?)?;
-        Some(format!("{}/{}", provider, id))
-    });
+    let model = parsed.full_id();
     let effort = parsed
         .variant
         .as_deref()
@@ -129,11 +133,7 @@ pub fn load_usage_at(
     if input == 0 && output == 0 && reasoning == 0 && cache_read == 0 {
         return None;
     }
-    let model = payload.model.and_then(|model| {
-        let provider = sanitize_part(model.provider_id.as_deref()?)?;
-        let id = sanitize_part(model.id.as_deref()?)?;
-        Some(format!("{}/{}", provider, id))
-    });
+    let model = payload.model.and_then(|model| model.full_id());
     let end = payload.time.completed.or(payload.time.streamed);
     let duration_millis = end
         .zip(payload.time.created)
@@ -213,23 +213,29 @@ pub fn load_opencode_conversations_at(path: &Path) -> Vec<SessionRecord> {
     records
 }
 
+fn query_session_col<T: rusqlite::types::FromSql>(
+    path: &Path,
+    session_id: &str,
+    sql: &str,
+) -> Option<T> {
+    if !session_id.starts_with("ses_") {
+        return None;
+    }
+    open_readonly(path)?
+        .query_row(sql, params![session_id], |row| row.get(0))
+        .ok()
+}
+
 pub fn query_opencode_title(session_id: &str) -> Option<String> {
     default_path().and_then(|path| query_opencode_title_at(&path, session_id))
 }
 
 pub fn query_opencode_title_at(path: &Path, session_id: &str) -> Option<String> {
-    if !session_id.starts_with("ses_") {
-        return None;
-    }
-    let conn = open_readonly(path)?;
-    let title: Option<String> = conn
-        .query_row(
-            "SELECT title FROM session_v2 WHERE id = ?1",
-            params![session_id],
-            |row| row.get(0),
-        )
-        .ok()
-        .flatten();
+    let title: Option<String> = query_session_col(
+        path,
+        session_id,
+        "SELECT title FROM session_v2 WHERE id = ?1",
+    )?;
     title
         .as_deref()
         .map(str::trim)
@@ -242,19 +248,31 @@ pub fn query_opencode_timestamp(session_id: &str) -> Option<i64> {
 }
 
 pub fn query_opencode_timestamp_at(path: &Path, session_id: &str) -> Option<i64> {
-    if !session_id.starts_with("ses_") {
-        return None;
-    }
-    let conn = open_readonly(path)?;
-    let raw_ts: i64 = conn
-        .query_row(
-            "SELECT COALESCE(time_updated, time_created, 0) FROM session_v2 WHERE id = ?1",
-            params![session_id],
-            |row| row.get(0),
-        )
-        .ok()?;
+    let raw_ts: i64 = query_session_col(
+        path,
+        session_id,
+        "SELECT COALESCE(time_updated, time_created, 0) FROM session_v2 WHERE id = ?1",
+    )?;
     let normalized = normalize_timestamp_secs(raw_ts);
     (normalized > 0).then_some(normalized)
+}
+
+pub fn query_opencode_model(session_id: &str) -> (Option<String>, Option<String>) {
+    default_path()
+        .map(|path| query_opencode_model_at(&path, session_id))
+        .unwrap_or((None, None))
+}
+
+pub fn query_opencode_model_at(path: &Path, session_id: &str) -> (Option<String>, Option<String>) {
+    let raw: Option<String> = query_session_col(
+        path,
+        session_id,
+        "SELECT model FROM session_v2 WHERE id = ?1",
+    )
+    .flatten();
+    raw.as_deref()
+        .map(parse_opencode_model_json)
+        .unwrap_or((None, None))
 }
 
 pub fn load_opencode_messages(session_id: &str) -> Vec<StoredMessage> {
@@ -346,11 +364,7 @@ fn append_assistant_messages(raw: &str, out: &mut Vec<StoredMessage>) {
     let model = payload
         .model
         .as_ref()
-        .and_then(|m| {
-            let provider = sanitize_part(m.provider_id.as_deref()?)?;
-            let id = sanitize_part(m.id.as_deref()?)?;
-            Some(format!("{}/{}", provider, id))
-        })
+        .and_then(MessageModel::full_id)
         .unwrap_or_default();
     let duration_seconds = payload
         .time

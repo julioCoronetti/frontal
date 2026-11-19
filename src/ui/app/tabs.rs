@@ -204,11 +204,12 @@ impl App {
             .map(|config| config.backend)
             .unwrap_or(self.tabs[tab_idx].backend);
         let requested_backend = conversation_id.as_deref().map(|id| {
-            if id.starts_with("ses_") {
-                BackendKind::OpenCode
-            } else {
-                BackendKind::Agy
-            }
+            self.history
+                .sessions()
+                .iter()
+                .find(|s| s.conversation_id.as_deref() == Some(id))
+                .and_then(|s| s.backend)
+                .unwrap_or_else(|| crate::infra::history::infer_backend(Some(id), None))
         });
         let is_explicit_config_change = conversation_id.is_none();
         let target_backend = requested_backend.unwrap_or(self.user_config.backend);
@@ -245,6 +246,7 @@ impl App {
             None
         };
 
+        let hydrated_effort_direct = hydrated_session.as_ref().and_then(|h| h.effort.clone());
         let (hydrated_model, hydrated_effort) = hydrated_session
             .as_ref()
             .and_then(|h| h.telemetry.as_ref())
@@ -261,12 +263,15 @@ impl App {
                         eff.map(str::to_string),
                     )
                 } else if is_model_compatible_with_backend(target_backend, &sanitized) {
-                    (Some(sanitized).filter(|s| !s.is_empty()), None)
+                    (
+                        Some(sanitized).filter(|s| !s.is_empty()),
+                        hydrated_effort_direct.clone(),
+                    )
                 } else {
                     (None, None)
                 }
             })
-            .unwrap_or((None, None));
+            .unwrap_or((None, hydrated_effort_direct));
 
         let model_changed = model
             .as_ref()
@@ -367,8 +372,10 @@ impl App {
             if let Some(title) = hydrated_data.title {
                 self.tabs[tab_idx].title = title;
                 self.tabs[tab_idx].custom_title = hydrated_data.is_custom_title;
+                self.tabs[tab_idx].title_source = hydrated_data.title_source;
             } else if is_different_conv {
                 self.tabs[tab_idx].custom_title = hydrated_data.is_custom_title;
+                self.tabs[tab_idx].title_source = hydrated_data.title_source;
             }
             if let Some(snapshot) = hydrated_data.telemetry {
                 let fallback_model = snapshot.model.clone();

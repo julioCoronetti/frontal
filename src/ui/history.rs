@@ -9,6 +9,8 @@ pub struct HydratedSession {
     pub cache: RenderCache,
     pub title: Option<String>,
     pub is_custom_title: bool,
+    pub title_source: TitleSource,
+    pub effort: Option<String>,
     pub telemetry: Option<TelemetrySnapshot>,
 }
 
@@ -90,19 +92,65 @@ pub fn hydrate_session_blocking(
     let is_custom_title = db_path
         .map(|path| crate::infra::history::messages::is_custom_title_at(path, conv_id))
         .unwrap_or(false);
-    let title = if is_custom_title {
-        db_path
+    let (title, title_source) = if is_custom_title {
+        let t = db_path
             .and_then(|path| conversation_title_at(path, conv_id))
-            .or_else(|| conversation_title(conv_id, db_path))
+            .or_else(|| conversation_title(conv_id, db_path));
+        (t, TitleSource::Custom)
+    } else if conv_id.starts_with("ses_") {
+        if let Some(t) = crate::infra::history::opencode::query_opencode_title(conv_id) {
+            (Some(t), TitleSource::Semantic)
+        } else {
+            let t = db_path.and_then(|path| conversation_title_at(path, conv_id));
+            let src = if t.is_some() {
+                TitleSource::Provisional
+            } else {
+                TitleSource::Default
+            };
+            (t, src)
+        }
+    } else if let Some((t, src)) = default_agent_db_path()
+        .and_then(|path| query_agent_conversation_title_with_source_at(&path, conv_id))
+    {
+        (Some(t), src)
     } else {
-        conversation_title(conv_id, db_path)
+        let t = db_path.and_then(|path| conversation_title_at(path, conv_id));
+        let src = if t.is_some() {
+            TitleSource::Provisional
+        } else {
+            TitleSource::Default
+        };
+        (t, src)
     };
-    let telemetry = resolve_session_telemetry(conv_id, db_path);
+    let mut telemetry = resolve_session_telemetry(conv_id, db_path);
+    let effort = if conv_id.starts_with("ses_") {
+        let (oc_model, oc_effort) = crate::infra::history::opencode::query_opencode_model(conv_id);
+        if let Some(ref mut snap) = telemetry {
+            if snap
+                .model
+                .as_deref()
+                .map(|m| m.trim().is_empty())
+                .unwrap_or(true)
+            {
+                snap.model = oc_model;
+            }
+        } else if let Some(m) = oc_model {
+            telemetry = Some(TelemetrySnapshot {
+                model: Some(m),
+                ..Default::default()
+            });
+        }
+        oc_effort
+    } else {
+        None
+    };
     HydratedSession {
         hydrated,
         cache,
         title,
         is_custom_title,
+        title_source,
+        effort,
         telemetry,
     }
 }
