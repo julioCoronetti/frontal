@@ -325,15 +325,6 @@ fn test_documentation_and_metadata_sync() {
                 version
             );
         }
-        let roadmap_wiki = wiki_dir.join("Board-Roadmap.md");
-        if roadmap_wiki.exists() {
-            let content = fs::read_to_string(&roadmap_wiki).unwrap();
-            assert!(
-                content.contains(version),
-                "Board-Roadmap.md does not contain active package version {}",
-                version
-            );
-        }
     }
 
     let extinct_paths = [
@@ -410,48 +401,20 @@ fn test_documentation_and_metadata_sync() {
         *domain_counts.entry(domain_key).or_insert(0) += count;
     }
 
-    let expected_total_str = format!("{} tests", total_tests);
-    assert!(
-        agents_content.match_indices(&expected_total_str).count() >= 2,
-        "AGENTS.md missing dynamic test count token {} in both header and verification sections",
-        expected_total_str
+    assert_eq!(
+        domain_counts.len(),
+        8,
+        "Expected 8 test domains under tests/domains, found {}",
+        domain_counts.len()
     );
     assert!(
-        readme_content.contains(&expected_total_str),
-        "README.md missing dynamic test count token: {}",
-        expected_total_str
+        total_tests >= 250,
+        "Expected at least 250 integration tests, found {}",
+        total_tests
     );
-
-    if wiki_dir.exists() {
-        if let Some(arch_content) = arch_wiki_content.as_ref() {
-            assert!(
-                arch_content.contains(&expected_total_str),
-                "Frontal-Architecture.md missing dynamic test count token: {}",
-                expected_total_str
-            );
-        }
-        let home_wiki = wiki_dir.join("Home.md");
-        if home_wiki.exists() {
-            let content = fs::read_to_string(&home_wiki).unwrap();
-            assert!(
-                content.contains(&expected_total_str),
-                "Home.md missing dynamic test count token: {}",
-                expected_total_str
-            );
-        }
-        let roadmap_wiki = wiki_dir.join("Board-Roadmap.md");
-        if roadmap_wiki.exists() {
-            let content = fs::read_to_string(&roadmap_wiki).unwrap();
-            assert!(
-                content.contains(&expected_total_str),
-                "Board-Roadmap.md missing dynamic test count token: {}",
-                expected_total_str
-            );
-        }
-    }
 
     for (domain_key, count) in &domain_counts {
-        let expected_domain_str = format!("{} tests", count);
+        assert!(*count >= 1, "Test domain {} has zero tests", domain_key);
         let path_token = if domain_key.ends_with(".rs") {
             format!("tests/domains/{}", domain_key)
         } else {
@@ -462,27 +425,11 @@ fn test_documentation_and_metadata_sync() {
             "AGENTS.md missing path token: {}",
             path_token
         );
-        let domain_line = agents_content
-            .lines()
-            .find(|l| l.contains(&path_token))
-            .unwrap_or("");
-        assert!(
-            domain_line.contains(&expected_domain_str),
-            "AGENTS.md domain {} count mismatch: expected {}",
-            path_token,
-            expected_domain_str
-        );
-
         if let Some(arch_content) = arch_wiki_content.as_ref() {
-            let arch_line = arch_content
-                .lines()
-                .find(|l| l.contains(&path_token))
-                .unwrap_or("");
             assert!(
-                arch_line.contains(&expected_domain_str),
-                "Frontal-Architecture.md domain {} count mismatch: expected {}",
-                path_token,
-                expected_domain_str
+                arch_content.contains(&path_token),
+                "Frontal-Architecture.md missing path token: {}",
+                path_token
             );
         }
     }

@@ -11,7 +11,7 @@ description: Runs the canonical Frontal quality gate (5-file atomic threshold, c
    - Atomic limit check (`<= 5` modified files, unless `ATOMIC_OVERRIDE=1`).
    - Canonical formatting (`cargo fmt --check`).
    - Zero linter warnings (`cargo clippy --all-targets -- -D warnings`).
-   - Full integration suite (`cargo test --quiet`), including `tests/domains/architecture.rs` invariants (zero comments, 500-line ceiling per `.rs` file, version and test-count metadata sync).
+   - Full integration suite (`cargo test --quiet`), including `tests/domains/architecture.rs` invariants (zero comments, 500-line ceiling per `.rs` file, version parity, domain path coverage, and extinct-token checks).
 3. On failure, remediate and re-run step 1:
    - Formatting failure: run `cargo fmt`.
    - Clippy failure: resolve all warnings (`-D warnings`).

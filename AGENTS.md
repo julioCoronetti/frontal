@@ -5,16 +5,16 @@
 - Limit every commit to 1 logical change touching at most 5 modified files (unless `ATOMIC_OVERRIDE=1`) and ensure `.wiki/` has a clean working tree before committing `Card-Status: In Review` or `Done`.
 
 ## Commands
-- Full quality gate (atomic check, `fmt`, `clippy -D warnings`, 276 tests): `.agents/skills/frontal-quality-gate/scripts/quality_gate.sh`
-- Full integration test harness (276 tests across 8 domains in `tests/suite.rs`): `cargo test --quiet`
-- Architecture invariants (`tests/domains/architecture.rs`, 4 tests): `cargo test --test suite domains::architecture`
-- Protocol & CLI (`tests/domains/protocol_and_cli.rs`, 21 tests): `cargo test --test suite domains::protocol_and_cli`
-- Engine & session (`tests/domains/engine_and_session/`, 35 tests): `cargo test --test suite domains::engine_and_session`
-- Cache & markdown (`tests/domains/cache_and_markdown/`, 30 tests): `cargo test --test suite domains::cache_and_markdown`
-- Viewport & clipboard (`tests/domains/viewport_and_clipboard.rs`, 16 tests): `cargo test --test suite domains::viewport_and_clipboard`
-- Editor & SQLite history (`tests/domains/editor_and_history/`, 36 tests): `cargo test --test suite domains::editor_and_history`
-- Tabs & modals (`tests/domains/tabs_and_modals/`, 94 tests): `cargo test --test suite domains::tabs_and_modals`
-- End-to-end TUI (`tests/domains/tui_integration/`, 40 tests): `cargo test --test suite domains::tui_integration`
+- Full quality gate (atomic check, `fmt`, `clippy -D warnings`, integration suite): `.agents/skills/frontal-quality-gate/scripts/quality_gate.sh`
+- Full integration test harness (8 domains in `tests/suite.rs`): `cargo test --quiet`
+- Architecture invariants (`tests/domains/architecture.rs`): `cargo test --test suite domains::architecture`
+- Protocol & CLI (`tests/domains/protocol_and_cli.rs`): `cargo test --test suite domains::protocol_and_cli`
+- Engine & session (`tests/domains/engine_and_session/`): `cargo test --test suite domains::engine_and_session`
+- Cache & markdown (`tests/domains/cache_and_markdown/`): `cargo test --test suite domains::cache_and_markdown`
+- Viewport & clipboard (`tests/domains/viewport_and_clipboard.rs`): `cargo test --test suite domains::viewport_and_clipboard`
+- Editor & SQLite history (`tests/domains/editor_and_history/`): `cargo test --test suite domains::editor_and_history`
+- Tabs & modals (`tests/domains/tabs_and_modals/`): `cargo test --test suite domains::tabs_and_modals`
+- End-to-end TUI (`tests/domains/tui_integration/`): `cargo test --test suite domains::tui_integration`
 
 ## Invariants & Traps
 - Store immutable AST (`MessageBlock` with styled spans) in RenderCache L1 and width-wrapped visual lines indexed by `(width, revision)` in L2; invalidate only L2 on resize or block toggle to sustain 60 FPS streaming without re-parsing history.
