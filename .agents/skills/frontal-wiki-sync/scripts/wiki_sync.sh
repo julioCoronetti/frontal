@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 WIKI_DIR="$ROOT_DIR/.wiki"
 
 usage() {
-  echo "Usage: $0 {status|check|commit <summary>}" >&2
+  echo "Usage: $0 {status|check|check-invariants|commit <summary>}" >&2
   exit 1
 }
 
@@ -74,6 +74,10 @@ case "$cmd" in
       echo "$uncommitted" >&2
       exit 1
     fi
+    validate_docs
+    echo "Wiki invariant checks passed for version $(grep '^version = ' Cargo.toml | cut -d '"' -f 2)."
+    ;;
+  check-invariants)
     validate_docs
     echo "Wiki invariant checks passed for version $(grep '^version = ' Cargo.toml | cut -d '"' -f 2)."
     ;;

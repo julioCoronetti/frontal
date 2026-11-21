@@ -15,8 +15,15 @@ if [[ ! -x "$ROOT_DIR/.githooks/commit-msg" ]] || [[ "$(git config core.hooksPat
   errors=$((errors + 1))
 fi
 
+staged_count=$(git diff --cached --name-only | wc -l)
+unstaged_count=$(git diff --name-only | wc -l)
+
+if [[ "${ALLOW_PARTIAL_STAGING:-0}" != "1" ]] && [[ "$staged_count" -gt 0 ]] && [[ "$unstaged_count" -gt 0 ]]; then
+  echo "Error: Partial staging detected ($staged_count staged, $unstaged_count unstaged tracked file(s)). Stage all slice files or stash unstaged changes (set ALLOW_PARTIAL_STAGING=1 to override)." >&2
+  errors=$((errors + 1))
+fi
+
 if [[ "${ATOMIC_OVERRIDE:-0}" != "1" ]]; then
-  staged_count=$(git diff --cached --name-only | wc -l)
   if [[ "$staged_count" -gt 0 ]]; then
     if [[ "$staged_count" -gt 5 ]]; then
       echo "Error: Atomic commit threshold exceeded ($staged_count staged files, max 5 allowed; set ATOMIC_OVERRIDE=1)." >&2
@@ -56,7 +63,7 @@ if ! cargo fmt --check; then
 fi
 
 if [[ -d "$ROOT_DIR/.wiki/.git" ]]; then
-  if ! "$ROOT_DIR/.agents/skills/frontal-wiki-sync/scripts/wiki_sync.sh" check; then
+  if ! "$ROOT_DIR/.agents/skills/frontal-wiki-sync/scripts/wiki_sync.sh" check-invariants; then
     errors=$((errors + 1))
   fi
 fi
@@ -67,6 +74,6 @@ if [[ "$errors" -gt 0 ]]; then
 fi
 
 cargo clippy --all-targets -- -D warnings
-cargo test --test suite --quiet
+cargo test --quiet
 
-echo "Quality gate passed: hooks, atomic limit, 500-line ceiling, fmt, wiki check, clippy, and suite verified."
+echo "Quality gate passed: hooks, atomic limit, 500-line ceiling, fmt, wiki invariants, clippy, and full test suite verified."

@@ -19,6 +19,13 @@ jobs:
       - name: Shell Script & Hook Syntax Check
         run: bash -n .githooks/commit-msg .agents/skills/*/scripts/*.sh
 
+      - name: Validate HEAD Commit Contract
+        if: github.event_name == 'push'
+        run: |
+          if [[ "$(git cat-file -p HEAD | grep -c '^parent ')" -le 1 ]]; then
+            .agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh validate-commit --head
+          fi
+
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:

@@ -47,6 +47,14 @@ apply_version_bump() {
     exit 1
   fi
 
+  rollback_version_bump() {
+    git checkout -- Cargo.toml Cargo.lock AGENTS.md README.md 2>/dev/null || true
+    if [[ -d ".wiki/.git" ]]; then
+      git -C .wiki checkout -- . 2>/dev/null || true
+    fi
+  }
+  trap rollback_version_bump EXIT
+
   sed -i "s/^version = \"$current_version\"/version = \"$new_version\"/" Cargo.toml
 
   replace_literal "AGENTS.md" "\`$current_version\`" "\`$new_version\`"
@@ -62,7 +70,9 @@ apply_version_bump() {
     replace_literal ".wiki/Frontal-Architecture.md" "\`$current_version\`" "\`$new_version\`"
   fi
 
-  if [[ "$(grep -Fc "$new_version" AGENTS.md)" -lt 2 ]] || ! grep -Fq "$new_series" AGENTS.md; then
+  local agents_ver_count
+  agents_ver_count=$(grep -Fo "$new_version" AGENTS.md | wc -l)
+  if [[ "$agents_ver_count" -lt 2 ]] || ! grep -Fq "\`$new_series\`" AGENTS.md; then
     echo "Error: Version bump verification failed in AGENTS.md." >&2
     exit 1
   fi
@@ -86,17 +96,18 @@ apply_version_bump() {
     "$ROOT_DIR/.agents/skills/frontal-wiki-sync/scripts/wiki_sync.sh" commit "bump version to v$new_version"
   fi
 
+  trap - EXIT
   echo "Bumped version from $current_version to $new_version across Cargo.toml, Cargo.lock, AGENTS.md, README.md, and .wiki."
 }
 
 validate_commit_msg() {
   local target="$1"
-  local enforce_staged="${2:-1}"
+  local stage_mode="${2:-none}"
   local commit_msg
 
   if [[ "$target" == "--head" ]]; then
     commit_msg=$(git log -1 --pretty=format:"%B")
-    enforce_staged=0
+    stage_mode="none"
   else
     if [[ ! -f "$target" ]]; then
       echo "Error: Commit message file '$target' not found." >&2
@@ -105,14 +116,14 @@ validate_commit_msg() {
     commit_msg=$(cat "$target")
   fi
 
-  if [[ "$enforce_staged" == "1" ]]; then
+  if [[ "$stage_mode" == "strict" || "$stage_mode" == "hook" ]]; then
     local staged_count
     staged_count=$(git diff --cached --name-only | wc -l)
-    if [[ "$staged_count" -eq 0 ]]; then
+    if [[ "$stage_mode" == "strict" ]] && [[ "$staged_count" -eq 0 ]]; then
       echo "Error: No staged files to commit. Stage files for this atomic slice first." >&2
       exit 1
     fi
-    if [[ "${ATOMIC_OVERRIDE:-0}" != "1" ]] && [[ "$staged_count" -gt 5 ]]; then
+    if [[ "$staged_count" -gt 0 ]] && [[ "${ATOMIC_OVERRIDE:-0}" != "1" ]] && [[ "$staged_count" -gt 5 ]]; then
       echo "Error: Atomic commit threshold exceeded ($staged_count staged files, max 5 allowed; set ATOMIC_OVERRIDE=1)." >&2
       exit 1
     fi
@@ -217,9 +228,9 @@ case "$cmd" in
     echo "Updated card $item_id to Done on Project Board #8"
     ;;
   validate-commit)
-    enforce_staged=0
+    stage_mode="none"
     if [[ "${2:-}" == "--hook" ]]; then
-      enforce_staged=1
+      stage_mode="hook"
       shift
     fi
     target="${2:-}"
@@ -227,7 +238,7 @@ case "$cmd" in
       echo "Error: target file or --head required." >&2
       exit 1
     fi
-    validate_commit_msg "$target" "$enforce_staged"
+    validate_commit_msg "$target" "$stage_mode"
     echo "Commit message validation passed."
     ;;
   commit)
@@ -268,7 +279,17 @@ case "$cmd" in
       esac
     done
 
+    has_structured=0
     if [[ -n "$header" || -n "$why" || -n "$what" || -n "$invariants" || -n "$refs" || -n "$status" || -n "$advisor" ]]; then
+      has_structured=1
+    fi
+
+    if [[ -n "$custom_file" ]] && [[ "$has_structured" -eq 1 ]]; then
+      echo "Error: Cannot combine --file with structured commit flags." >&2
+      exit 1
+    fi
+
+    if [[ "$has_structured" -eq 1 ]]; then
       if [[ -z "$header" || -z "$why" || -z "$what" || -z "$invariants" || -z "$refs" || -z "$status" || -z "$advisor" ]]; then
         echo "Error: All structured flags (--header, --why, --what, --invariants, --refs, --status, --advisor) are required." >&2
         exit 1
@@ -276,6 +297,7 @@ case "$cmd" in
       if [[ "$refs" != Refs:* ]]; then
         refs="Refs: $refs"
       fi
+      trap 'rm -f "$DEFAULT_COMMIT_MSG_FILE"' EXIT
       printf '%s\n\n- Why: %s\n- What: %s\n- Invariants: %s\n\n%s\nCard-Status: %s\nReviewed-By: Argon-Advisor <mode:%s>\n' \
         "$header" "$why" "$what" "$invariants" "$refs" "$status" "$advisor" > "$DEFAULT_COMMIT_MSG_FILE"
       msg_file="$DEFAULT_COMMIT_MSG_FILE"
@@ -283,9 +305,12 @@ case "$cmd" in
       msg_file="$custom_file"
     fi
 
-    validate_commit_msg "$msg_file" 1
+    validate_commit_msg "$msg_file" "strict"
     git commit -F "$msg_file"
-    if [[ "$msg_file" == "$DEFAULT_COMMIT_MSG_FILE" ]]; then
+    if [[ "$has_structured" -eq 1 ]]; then
+      trap - EXIT
+      rm -f "$DEFAULT_COMMIT_MSG_FILE"
+    elif [[ "$msg_file" == "$DEFAULT_COMMIT_MSG_FILE" ]]; then
       rm -f "$DEFAULT_COMMIT_MSG_FILE"
     fi
     ;;
