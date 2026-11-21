@@ -32,13 +32,15 @@ Reviewed-By: Argon-Advisor <mode:none|review|design|troubleshoot|deep-dive|refin
 ## Execution & Verification
 1. Inspect active version and repository state:
    `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh check`
-2. Bump version only on authorized `Done` release:
+2. Commit staged atomic slices (`<= 5` files) without temporary `/tmp` files by writing `.git/FRONTAL_COMMIT_EDITMSG` (or passing structured flags) and running:
+   `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh commit`
+3. Bump version only on an authorized clean-tree `Done` release (updates `Cargo.toml`, `Cargo.lock`, `AGENTS.md`, `README.md`, and commits `.wiki/` automatically):
    - Patch: `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh bump-patch`
    - Minor: `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh bump-minor`
-3. Validate commit message format and trailers before or after committing:
+4. Validate commit message format and trailers directly:
    - File: `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh validate-commit <file>`
    - Head: `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh validate-commit --head`
-4. Create annotated release tag after the `Done` commit is clean:
+5. Create annotated release tag after the `Done` commit is clean:
    `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh tag <version>`
-5. Transition the card on GitHub Project Board #8:
+6. Transition the card on GitHub Project Board #8:
    `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh close-board <ITEM_ID>`
