@@ -1,33 +1,17 @@
 ---
 name: frontal-wiki-sync
-description: Audit, synchronize, and commit architectural documentation in the local .wiki repository mirror.
+description: Audits invariant tokens, verifies Cargo.toml version parity, and commits documentation updates in the local .wiki/ mirror. Use when editing wiki pages or before committing Card-Status: In Review or Done.
 ---
 
-# Frontal Wiki Sync Skill
+## Mirror Governance
+- Commits declaring `Card-Status: In Review` or `Card-Status: Done` require a clean `.wiki/` working tree.
+- Keep package versions in `Home.md`, `Frontal-Architecture.md`, and `Board-Roadmap.md` aligned with `Cargo.toml`.
+- Keep `.wiki/*.md` free of extinct legacy tokens checked by `tests/domains/architecture.rs`.
 
-Automates synchronization and invariant auditing of the local GitHub Wiki mirror (`.wiki/`), ensuring strict compliance with repository pre-commit hooks and `architecture.rs` metadata invariants.
-
-## Wiki Mirror Governance Rules
-
-1. **Pre-review audit**: Commits declaring `Card-Status: In Review` or `Card-Status: Done` strictly require a clean `.wiki/` working tree.
-2. **Extinct token prevention**: Wiki documentation must not reference extinct tokens or outdated legacy nomenclature.
-3. **Version parity**: Active package versions in `Home.md`, `Frontal-Architecture.md`, and `Board-Roadmap.md` must stay aligned with `Cargo.toml`.
-
-## Usage
-
-Execute commands via the bundled runner script from the repository root:
-
-Check working tree status of the `.wiki/` mirror:
-```bash
-.agents/skills/frontal-wiki-sync/scripts/wiki_sync.sh status
-```
-
-Verify invariant tokens and uncommitted changes:
-```bash
-.agents/skills/frontal-wiki-sync/scripts/wiki_sync.sh check
-```
-
-Stage and commit documentation updates in the `.wiki/` mirror:
-```bash
-.agents/skills/frontal-wiki-sync/scripts/wiki_sync.sh commit "update architecture docs for card #<id>"
-```
+## Execution & Verification
+1. Inspect `.wiki/` working tree status:
+   `.agents/skills/frontal-wiki-sync/scripts/wiki_sync.sh status`
+2. Stage and commit pending `.wiki/` updates when present:
+   `.agents/skills/frontal-wiki-sync/scripts/wiki_sync.sh commit "update architecture docs for card #<id>"`
+3. Verify clean mirror state, invariant tokens, and version parity (must exit `0`):
+   `.agents/skills/frontal-wiki-sync/scripts/wiki_sync.sh check`

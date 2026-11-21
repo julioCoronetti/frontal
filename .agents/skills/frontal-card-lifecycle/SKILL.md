@@ -1,52 +1,44 @@
 ---
 name: frontal-card-lifecycle
-description: Manage card closure routines, SemVer bumping rules, annotated release tagging, and GitHub Project Board #8 transitions.
+description: Validates commit messages and trailers, bumps SemVer versions, creates annotated release tags, and transitions cards on GitHub Project Board #8. Use before committing, when closing a card, or when preparing a release.
 ---
 
-# Frontal Card Lifecycle Skill
+## Card Workflow
+1. On card kickoff (`Todo` -> `In Progress`), run `~/.gemini/config/scripts/advisor.sh -m design -f <file>... "<objective and context>"`.
+2. Implement in minimal test-driven slices, running `.agents/skills/frontal-quality-gate/scripts/quality_gate.sh` and committing each slice with `Card-Status: In Progress`.
+3. Keep `version` in `Cargo.toml` unchanged during `Card-Status: In Progress` commits.
+4. On completion of all slices, ensure `.wiki/` is clean via `.agents/skills/frontal-wiki-sync/scripts/wiki_sync.sh check` and run adversarial diff review via `~/.gemini/config/scripts/advisor.sh -m review -d -f <file>... "<objective and context>"` before committing with `Card-Status: In Review` (commits with `Reviewed-By: Argon-Advisor <mode:none>` are rejected for `In Review`).
+5. After explicit operator authorization, bump SemVer in the closing commit (`Card-Status: Done`), create the annotated tag `vX.Y.Z`, and transition the Project Board #8 item to `Done`:
+   - Patch (`0.20.x`): `fix(...)` or pure `refactor(...)`.
+   - Minor (`0.x.0`): structural feature cards.
+   - Keep CLI (`frontal --version` / `-V`) and TUI (`/help`) versions identical.
 
-Standardizes card finalization on GitHub Project Board #8 in accordance with `AGENTS.md` and repository governance.
+## Commit Governance
+- Allowed types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`.
+- Allowed scopes: `config`, `protocol`, `transport`, `engine`, `session`, `cli`, `ui/app`, `ui/cache`, `ui/editor`, `ui/markdown`, `ui/modal`, `ui/tab`, `ui/viewport`, `tests`, `agents`, `wiki`.
+- Format every commit message strictly as:
+```text
+<type>(<scope>): <imperative summary in english, max 72 chars>
 
-## SemVer Governance Rules
+- Why: <technical justification or root cause>
+- What: <concise summary of structural or behavioral changes>
+- Invariants: <preserved invariants: L1/L2 cache, O(1) TabState Deref, POSIX pgid, etc.>
 
-1. **In Progress commits**: Modifying `version` in `Cargo.toml` is strictly forbidden during active implementation.
-2. **Done commit only**: Version increments occur exclusively in the final closing commit (`Card-Status: Done`) authorized explicitly by the Senhor:
-   - **Patch (`0.9.x`)**: Bug fixes (`fix(...)`) or pure refactorings (`refactor(...)`).
-   - **Minor (`0.x.0`)**: Closing structural feature cards from the Project Board.
-3. **Annotated Tag**: Every closing commit must immediately include an annotated Git tag (`git tag -a vX.Y.Z -m "Release vX.Y.Z"`).
-4. **Project Board Sync**: Update card state to `Done` on GitHub Project Board #8 via canonical `gh project item-edit` parameters.
-
-## Usage
-
-Execute commands via the bundled runner script from the repository root:
-
-Inspect active version and board state:
-```bash
-.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh check
+Refs: #<card_or_issue>
+Card-Status: <In Progress | In Review | Done>
+Reviewed-By: Argon-Advisor <mode:none|review|design|troubleshoot|deep-dive|refine>
 ```
 
-Bump patch version in `Cargo.toml` and synchronize `Cargo.lock`:
-```bash
-.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh bump-patch
-```
-
-Bump minor version in `Cargo.toml` and synchronize `Cargo.lock`:
-```bash
-.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh bump-minor
-```
-
-Create annotated Git release tag:
-```bash
-.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh tag <version>
-```
-
-Transition item to `Done` on GitHub Project Board #8:
-```bash
-.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh close-board <ITEM_ID>
-```
-
-Validate commit message format and trailers:
-```bash
-.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh validate-commit --head
-.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh validate-commit <file>
-```
+## Execution & Verification
+1. Inspect active version and repository state:
+   `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh check`
+2. Bump version only on authorized `Done` release:
+   - Patch: `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh bump-patch`
+   - Minor: `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh bump-minor`
+3. Validate commit message format and trailers before or after committing:
+   - File: `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh validate-commit <file>`
+   - Head: `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh validate-commit --head`
+4. Create annotated release tag after the `Done` commit is clean:
+   `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh tag <version>`
+5. Transition the card on GitHub Project Board #8:
+   `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh close-board <ITEM_ID>`

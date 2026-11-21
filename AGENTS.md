@@ -1,74 +1,33 @@
-## Project Context
-- Project: Frontal — asynchronous, decoupled Terminal User Interface (TUI) harness in Rust for Antigravity CLI (`agy`) and `stream-json` compatible engines.
-- Status: Production architecture at version `0.20.0`, verified by 276 tests across 8 hermetic domains on branch `main`, evolving via GitHub Project Board #8.
-- Stack: `tokio`, `tokio-util`, `bytes`, `futures-util`, `serde`, `serde_json`, `libc`, `ratatui` (0.29), `crossterm` (0.28), `pulldown-cmark` (0.12), `syntect` (5.2), `ropey` (1.6), `rusqlite` (0.32), `arboard` (3.4).
-- Branches: `main` (active) and `origin/legacy` (Python/Textual prototype).
-- Do not add external dependencies to this single-crate repository without explicit operator authorization.
+## Guardrails
+- Never add external crate dependencies to `Cargo.toml` (package version `0.20.0`) without explicit authorization.
+- Keep `Cargo.toml` version `0.20.0` immutable during `Card-Status: In Progress` commits; bump patch (`0.20.x`) or minor (`0.x.0`) only in an authorized `Card-Status: Done` commit with an annotated `vX.Y.Z` tag and identical CLI (`-V`) and TUI (`/help`) versions.
+- Enforce a 500-line ceiling per `.rs` file (partition larger modules with public re-exports) and zero comments, `#[doc]`/`#![doc]` attributes, `#[rustfmt::skip]`, or `include!`/`include_str!`/`include_bytes!` macros in Rust source files.
+- Limit every commit to 1 logical change touching at most 5 modified files (unless `ATOMIC_OVERRIDE=1`) and ensure `.wiki/` has a clean working tree before committing `Card-Status: In Review` or `Done`.
 
-## Engineering Standards
-- Never write comments in source files; place all documentation in git commit messages, GitHub Wiki, or `.agents/docs/`.
-- Enforce a strict ceiling of 500 lines per `.rs` file; partition larger files into cohesive submodules with public re-exports.
-- Pass `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` with zero warnings, and all 276 tests cleanly.
+## Commands
+- Full quality gate (atomic check, `fmt`, `clippy -D warnings`, 276 tests): `.agents/skills/frontal-quality-gate/scripts/quality_gate.sh`
+- Full integration test harness (276 tests across 8 domains in `tests/suite.rs`): `cargo test --quiet`
+- Architecture invariants (`tests/domains/architecture.rs`, 4 tests): `cargo test --test suite domains::architecture`
+- Protocol & CLI (`tests/domains/protocol_and_cli.rs`, 21 tests): `cargo test --test suite domains::protocol_and_cli`
+- Engine & session (`tests/domains/engine_and_session/`, 35 tests): `cargo test --test suite domains::engine_and_session`
+- Cache & markdown (`tests/domains/cache_and_markdown/`, 30 tests): `cargo test --test suite domains::cache_and_markdown`
+- Viewport & clipboard (`tests/domains/viewport_and_clipboard.rs`, 16 tests): `cargo test --test suite domains::viewport_and_clipboard`
+- Editor & SQLite history (`tests/domains/editor_and_history/`, 36 tests): `cargo test --test suite domains::editor_and_history`
+- Tabs & modals (`tests/domains/tabs_and_modals/`, 94 tests): `cargo test --test suite domains::tabs_and_modals`
+- End-to-end TUI (`tests/domains/tui_integration/`, 40 tests): `cargo test --test suite domains::tui_integration`
 
-## Architectural Invariants
-- Store immutable AST (`MessageBlock` with styled spans) in Level 1 of the 2-level render cache and formatted visual lines indexed by `(width, revision)` in Level 2; invalidate only Level 2 on resizes or block toggles and emit streaming deltas at 60 FPS without re-parsing history.
-- Never execute synchronous disk I/O, persistence, or process scans inside the async `tokio::select!` event loop in `src/ui/mod.rs`.
-- Encapsulate every session's state in `TabState`, reference the active tab in `App` via O(1) indexing and a `Deref`/`DerefMut` bridge without memory swaps, and process all stream events uniformly via `TabState::apply_stream_event`.
-- Spawn every subprocess (`agy`) in a dedicated process group (`setpgid(0, 0)`) with `PR_SET_PDEATHSIG(libc::SIGTERM)`, and terminate via ordered `killpg` escalation (`SIGINT` -> `SIGTERM` -> `SIGKILL`).
-- Isolate test side effects using `PromptHistory::open_in_memory()` for database fixtures and `SystemClipboard::new_isolated()` for clipboard tests.
+## Invariants & Traps
+- Store immutable AST (`MessageBlock` with styled spans) in RenderCache L1 and width-wrapped visual lines indexed by `(width, revision)` in L2; invalidate only L2 on resize or block toggle to sustain 60 FPS streaming without re-parsing history.
+- Never execute synchronous disk I/O, SQLite queries, or subprocess scans inside the `tokio::select!` event loop in `src/ui/mod.rs`.
+- Encapsulate per-session state in `TabState`, access the active tab in `App` via O(1) index and `Deref`/`DerefMut` without memory swaps, and route all stream events through `TabState::apply_stream_event`.
+- Spawn every child engine subprocess in a dedicated POSIX process group (`setpgid(0, 0)`) with `PR_SET_PDEATHSIG(libc::SIGTERM)` and terminate via ordered `killpg` escalation (`SIGINT` -> `SIGTERM` -> `SIGKILL`).
+- Isolate test fixtures with `PromptHistory::open_in_memory()` and `SystemClipboard::new_isolated()`.
 
-## Integration Test Suite
-- `tests/suite.rs`: Canonical single-crate test harness validating all 8 architectural domains.
-- `tests/domains/architecture.rs`: Architectural mechanical invariants (4 tests).
-- `tests/domains/protocol_and_cli.rs`: Protocol `stream-json`, NDJSON, and CLI (21 tests).
-- `tests/domains/engine_and_session/`: Subprocess `agy`, fixtures, POSIX isolation, `OpenCodeEngine` turns, and multimodal payloads (35 tests).
-- `tests/domains/cache_and_markdown/`: RenderCache L1/L2 and Markdown (30 tests).
-- `tests/domains/viewport_and_clipboard.rs`: Sticky scroll, clean selection, and clipboard (16 tests).
-- `tests/domains/editor_and_history/`: Editor `ropey`, media clipboard PNG, and SQLite WAL history (36 tests).
-- `tests/domains/tabs_and_modals/`: Multi-session and modal dialogs (94 tests).
-- `tests/domains/tui_integration/`: End-to-end TUI integration (40 tests).
-
-## On-Demand Resources
-- `.agents/skills/frontal-quality-gate`: Runs the canonical Cargo triad (`fmt`, `clippy`, and 276 tests) and verifies architectural invariants.
-- `.agents/skills/frontal-card-lifecycle`: Manages card closure workflows, SemVer bumping, release tags, and Project Board #8 transitions.
-- `.agents/skills/frontal-wiki-sync`: Audits invariant tokens, prevents extinct legacy terms, and commits to the `.wiki/` mirror.
-- `.agents/docs/multi_harness_architecture.md`: Multi-harness architecture specification and implementation plan (`Agy` and `OpenCode`).
-- `.agents/docs/structure.md`: Comprehensive module layout for core and UI crates.
-- `.agents/docs/sources.md`: GitHub, Wiki, and technical dossier references (`agy`, `OpenCode`).
-- `.agents/docs/subagents.md`: Guidelines, profiles, and anti-patterns for subagent delegation.
-
-## Quality Gate
-- Run `.agents/skills/frontal-quality-gate/scripts/quality_gate.sh` before every commit to enforce `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test --quiet` (276 tests passing).
-- Limit each commit to 1 indivisible logical change touching at most 5 modified files (unless `ATOMIC_OVERRIDE=1`).
-
-## Commit Governance
-- Validate commit messages and trailers via `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh validate-commit`.
-- Reject `Card-Status: In Review` when `Reviewed-By: Argon-Advisor <mode:none>` is used; prior Argon Advisor audit is mandatory.
-- Ensure the `.wiki/` documentation mirror is clean before committing `Card-Status: In Review` or `Done`.
-- Allowed types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`.
-- Allowed scopes: `config`, `protocol`, `transport`, `engine`, `session`, `cli`, `ui/app`, `ui/cache`, `ui/editor`, `ui/markdown`, `ui/modal`, `ui/tab`, `ui/viewport`, `tests`, `agents`, `wiki`.
-- Format every commit message strictly as:
-```text
-<type>(<scope>): <imperative summary in english, max 72 chars>
-
-- Why: <technical justification or root cause>
-- What: <concise summary of structural or behavioral changes>
-- Invariants: <preserved invariants: L1/L2 cache, O(1) TabState Deref, POSIX pgid, etc.>
-
-Refs: #<card_or_issue>
-Card-Status: <In Progress | In Review | Done>
-Reviewed-By: Argon-Advisor <mode:none|review|design|troubleshoot|deep-dive|refine>
-```
-
-## SemVer Policy
-- Maintain SemVer `0.y.z`; version `0.20.0` represents production consolidation.
-- Never modify `version` in `Cargo.toml` during intermediate commits (`Card-Status: In Progress`).
-- Bump `version` exclusively in the closing commit (`Card-Status: Done`) after explicit authorization from the Senhor: patch (`0.20.x`) for `fix(...)` or pure `refactor(...)`, minor (`0.x.0`) for structural feature cards.
-- Tag every closing commit immediately with an annotated Git tag (`git tag -a vX.Y.Z -m "Release vX.Y.Z"`).
-- Keep CLI (`frontal --version` / `frontal -V`) and TUI (`/help`) versions identical.
-
-## Card Workflow
-- On card kickoff (`Todo` -> `In Progress`), run `~/.gemini/config/scripts/advisor.sh -m design -f <file>... "<objective and context>"`.
-- Implement in minimal test-driven slices, running `.agents/skills/frontal-quality-gate/scripts/quality_gate.sh` and committing each slice with `Card-Status: In Progress`.
-- On completion of all slices, run adversarial diff review via `~/.gemini/config/scripts/advisor.sh -m review -d -f <file>... "<objective and context>"` before committing with `Card-Status: In Review`.
-- After explicit operator authorization, run `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh` to bump SemVer, commit `Card-Status: Done`, create tag `vX.Y.Z`, and transition the Project Board #8 card to `Done`.
+## Documentation & Knowledge Index
+- Pre-commit verification or test/linter failures: follow `.agents/skills/frontal-quality-gate/SKILL.md`.
+- Commit message formatting, trailer validation, card lifecycle, SemVer bumps, release tagging, or Project Board #8 transitions: follow `.agents/skills/frontal-card-lifecycle/SKILL.md`.
+- Auditing or committing `.wiki/` documentation mirror updates: follow `.agents/skills/frontal-wiki-sync/SKILL.md`.
+- Multi-harness engine lifecycle, `AgyEngine`/`OpenCodeEngine` contracts, or `/model` and `/quota` modals: read `.agents/docs/multi_harness_architecture.md` before modifying `src/core/protocol/` or `src/infra/engine/`.
+- Module layout across `src/core/`, `src/infra/`, `src/ui/`, and `tests/`: read `.agents/docs/structure.md` when locating subsystem boundaries.
+- Subagent delegation criteria and context-asymmetry rules: read `.agents/docs/subagents.md` before invoking subagents.
+- External GitHub Wiki dossiers (`Agy`, `OpenCode`, `Frontal-Architecture`) and Project Board #8 URLs: read `.agents/docs/sources.md`.
