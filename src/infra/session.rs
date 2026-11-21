@@ -369,6 +369,14 @@ impl SessionManager {
                         if let Some(conv_id) = &init_ev.conversation_id {
                             handle.metadata.conversation_id = Some(conv_id.clone());
                         }
+                        if let Some(effective_mode) = init_ev
+                            .init
+                            .as_ref()
+                            .and_then(|init| init.permission_mode.as_deref())
+                            .and_then(BackendKind::normalize_mode)
+                        {
+                            handle.metadata.mode = Some(effective_mode.to_string());
+                        }
                         handle.metadata.status = SessionStatus::Ready;
                     }
                     StreamEvent::Result(res_ev) => {

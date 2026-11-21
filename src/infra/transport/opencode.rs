@@ -60,13 +60,23 @@ pub fn build_opencode_payload_args(
     session_id: Option<&str>,
     payload: &PromptPayload,
 ) -> Vec<String> {
+    let normalized_mode = config
+        .mode
+        .as_deref()
+        .and_then(crate::config::BackendKind::normalize_mode);
     let mut args = vec![
         "run".to_string(),
         "--format".to_string(),
         "json".to_string(),
         "--thinking".to_string(),
-        "--auto".to_string(),
     ];
+    if config.allows_auto_permissions() {
+        args.push("--auto".to_string());
+    }
+    if normalized_mode == Some("plan") {
+        args.push("--agent".to_string());
+        args.push("plan".to_string());
+    }
     if let Some(model) = config.model.as_deref() {
         let resolved_model = model_with_variant(model, config.effort.as_deref());
         if !resolved_model.is_empty() {

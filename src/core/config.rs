@@ -24,6 +24,37 @@ impl BackendKind {
             _ => Self::Agy,
         }
     }
+
+    pub fn normalize_mode(raw: &str) -> Option<&'static str> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "auto" => Some("auto"),
+            "plan" => Some("plan"),
+            "accept-edits" | "accept_edits" => Some("accept-edits"),
+            _ => None,
+        }
+    }
+
+    pub fn supported_modes(&self) -> &'static [(&'static str, &'static str)] {
+        match self {
+            Self::Agy => &[
+                ("auto", "Autonomous execution"),
+                ("plan", "Read-only planning & architecture"),
+                ("accept-edits", "Auto-accept file edits"),
+            ],
+            Self::OpenCode => &[
+                ("auto", "Autonomous execution (Build agent)"),
+                ("plan", "Read-only planning (Plan agent)"),
+            ],
+        }
+    }
+
+    pub fn supports_mode(&self, mode: &str) -> bool {
+        Self::normalize_mode(mode).is_some_and(|canonical| {
+            self.supported_modes()
+                .iter()
+                .any(|(id, _)| *id == canonical)
+        })
+    }
 }
 
 pub const DEFAULT_MODEL: &str = "gemini-3.8-flash-high";
@@ -39,6 +70,15 @@ pub struct UserConfig {
     pub isolated: bool,
     pub context_windows: Vec<(String, u64)>,
     pub needs_repair: bool,
+}
+
+pub fn sanitize_config_token(raw: &str) -> String {
+    raw.trim()
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
+        .collect::<String>()
+        .trim_matches(|ch: char| !ch.is_ascii_alphanumeric())
+        .to_ascii_lowercase()
 }
 
 pub fn sanitize_model_id(raw: &str) -> String {
@@ -158,10 +198,28 @@ impl UserConfig {
                     }
                 }
                 "effort" if !v.is_empty() => {
-                    self.effort = v.to_string();
+                    let sanitized = sanitize_config_token(v);
+                    if !sanitized.is_empty() {
+                        if sanitized != v {
+                            self.needs_repair = true;
+                        }
+                        self.effort = sanitized;
+                    } else {
+                        self.needs_repair = true;
+                    }
                 }
                 "mode" if !v.is_empty() => {
-                    self.mode = v.to_string();
+                    let sanitized = BackendKind::normalize_mode(v)
+                        .map(str::to_string)
+                        .unwrap_or_else(|| sanitize_config_token(v));
+                    if !sanitized.is_empty() {
+                        if sanitized != v {
+                            self.needs_repair = true;
+                        }
+                        self.mode = sanitized;
+                    } else {
+                        self.needs_repair = true;
+                    }
                 }
                 "backend" if !v.is_empty() => {
                     self.backend = BackendKind::parse(v);
@@ -188,11 +246,16 @@ impl UserConfig {
     }
 
     pub fn to_toml(&self) -> String {
+        let model = sanitize_model_id(&self.model);
+        let effort = sanitize_config_token(&self.effort);
+        let mode = BackendKind::normalize_mode(&self.mode)
+            .map(str::to_string)
+            .unwrap_or_else(|| sanitize_config_token(&self.mode));
         let mut payload = format!(
             "model = \"{}\"\neffort = \"{}\"\nmode = \"{}\"\nbackend = \"{}\"\n",
-            self.model,
-            self.effort,
-            self.mode,
+            model,
+            effort,
+            mode,
             self.backend.as_str()
         );
         if !self.context_windows.is_empty() {

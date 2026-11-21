@@ -296,9 +296,19 @@ impl EngineConfig {
         args
     }
 
+    pub fn allows_auto_permissions(&self) -> bool {
+        self.dangerously_skip_permissions
+            && self
+                .mode
+                .as_deref()
+                .and_then(BackendKind::normalize_mode)
+                .unwrap_or(crate::config::DEFAULT_MODE)
+                == "auto"
+    }
+
     pub fn build_acp_args(&self) -> Vec<String> {
         let mut args = vec!["acp".to_string(), "--stdio".to_string()];
-        if self.dangerously_skip_permissions {
+        if self.allows_auto_permissions() {
             args.push("--dangerously-skip-permissions".to_string());
         }
         args.extend(self.extra_args.clone());
