@@ -1,12 +1,31 @@
 use serde_json::{json, Value};
+use tokio::io::AsyncWriteExt;
+use tokio::process::ChildStdin;
+use tokio::sync::mpsc;
 
 use crate::transport::EngineConfig;
+
+pub(super) fn spawn_stdin_writer(mut stdin: ChildStdin) -> mpsc::UnboundedSender<String> {
+    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    tokio::spawn(async move {
+        while let Some(line) = rx.recv().await {
+            if stdin.write_all(line.as_bytes()).await.is_err() {
+                break;
+            }
+            if stdin.flush().await.is_err() {
+                break;
+            }
+        }
+    });
+    tx
+}
 
 pub(super) fn collect_setup_requests(
     sid: &str,
     res: &Value,
     config: &EngineConfig,
     served_model: &mut Option<String>,
+    served_mode: &mut Option<String>,
 ) -> Vec<(&'static str, Value)> {
     let mut out = Vec::new();
     let current_model = res
@@ -75,16 +94,36 @@ pub(super) fn collect_setup_requests(
         }
     }
 
-    if let Some(mode) = config.mode.as_deref() {
-        if option_supports(res, "mode", mode) && current_option(res, "mode") != Some(mode) {
-            out.push((
-                "session/set_config_option",
-                json!({ "sessionId": sid, "configId": "mode", "value": mode }),
-            ));
+    if let Some(raw_mode) = config.mode.as_deref() {
+        let mode = crate::config::BackendKind::normalize_mode(raw_mode).unwrap_or(raw_mode);
+        let resolved_mode = if option_supports(res, "mode", mode) {
+            Some(mode)
+        } else if mode == "accept-edits" && option_supports(res, "mode", "default") {
+            Some("default")
+        } else {
+            None
+        };
+        if let Some(wire_mode) = resolved_mode {
+            *served_mode = Some(mode.to_string());
+            if current_option(res, "mode") != Some(wire_mode) {
+                out.push((
+                    "session/set_config_option",
+                    json!({ "sessionId": sid, "configId": "mode", "value": wire_mode }),
+                ));
+            }
+        } else {
+            *served_mode = Some(current_mode_fallback(res));
         }
     }
 
     out
+}
+
+pub(super) fn current_mode_fallback(res: &Value) -> String {
+    current_option(res, "mode")
+        .and_then(crate::config::BackendKind::normalize_mode)
+        .unwrap_or(crate::config::DEFAULT_MODE)
+        .to_string()
 }
 
 fn find_config_option<'a>(res: &'a Value, config_id: &str) -> Option<&'a Value> {

@@ -1,11 +1,10 @@
 use serde_json::{json, Value};
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
-use tokio::io::AsyncWriteExt;
 use tokio::process::ChildStdin;
 use tokio::sync::{mpsc, RwLock};
 
-use super::setup::collect_setup_requests;
+use super::setup::{collect_setup_requests, current_mode_fallback, spawn_stdin_writer};
 use super::{AcpCommand, WireEvent};
 use crate::protocol::acp::{
     format_method_not_found, format_permission_response, parse_prompt_result, parse_session_update,
@@ -39,6 +38,8 @@ pub(super) struct CoordinatorCtx {
     phase: HandshakePhase,
     acp_session_id: Option<String>,
     served_model: Option<String>,
+    served_mode: Option<String>,
+    mode_setup_fallback: Option<(u64, String)>,
     stream_state: AcpStreamState,
     buffered_updates: Vec<StreamEvent>,
     active_prompt_id: Option<u64>,
@@ -56,6 +57,7 @@ impl CoordinatorCtx {
         sender: mpsc::Sender<SessionEnvelope>,
     ) -> Self {
         let served_model = config.model.clone();
+        let served_mode = config.mode.clone();
         let stdin_tx = stdin.map(spawn_stdin_writer);
         Self {
             session_id,
@@ -69,6 +71,8 @@ impl CoordinatorCtx {
             phase: HandshakePhase::InitSent(1),
             acp_session_id: None,
             served_model,
+            served_mode,
+            mode_setup_fallback: None,
             stream_state: AcpStreamState::default(),
             buffered_updates: Vec::new(),
             active_prompt_id: None,
@@ -102,10 +106,31 @@ impl CoordinatorCtx {
         }
     }
 
+    fn allows_auto_permissions(&self) -> bool {
+        self.config.dangerously_skip_permissions
+            && self
+                .served_mode
+                .as_deref()
+                .or(self.config.mode.as_deref())
+                .and_then(crate::config::BackendKind::normalize_mode)
+                .unwrap_or(crate::config::DEFAULT_MODE)
+                == "auto"
+    }
+
+    async fn send_stream_event(&self, ev: StreamEvent) {
+        let _ = self
+            .sender
+            .send(SessionEnvelope {
+                session_id: self.session_id.clone(),
+                event: EngineEvent::Stream(Box::new(ev)),
+            })
+            .await;
+    }
+
     async fn handle_incoming(&mut self, incoming: AcpIncoming) {
         match incoming {
             AcpIncoming::PermissionRequest { id, options, .. } => {
-                let opt = if self.config.dangerously_skip_permissions {
+                let opt = if self.allows_auto_permissions() {
                     select_permission_option_id(&options)
                 } else {
                     None
@@ -124,13 +149,7 @@ impl CoordinatorCtx {
                     if let Some(ev) = parse_session_update(&params, &mut self.stream_state) {
                         match self.phase {
                             HandshakePhase::Ready => {
-                                let _ = self
-                                    .sender
-                                    .send(SessionEnvelope {
-                                        session_id: self.session_id.clone(),
-                                        event: EngineEvent::Stream(Box::new(ev)),
-                                    })
-                                    .await;
+                                self.send_stream_event(ev).await;
                             }
                             HandshakePhase::SetupPending(_) => {
                                 self.buffered_updates.push(ev);
@@ -209,7 +228,15 @@ impl CoordinatorCtx {
             }
             HandshakePhase::SetupPending(pending) if pending.contains(&id) => {
                 pending.remove(&id);
+                if error.is_some() {
+                    if let Some((mode_id, fallback)) = self.mode_setup_fallback.take() {
+                        if mode_id == id {
+                            self.served_mode = Some(fallback);
+                        }
+                    }
+                }
                 if pending.is_empty() {
+                    self.mode_setup_fallback = None;
                     self.complete_ready().await;
                 }
             }
@@ -260,13 +287,7 @@ impl CoordinatorCtx {
                     ..Default::default()
                 }),
             });
-            let _ = self
-                .sender
-                .send(SessionEnvelope {
-                    session_id: self.session_id.clone(),
-                    event: EngineEvent::Stream(Box::new(err_result)),
-                })
-                .await;
+            self.send_stream_event(err_result).await;
         }
     }
 
@@ -298,17 +319,32 @@ impl CoordinatorCtx {
             *guard = sid.clone();
         }
 
+        let mode_fallback = result.map(current_mode_fallback);
         let setup_reqs = match result {
-            Some(res) => collect_setup_requests(&sid, res, &self.config, &mut self.served_model),
+            Some(res) => collect_setup_requests(
+                &sid,
+                res,
+                &self.config,
+                &mut self.served_model,
+                &mut self.served_mode,
+            ),
             None => Vec::new(),
         };
 
         if setup_reqs.is_empty() {
             self.complete_ready().await;
         } else {
+            self.mode_setup_fallback = None;
             let mut pending = HashSet::with_capacity(setup_reqs.len());
             for (method, params) in setup_reqs {
                 let req_id = self.alloc_id();
+                if method == "session/set_config_option"
+                    && params.get("configId").and_then(Value::as_str) == Some("mode")
+                {
+                    if let Some(fb) = mode_fallback.clone() {
+                        self.mode_setup_fallback = Some((req_id, fb));
+                    }
+                }
                 pending.insert(req_id);
                 let req = AcpRequest::new(req_id, method, params);
                 let _ = self.write_request(&req);
@@ -324,26 +360,18 @@ impl CoordinatorCtx {
             init: Some(InitData {
                 cwd: Some(self.cwd.clone()),
                 tools: Vec::new(),
-                permission_mode: self.config.mode.clone(),
+                permission_mode: self
+                    .served_mode
+                    .clone()
+                    .or_else(|| self.config.mode.clone()),
                 model: self.served_model.clone(),
                 context_window: self.stream_state.context_window_hint,
             }),
         });
-        let _ = self
-            .sender
-            .send(SessionEnvelope {
-                session_id: self.session_id.clone(),
-                event: EngineEvent::Stream(Box::new(init_ev)),
-            })
-            .await;
-        for ev in self.buffered_updates.drain(..) {
-            let _ = self
-                .sender
-                .send(SessionEnvelope {
-                    session_id: self.session_id.clone(),
-                    event: EngineEvent::Stream(Box::new(ev)),
-                })
-                .await;
+        self.send_stream_event(init_ev).await;
+        let buffered: Vec<_> = self.buffered_updates.drain(..).collect();
+        for ev in buffered {
+            self.send_stream_event(ev).await;
         }
         self.dispatch_next_prompt();
     }
@@ -370,21 +398,6 @@ impl CoordinatorCtx {
         );
         let _ = self.write_request(&req);
     }
-}
-
-fn spawn_stdin_writer(mut stdin: ChildStdin) -> mpsc::UnboundedSender<String> {
-    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
-    tokio::spawn(async move {
-        while let Some(line) = rx.recv().await {
-            if stdin.write_all(line.as_bytes()).await.is_err() {
-                break;
-            }
-            if stdin.flush().await.is_err() {
-                break;
-            }
-        }
-    });
-    tx
 }
 
 pub(super) async fn run_coordinator(

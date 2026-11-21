@@ -128,7 +128,13 @@ impl App {
             .unwrap_or(self.tabs[0].backend);
         let model = Some(self.active_model_name());
         let effort = Some(self.active_effort_name());
-        let mode = Some(self.active_mode_name());
+        let active_mode = self.active_mode_name();
+        let mode = Some(
+            BackendKind::normalize_mode(&active_mode)
+                .filter(|m| prev_backend.supports_mode(m))
+                .unwrap_or(crate::config::DEFAULT_MODE)
+                .to_string(),
+        );
 
         self.pending_engine_prompts
             .retain(|(sid, _)| sid != &old_id);
@@ -147,14 +153,16 @@ impl App {
             let mut config = base_engine_config.unwrap_or_default();
             config.backend = prev_backend;
             config.conversation_id = None;
-            config.model = model;
-            config.effort = effort;
-            config.mode = mode;
+            config.model = model.clone();
+            config.effort = effort.clone();
+            config.mode = mode.clone();
             match self.session_manager.create_subprocess_session(config).await {
                 Ok(id) => id,
                 Err(_) => {
                     let id = SessionId::new();
                     self.session_manager.register_mock_session(id.clone());
+                    self.session_manager
+                        .set_session_metadata(&id, None, model, effort, mode);
                     id
                 }
             }
@@ -195,6 +203,8 @@ impl App {
                 meta.and_then(|m| m.mode.clone()),
             )
         };
+        self.pending_engine_prompts
+            .retain(|(sid, _)| sid != &old_id);
         let _ = self
             .session_manager
             .shutdown_session(&old_id, std::time::Duration::from_millis(500))
@@ -213,9 +223,6 @@ impl App {
         });
         let is_explicit_config_change = conversation_id.is_none();
         let target_backend = requested_backend.unwrap_or(self.user_config.backend);
-        if let Some(backend) = requested_backend {
-            self.user_config.backend = backend;
-        }
         let backend_changed = target_backend != prev_backend;
         let final_conv_id = match conversation_id {
             Some(id) => Some(id),
@@ -300,10 +307,58 @@ impl App {
                 (!has_hydrated_model && user_fallback_model.is_some())
                     .then(|| self.user_config.effort.clone())
             });
-        let final_mode = mode
-            .or((!is_different_conv).then_some(prev_mode).flatten())
-            .or_else(|| Some(self.user_config.mode.clone()));
+        let requested_mode = mode
+            .map(|value| {
+                BackendKind::normalize_mode(&value)
+                    .map(str::to_string)
+                    .unwrap_or(value)
+            })
+            .filter(|value| target_backend.supports_mode(value));
+        let inherited_prev_mode = (!is_different_conv && !backend_changed)
+            .then_some(prev_mode)
+            .flatten()
+            .filter(|value| was_replay || target_backend.supports_mode(value))
+            .map(|value| {
+                if was_replay {
+                    value
+                } else {
+                    BackendKind::normalize_mode(&value)
+                        .map(str::to_string)
+                        .unwrap_or(value)
+                }
+            });
+        let fallback_mode = BackendKind::normalize_mode(&self.user_config.mode)
+            .filter(|mode| target_backend.supports_mode(mode))
+            .unwrap_or(crate::config::DEFAULT_MODE)
+            .to_string();
+        let final_mode = requested_mode
+            .or(inherited_prev_mode)
+            .or(Some(fallback_mode));
 
+        let new_id = if was_replay {
+            let id = SessionId::new();
+            self.session_manager.register_mock_session_with_metadata(
+                id.clone(),
+                final_conv_id.clone(),
+                final_model.clone(),
+                final_effort.clone(),
+                final_mode.clone(),
+            );
+            id
+        } else {
+            let mut config = base_engine_config.unwrap_or_default();
+            config.backend = target_backend;
+            config.conversation_id = final_conv_id.clone();
+            config.model = final_model.clone();
+            config.effort = final_effort.clone();
+            config.mode = final_mode.clone();
+            self.session_manager
+                .create_subprocess_session(config)
+                .await?
+        };
+        if let Some(backend) = requested_backend {
+            self.user_config.backend = backend;
+        }
         if is_explicit_config_change {
             if let Some(m) = &final_model {
                 self.user_config.model = m.clone();
@@ -317,28 +372,6 @@ impl App {
             let config_to_save = self.user_config.clone();
             let _ = tokio::task::spawn_blocking(move || config_to_save.save()).await;
         }
-
-        let new_id = if was_replay {
-            let id = SessionId::new();
-            self.session_manager.register_mock_session_with_metadata(
-                id.clone(),
-                final_conv_id.clone(),
-                final_model,
-                final_effort,
-                final_mode,
-            );
-            id
-        } else {
-            let mut config = base_engine_config.unwrap_or_default();
-            config.backend = target_backend;
-            config.conversation_id = final_conv_id.clone();
-            config.model = final_model;
-            config.effort = final_effort;
-            config.mode = final_mode;
-            self.session_manager
-                .create_subprocess_session(config)
-                .await?
-        };
         self.active_session = new_id.clone();
         self.session_manager.set_active_session(new_id.clone());
         self.tabs[tab_idx].session_id = new_id.clone();
