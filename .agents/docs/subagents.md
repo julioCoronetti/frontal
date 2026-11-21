@@ -43,4 +43,4 @@ Delegation to subagents is justified only under **context asymmetry**: tasks wit
    - Subagents must not edit files or attempt concurrent commits in the shared working tree, preventing lock collisions (`.git/index.lock` and `target/`).
 
 3. **Unauthorized Network Operations**:
-   - Subagents must not perform external network calls without prior explicit authorization from the Senhor.
+   - Subagents must not perform external network calls without prior explicit operator authorization.
