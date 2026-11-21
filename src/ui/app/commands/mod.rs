@@ -79,6 +79,42 @@ impl App {
             self.modals.push(Modal::ModelEffort(modal));
             self.dirty = true;
             Some(None)
+        } else if trimmed == "/mode" || trimmed.starts_with("/mode ") {
+            let arg = trimmed.strip_prefix("/mode").unwrap_or("").trim();
+            if arg.is_empty() {
+                self.open_mode_modal(None);
+                return Some(None);
+            }
+            if let Some(canonical) = crate::config::BackendKind::normalize_mode(arg)
+                .filter(|mode| self.backend.supports_mode(mode))
+            {
+                self.status_text = format!("Mode: {} · {}", canonical, self.backend.as_str());
+                self.dirty = true;
+                Some(Some(AppAction::RespawnSession {
+                    conversation_id: None,
+                    model: None,
+                    effort: None,
+                    mode: Some(canonical.to_string()),
+                }))
+            } else {
+                let supported: Vec<&str> = self
+                    .backend
+                    .supported_modes()
+                    .iter()
+                    .map(|(id, _)| *id)
+                    .collect();
+                let msg = format!(
+                    "Unsupported mode '{}' for {} (supported: {})",
+                    arg,
+                    self.backend.as_str(),
+                    supported.join(", ")
+                );
+                self.cache.push_user_message(trimmed);
+                self.cache.push_error(&msg);
+                self.status_text = msg;
+                self.dirty = true;
+                Some(None)
+            }
         } else if trimmed == "/resume" || trimmed.starts_with("/resume ") {
             let query = trimmed.strip_prefix("/resume ").map(|q| q.trim());
             self.open_resume_modal(query);
@@ -117,7 +153,7 @@ impl App {
         } else if trimmed == "/help" {
             self.cache.push_user_message("/help");
             self.cache.push_error(&format!(
-                "Frontal v{} - Available local commands: /clear, /new, /quota, /quit, /exit, /help, /model, /resume, /rename",
+                "Frontal v{} - Available local commands: /clear, /new, /quota, /quit, /exit, /help, /model, /mode, /resume, /rename",
                 env!("CARGO_PKG_VERSION")
             ));
             self.status_text = String::from("Ready");
@@ -134,5 +170,42 @@ impl App {
         } else {
             None
         }
+    }
+
+    pub(crate) fn open_mode_modal(&mut self, query: Option<&str>) {
+        let current_mode = self.active_mode_name();
+        let supported = self.backend.supported_modes();
+        let items = supported
+            .iter()
+            .map(|(mode_id, desc)| {
+                let mut item = crate::ui::modal::SelectItem::new(
+                    *mode_id,
+                    *mode_id,
+                    crate::ui::modal::ModalAction::Respawn {
+                        conversation_id: None,
+                        model: None,
+                        effort: None,
+                        mode: Some((*mode_id).to_string()),
+                    },
+                )
+                .with_description(*desc);
+                if mode_id.eq_ignore_ascii_case(&current_mode) {
+                    item = item.with_badge("active");
+                }
+                item
+            })
+            .collect();
+        let mut select = crate::ui::modal::DialogSelect::new("Select Execution Mode", items);
+        if let Some(pos) = supported
+            .iter()
+            .position(|(mode_id, _)| mode_id.eq_ignore_ascii_case(&current_mode))
+        {
+            select.selected_idx = pos;
+        }
+        if let Some(q) = query.map(str::trim).filter(|q| !q.is_empty()) {
+            select.query = q.to_string();
+        }
+        self.modals.push(Modal::Select(select));
+        self.dirty = true;
     }
 }

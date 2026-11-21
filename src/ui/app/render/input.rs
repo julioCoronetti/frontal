@@ -151,13 +151,28 @@ impl App {
             inner_width,
         );
 
+        let mut title_spans = vec![Span::styled(
+            input_title,
+            Style::default().fg(ACCENT_PRIMARY),
+        )];
+        let mode_name = self.active_mode_name();
+        if let Some(canonical_mode) = crate::config::BackendKind::normalize_mode(&mode_name) {
+            if canonical_mode != crate::config::DEFAULT_MODE
+                && self.backend.supports_mode(canonical_mode)
+            {
+                title_spans.push(Span::styled(
+                    format!("[{}] ", canonical_mode),
+                    Style::default()
+                        .fg(ACCENT_RUBY)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            }
+        }
+
         let mut input_widget = Paragraph::new(input_text).block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(Line::from(Span::styled(
-                    input_title,
-                    Style::default().fg(ACCENT_PRIMARY),
-                )))
+                .title(Line::from(title_spans))
                 .border_style(Style::default().fg(ACCENT_PRIMARY))
                 .padding(ratatui::widgets::Padding::horizontal(1)),
         );

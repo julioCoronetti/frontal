@@ -73,6 +73,12 @@ impl App {
                 mode,
             } => {
                 self.modals.pop();
+                if conversation_id.is_none() {
+                    if let Some(ref m) = mode {
+                        self.status_text = format!("Mode: {} · {}", m, self.backend.as_str());
+                        self.dirty = true;
+                    }
+                }
                 Some(Some(AppAction::RespawnSession {
                     conversation_id,
                     model,
@@ -122,6 +128,10 @@ impl App {
                             Some(self.active_effort_name()),
                         );
                         self.modals.push(Modal::ModelEffort(modal));
+                        Some(None)
+                    }
+                    "select_mode" => {
+                        self.open_mode_modal(None);
                         Some(None)
                     }
                     "resume_session" => {

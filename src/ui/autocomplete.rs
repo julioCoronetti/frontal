@@ -92,6 +92,7 @@ impl AutocompletePopover {
             ("/clear", "Clear active conversation"),
             ("/new", "Open new session tab"),
             ("/model", "Select model and reasoning effort"),
+            ("/mode", "Switch execution mode"),
             ("/resume", "Resume past session from history"),
             ("/rename", "Rename active session"),
             ("/quota", "Show model quotas and plan limits"),

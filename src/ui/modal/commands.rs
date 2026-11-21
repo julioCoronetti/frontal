@@ -45,6 +45,11 @@ impl CommandsModal {
                 shortcut: "/model".to_string(),
             },
             CommandItem {
+                id: "select_mode".to_string(),
+                title: "Select Execution Mode".to_string(),
+                shortcut: "/mode".to_string(),
+            },
+            CommandItem {
                 id: "resume_session".to_string(),
                 title: "Resume Past Session".to_string(),
                 shortcut: "/resume".to_string(),
