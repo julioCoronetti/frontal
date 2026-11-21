@@ -1,6 +1,6 @@
 ## Guardrails
-- Never add crate deps to `Cargo.toml` (package version `0.20.0`) without explicit authorization.
-- Keep `Cargo.toml` version `0.20.0` immutable during `In Progress`; bump patch (`0.20.x`) or minor (`0.x.0`) only in an authorized `Done` commit with annotated `vX.Y.Z` tag and identical CLI (`-V`)/TUI (`/help`) versions.
+- Never add crate deps to `Cargo.toml` (package version `0.21.0`) without explicit authorization.
+- Keep `Cargo.toml` version `0.21.0` immutable during `In Progress`; bump patch (`0.21.x`) or minor (`0.x.0`) only in an authorized `Done` commit with annotated `vX.Y.Z` tag and identical CLI (`-V`)/TUI (`/help`) versions.
 - Enforce <= 500 lines per `.rs` file and zero comments, `#[doc]`/`#![doc]`, `#[rustfmt::skip]`, or `include*!` macros in Rust code.
 - Limit commits to 1 logical change (<= 5 files unless `ATOMIC_OVERRIDE=1`) and keep `.wiki/` clean before `In Review` or `Done`.
 - Use `WaitMsBeforeAsync: 10000` on synchronous commands (no `manage_task` polling), read `.rs` files in full before editing, and batch edits before running the gate.
