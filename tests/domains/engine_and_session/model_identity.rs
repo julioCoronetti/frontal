@@ -149,3 +149,145 @@ fn test_transport_sanitization_and_ansi_control_filtering() {
         )]
     );
 }
+
+#[tokio::test]
+async fn test_mode_permission_gating_toml_sanitization_and_respawn_guards() {
+    use std::time::Duration;
+
+    use frontal::config::BackendKind;
+    use frontal::protocol::{PromptPayload, SessionId};
+    use frontal::session::SessionManager;
+
+    let _lock = crate::common::PGID_TEST_LOCK.lock().await;
+
+    let mut cfg = UserConfig::new_isolated();
+    cfg.parse_content("mode = \"ACCEPT_EDITS\"\neffort = \"HIGH!@#\"\n");
+    assert_eq!(cfg.mode, "accept-edits");
+    assert_eq!(cfg.effort, "high");
+    assert!(cfg.needs_repair);
+
+    cfg.mode = "plan\"\n[injected]\n".to_string();
+    let toml = cfg.to_toml();
+    assert!(!toml.contains("[injected]"));
+    assert!(toml.contains("mode = \"planinjected\""));
+
+    let mut engine_cfg = EngineConfig::new_isolated();
+    assert!(engine_cfg.allows_auto_permissions());
+    assert!(engine_cfg
+        .build_acp_args()
+        .contains(&"--dangerously-skip-permissions".to_string()));
+    assert!(build_opencode_args(&engine_cfg, None, "hi").contains(&"--auto".to_string()));
+
+    for restricted in ["plan", "accept-edits"] {
+        engine_cfg.mode = Some(restricted.to_string());
+        assert!(!engine_cfg.allows_auto_permissions());
+        assert!(!engine_cfg
+            .build_acp_args()
+            .contains(&"--dangerously-skip-permissions".to_string()));
+    }
+    engine_cfg.mode = Some("plan".to_string());
+    let oc_plan = build_opencode_args(&engine_cfg, None, "hi");
+    assert!(!oc_plan.contains(&"--auto".to_string()));
+    assert!(oc_plan.windows(2).any(|w| w == ["--agent", "plan"]));
+
+    let script = r#"#!/usr/bin/env python3
+import sys, json
+for line in sys.stdin:
+    msg = json.loads(line)
+    method = msg.get("method")
+    mid = msg.get("id")
+    if method == "initialize":
+        print(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"protocolVersion":1}}), flush=True)
+    elif method == "session/new":
+        print(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"sessionId":"acp-downgrade","configOptions":[{"id":"mode","currentValue":"auto","options":[{"value":"auto"}]}]}}), flush=True)
+"#;
+    let mock = crate::common::TempFileGuard::new("mock_acp_downgrade", "py", script);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(mock.path()).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(mock.path(), perms).unwrap();
+    }
+
+    let mut manager = SessionManager::new();
+    let mut acp_cfg = EngineConfig::new_isolated();
+    acp_cfg.agy_bin = mock.path().to_path_buf();
+    acp_cfg.mode = Some("plan".to_string());
+    let sid = manager.create_subprocess_session(acp_cfg).await.unwrap();
+    let _ = tokio::time::timeout(Duration::from_secs(2), manager.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        manager.get_metadata(&sid).unwrap().mode.as_deref(),
+        Some("auto")
+    );
+    let _ = manager
+        .shutdown_session(&sid, Duration::from_millis(200))
+        .await;
+
+    let mut app_mgr = SessionManager::new();
+    let tab_sid = SessionId::new();
+    app_mgr.register_mock_session(tab_sid.clone());
+    let mut app = frontal::ui::app::App::new_isolated(app_mgr, tab_sid.clone());
+    app.backend = BackendKind::OpenCode;
+    app.user_config.backend = BackendKind::OpenCode;
+    app.user_config.mode = "accept-edits".to_string();
+    app.pending_engine_prompts
+        .push_back((tab_sid.clone(), PromptPayload::from_text("stale")));
+    app.respawn_active_session(None, None, None, Some("plan".to_string()))
+        .await
+        .unwrap();
+    assert!(app.pending_engine_prompts.is_empty());
+
+    app.cache.push_user_message("trigger reset");
+    app.user_config.mode = "accept-edits".to_string();
+    app.session_manager.set_session_metadata(
+        &app.active_session,
+        None,
+        None,
+        None,
+        Some("accept-edits".to_string()),
+    );
+    app.close_or_reset_tab(0).await;
+    assert_eq!(app.active_mode_name(), "auto");
+
+    let rpc_err_script = r#"#!/usr/bin/env python3
+import sys, json
+for line in sys.stdin:
+    msg = json.loads(line)
+    method = msg.get("method")
+    mid = msg.get("id")
+    if method == "initialize":
+        print(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"protocolVersion":1}}), flush=True)
+    elif method == "session/new":
+        print(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"sessionId":"acp-rpc-err","configOptions":[{"id":"mode","currentValue":"auto","options":[{"value":"auto"},{"value":"plan"}]}]}}), flush=True)
+    elif method == "session/set_config_option":
+        print(json.dumps({"jsonrpc":"2.0","id":mid,"error":{"code":-32000,"message":"mode rejected"}}), flush=True)
+"#;
+    let err_mock = crate::common::TempFileGuard::new("mock_acp_mode_err", "py", rpc_err_script);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(err_mock.path()).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(err_mock.path(), perms).unwrap();
+    }
+    let mut err_mgr = SessionManager::new();
+    let mut err_cfg = EngineConfig::new_isolated();
+    err_cfg.agy_bin = err_mock.path().to_path_buf();
+    err_cfg.mode = Some("plan".to_string());
+    let err_sid = err_mgr.create_subprocess_session(err_cfg).await.unwrap();
+    let _ = tokio::time::timeout(Duration::from_secs(2), err_mgr.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        err_mgr.get_metadata(&err_sid).unwrap().mode.as_deref(),
+        Some("auto")
+    );
+    let _ = err_mgr
+        .shutdown_session(&err_sid, Duration::from_millis(200))
+        .await;
+}

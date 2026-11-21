@@ -395,3 +395,105 @@ fn test_danger_modal_reject_aborts_command_and_records_security_block() {
     assert_eq!(app.status_text, "Blocked destructive command");
     assert!(!app.waiting_for_response);
 }
+
+#[tokio::test]
+async fn test_mode_command_discovery_modal_selection_and_backend_guards() {
+    use frontal::config::BackendKind;
+    use frontal::ui::app::AppAction;
+    use frontal::ui::autocomplete::AutocompletePopover;
+    use frontal::ui::modal::Modal;
+
+    let suggestions = AutocompletePopover::filter_commands("/mo");
+    assert!(suggestions.iter().any(|item| item.label == "/mode"));
+
+    let mut commands = CommandsModal::new();
+    for c in ['m', 'o', 'd', 'e'] {
+        commands.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    }
+    let filtered = commands.filtered_indices();
+    assert!(filtered
+        .iter()
+        .any(|&idx| commands.items[idx].id == "select_mode"));
+
+    let (mut app, _) = test_app();
+    app.editor.insert_str("/help");
+    assert_eq!(
+        app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE)),
+        None
+    );
+    assert!(app
+        .cache
+        .blocks()
+        .iter()
+        .any(|b| b.content.contains("/mode")));
+
+    app.backend = BackendKind::Agy;
+    app.user_config.mode = "plan".to_string();
+    app.session_manager.set_session_metadata(
+        &app.active_session,
+        None,
+        None,
+        None,
+        Some("plan".to_string()),
+    );
+    app.editor.insert_str("/mode");
+    assert_eq!(
+        app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE)),
+        None
+    );
+    match app.modals.top() {
+        Some(Modal::Select(select)) => {
+            let ids: Vec<&str> = select.items.iter().map(|it| it.id.as_str()).collect();
+            assert_eq!(ids, vec!["auto", "plan", "accept-edits"]);
+            assert_eq!(select.selected_idx, 1);
+        }
+        _ => panic!("expected mode select modal"),
+    }
+
+    app.handle_terminal_event(press_key(KeyCode::Down, KeyModifiers::NONE));
+    let action = app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        action,
+        Some(AppAction::RespawnSession {
+            conversation_id: None,
+            model: None,
+            effort: None,
+            mode: Some("accept-edits".to_string()),
+        })
+    );
+    assert!(app.modals.is_empty());
+    assert_eq!(app.user_config.mode, "plan");
+    app.respawn_active_session(None, None, None, Some("accept-edits".to_string()))
+        .await
+        .unwrap();
+    assert_eq!(app.user_config.mode, "accept-edits");
+
+    app.backend = BackendKind::OpenCode;
+    app.editor.insert_str("/mode");
+    app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE));
+    match app.modals.top() {
+        Some(Modal::Select(select)) => {
+            let ids: Vec<&str> = select.items.iter().map(|it| it.id.as_str()).collect();
+            assert_eq!(ids, vec!["auto", "plan"]);
+        }
+        _ => panic!("expected opencode mode select modal"),
+    }
+    app.handle_terminal_event(press_key(KeyCode::Esc, KeyModifiers::NONE));
+
+    app.editor.insert_str("/mode accept-edits");
+    let rejected = app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(rejected, None);
+    assert!(app.status_text.contains("Unsupported mode 'accept-edits'"));
+
+    app.editor.insert_str("/mode plan");
+    let direct = app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        direct,
+        Some(AppAction::RespawnSession {
+            conversation_id: None,
+            model: None,
+            effort: None,
+            mode: Some("plan".to_string()),
+        })
+    );
+}

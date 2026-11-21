@@ -420,3 +420,79 @@ with open(log_path, "w") as log:
     assert!(logged.contains("\"method\":\"session/cancel\""));
     assert!(!logged.contains("queued follow-up turn"));
 }
+
+#[tokio::test]
+async fn test_mode_backend_mapping_acp_fallback_and_cross_backend_clamp() {
+    let _lock = PGID_TEST_LOCK.lock().await;
+    assert!(BackendKind::Agy.supports_mode("accept-edits"));
+    assert!(BackendKind::Agy.supports_mode("ACCEPT_EDITS"));
+    assert!(!BackendKind::OpenCode.supports_mode("accept-edits"));
+    assert!(BackendKind::OpenCode.supports_mode("plan"));
+
+    let mut oc_cfg = EngineConfig::new_isolated();
+    oc_cfg.backend = BackendKind::OpenCode;
+    oc_cfg.mode = Some("plan".to_string());
+    let plan_args = frontal::transport::build_opencode_args(&oc_cfg, None, "audit");
+    assert!(plan_args.windows(2).any(|w| w == ["--agent", "plan"]));
+    oc_cfg.mode = Some("accept-edits".to_string());
+    let fallback_args = frontal::transport::build_opencode_args(&oc_cfg, None, "audit");
+    assert!(!fallback_args.iter().any(|a| a == "--agent"));
+
+    let wire_log = TempFileGuard::new("acp_mode_log", "jsonl", "");
+    let script = format!(
+        r#"#!/usr/bin/env python3
+import sys, json
+
+log_path = {:?}
+with open(log_path, "w") as log:
+    for line in sys.stdin:
+        log.write(line)
+        log.flush()
+        msg = json.loads(line)
+        method = msg.get("method")
+        mid = msg.get("id")
+        if method == "initialize":
+            print(json.dumps({{"jsonrpc":"2.0","id":mid,"result":{{"protocolVersion":1}}}}), flush=True)
+        elif method == "session/new":
+            print(json.dumps({{"jsonrpc":"2.0","id":mid,"result":{{"sessionId":"acp-mode-1","configOptions":[{{"id":"mode","currentValue":"auto","options":[{{"value":"default"}},{{"value":"auto"}},{{"value":"plan"}}]}}]}}}}), flush=True)
+        elif method == "session/set_config_option":
+            print(json.dumps({{"jsonrpc":"2.0","id":mid,"result":{{}}}}), flush=True)
+"#,
+        wire_log.path().display().to_string()
+    );
+    let mock = TempFileGuard::new("mock_acp_mode", "py", &script);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(mock.path()).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(mock.path(), perms).unwrap();
+    }
+
+    let sid = SessionId::new();
+    let (tx, mut rx) = mpsc::channel(16);
+    let mut cfg = EngineConfig::new_isolated();
+    cfg.agy_bin = mock.path().to_path_buf();
+    cfg.mode = Some("accept-edits".to_string());
+    let mut engine = AcpEngine::spawn(sid, cfg, tx).await.unwrap();
+    let _ = timeout(Duration::from_secs(2), rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    let _ = engine.shutdown(Duration::from_millis(300)).await;
+    let logged = std::fs::read_to_string(wire_log.path()).unwrap();
+    assert!(logged.contains(r#""configId":"mode""#));
+    assert!(logged.contains(r#""value":"default""#));
+
+    let mut manager = SessionManager::new();
+    let tab_sid = SessionId::new();
+    manager.register_mock_session(tab_sid.clone());
+    let mut app = frontal::ui::app::App::new_isolated(manager, tab_sid);
+    app.user_config.backend = BackendKind::Agy;
+    app.user_config.mode = "accept-edits".to_string();
+    app.user_config.backend = BackendKind::OpenCode;
+    app.respawn_active_session(None, None, None, None)
+        .await
+        .unwrap();
+    assert_eq!(app.active_mode_name(), "auto");
+}

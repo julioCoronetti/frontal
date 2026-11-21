@@ -111,3 +111,67 @@ fn test_format_compact_tokens_boundary_rounding() {
     assert_eq!(format_compact_tokens(1_000_000), "1M");
     assert_eq!(format_compact_tokens(1_200_000), "1.2M");
 }
+
+#[test]
+fn test_input_title_mode_badge_visibility_and_backend_suppression() {
+    use frontal::config::BackendKind;
+    use frontal::ui::theme::ACCENT_RUBY;
+
+    let (mut app, sid) = test_app();
+    let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+
+    app.session_manager
+        .set_session_metadata(&sid, None, None, None, Some("auto".to_string()));
+    terminal.draw(|f| app.render(f)).unwrap();
+    let auto_buf = terminal.backend().buffer();
+    let auto_text: String = (0..auto_buf.area.height)
+        .map(|y| row_text(auto_buf, y))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(!auto_text.contains("[auto]"));
+    assert!(!auto_text.contains("[plan]"));
+
+    app.backend = BackendKind::OpenCode;
+    app.session_manager
+        .set_session_metadata(&sid, None, None, None, Some("plan".to_string()));
+    terminal.draw(|f| app.render(f)).unwrap();
+    let plan_buf = terminal.backend().buffer();
+    let plan_text: String = (0..plan_buf.area.height)
+        .map(|y| row_text(plan_buf, y))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(plan_text.contains("[plan]"));
+    let has_ruby_badge = (0..plan_buf.area.height).any(|y| {
+        let line = row_text(plan_buf, y);
+        if let Some(col) = line.find("[plan]") {
+            plan_buf
+                .cell((col as u16 + 1, y))
+                .is_some_and(|c| c.fg == ACCENT_RUBY)
+        } else {
+            false
+        }
+    });
+    assert!(has_ruby_badge);
+
+    app.session_manager.set_session_metadata(
+        &sid,
+        None,
+        None,
+        None,
+        Some("accept-edits".to_string()),
+    );
+    terminal.draw(|f| app.render(f)).unwrap();
+    let oc_unsupported: String = (0..terminal.backend().buffer().area.height)
+        .map(|y| row_text(terminal.backend().buffer(), y))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(!oc_unsupported.contains("[accept-edits]"));
+
+    app.backend = BackendKind::Agy;
+    terminal.draw(|f| app.render(f)).unwrap();
+    let agy_supported: String = (0..terminal.backend().buffer().area.height)
+        .map(|y| row_text(terminal.backend().buffer(), y))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(agy_supported.contains("[accept-edits]"));
+}
