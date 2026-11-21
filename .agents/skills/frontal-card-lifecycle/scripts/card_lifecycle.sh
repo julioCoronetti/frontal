@@ -10,7 +10,7 @@ DONE_OPTION_ID="98236657"
 DEFAULT_COMMIT_MSG_FILE="$ROOT_DIR/.git/FRONTAL_COMMIT_EDITMSG"
 
 usage() {
-  echo "Usage: $0 {check|bump-patch|bump-minor|tag <version>|close-board <item_id>|validate-commit <file|--head>|commit [--file <path> | --header ... --why ... --what ... --invariants ... --refs ... --status ... --advisor ...]}" >&2
+  echo "Usage: $0 {check|bump-patch|bump-minor|tag <version>|close-board <item_id>|validate-commit [--hook] <file|--head>|commit [--file <path> | --header ... --why ... --what ... --invariants ... --refs ... --status ... --advisor ...]}" >&2
   exit 1
 }
 
@@ -217,12 +217,17 @@ case "$cmd" in
     echo "Updated card $item_id to Done on Project Board #8"
     ;;
   validate-commit)
+    enforce_staged=0
+    if [[ "${2:-}" == "--hook" ]]; then
+      enforce_staged=1
+      shift
+    fi
     target="${2:-}"
     if [[ -z "$target" ]]; then
       echo "Error: target file or --head required." >&2
       exit 1
     fi
-    validate_commit_msg "$target" 1
+    validate_commit_msg "$target" "$enforce_staged"
     echo "Commit message validation passed."
     ;;
   commit)
@@ -239,14 +244,23 @@ case "$cmd" in
 
     while [[ $# -gt 0 ]]; do
       case "$1" in
-        --file) custom_file="${2:-}"; shift 2 ;;
-        --header) header="${2:-}"; shift 2 ;;
-        --why) why="${2:-}"; shift 2 ;;
-        --what) what="${2:-}"; shift 2 ;;
-        --invariants) invariants="${2:-}"; shift 2 ;;
-        --refs) refs="${2:-}"; shift 2 ;;
-        --status) status="${2:-}"; shift 2 ;;
-        --advisor) advisor="${2:-}"; shift 2 ;;
+        --file|--header|--why|--what|--invariants|--refs|--status|--advisor)
+          if [[ $# -lt 2 ]]; then
+            echo "Error: Option '$1' requires a value." >&2
+            exit 1
+          fi
+          case "$1" in
+            --file) custom_file="$2" ;;
+            --header) header="$2" ;;
+            --why) why="$2" ;;
+            --what) what="$2" ;;
+            --invariants) invariants="$2" ;;
+            --refs) refs="$2" ;;
+            --status) status="$2" ;;
+            --advisor) advisor="$2" ;;
+          esac
+          shift 2
+          ;;
         *)
           echo "Error: Unknown option '$1' for commit." >&2
           exit 1

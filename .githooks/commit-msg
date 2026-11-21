@@ -2,4 +2,4 @@
 set -euo pipefail
 
 ROOT_DIR="$(git rev-parse --show-toplevel)"
-exec "$ROOT_DIR/.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh" validate-commit "$1"
+exec "$ROOT_DIR/.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh" validate-commit --hook "$1"
