@@ -5,7 +5,7 @@ description: Audits invariant tokens, verifies Cargo.toml version parity, and co
 
 ## Mirror Governance
 - Commits declaring `Card-Status: In Review` or `Card-Status: Done` require a clean `.wiki/` working tree.
-- Keep package versions in `Home.md`, `Frontal-Architecture.md`, and `Board-Roadmap.md` aligned with `Cargo.toml`.
+- Keep package versions in `Home.md` and `Frontal-Architecture.md` aligned with `Cargo.toml`.
 - Keep `.wiki/*.md` free of extinct legacy tokens checked by `tests/domains/architecture.rs`.
 
 ## Execution & Verification

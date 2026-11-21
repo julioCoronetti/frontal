@@ -30,4 +30,4 @@
 - Multi-harness engine lifecycle, `AgyEngine`/`OpenCodeEngine` contracts, or `/model` and `/quota` modals: read `.agents/docs/multi_harness_architecture.md` before modifying `src/core/protocol/` or `src/infra/engine/`.
 - Module layout across `src/core/`, `src/infra/`, `src/ui/`, and `tests/`: read `.agents/docs/structure.md` when locating subsystem boundaries.
 - Subagent delegation criteria and context-asymmetry rules: read `.agents/docs/subagents.md` before invoking subagents.
-- External GitHub Wiki dossiers (`Agy`, `OpenCode`, `Frontal-Architecture`) and Project Board #8 URLs: read `.agents/docs/sources.md`.
+- External GitHub Wiki pages (`Home`, `Frontal-Architecture`) and Project Board #8 URLs: read `.agents/docs/sources.md`.

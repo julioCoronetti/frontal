@@ -118,17 +118,6 @@ cargo run --release -- --headless -p "Describe the project architecture"
 
 Detailed technical documentation is available on the [GitHub Wiki](https://github.com/julioCoronetti/frontal/wiki):
 
-- **[Home](https://github.com/julioCoronetti/frontal/wiki/Home)**: Central documentation index.
-- **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: Official Rust implementation architecture (v0.20.0), modules, Atlas Crimson theme, and 276 tests suite.
-- **[Board-Roadmap](https://github.com/julioCoronetti/frontal/wiki/Board-Roadmap)**: Architecture specification, Rust tech stack, decision matrix, consolidated capabilities, and Project Board evolution.
-- **Antigravity CLI (`agy`) Dossier**:
-  - [Agy](https://github.com/julioCoronetti/frontal/wiki/Agy): Official CLI overview.
-  - [Agy-Architecture](https://github.com/julioCoronetti/frontal/wiki/Agy-Architecture): Go binary, process orchestration, and `stream-json` protocol.
-  - [Agy-Backend](https://github.com/julioCoronetti/frontal/wiki/Agy-Backend): Cortex engine, tools, security containment, and SQLite storage.
-  - [Agy-UI](https://github.com/julioCoronetti/frontal/wiki/Agy-UI): Bubble Tea v2, 48 model catalog, EditArea, and viewports.
-- **OpenCode Dossier**:
-  - [OpenCode](https://github.com/julioCoronetti/frontal/wiki/OpenCode): Ergonomic reference overview.
-  - [OpenCode-Architecture](https://github.com/julioCoronetti/frontal/wiki/OpenCode-Architecture): 34-package monorepo, Effect-TS runtime, dual-process RPC.
-  - [OpenCode-Backend](https://github.com/julioCoronetti/frontal/wiki/OpenCode-Backend): Turn cycle, tool bounding, shadow Git, and session compaction.
-  - [OpenCode-UI](https://github.com/julioCoronetti/frontal/wiki/OpenCode-UI): SolidJS + OpenTUI, Tree-sitter WASM, extmarks, keymaps, and theming.
-- **[Legacy](https://github.com/julioCoronetti/frontal/wiki/Legacy)**: Initial v0.1 Python/Textual prototype dossier (code preserved on the [`legacy`](https://github.com/julioCoronetti/frontal/tree/legacy) branch).
+- **[Home](https://github.com/julioCoronetti/frontal/wiki/Home)**: Project purpose, core invariants, Rust stack, and quickstart.
+- **[Frontal-Architecture](https://github.com/julioCoronetti/frontal/wiki/Frontal-Architecture)**: System topology, multi-engine multiplexing (`AgyEngine`, `AcpEngine`, `OpenCodeEngine`), module layers, Atlas Crimson theme, and the 276 tests suite.
+- **[Project Board #8](https://github.com/users/julioCoronetti/projects/8)**: Live backlog and milestone tracking.
