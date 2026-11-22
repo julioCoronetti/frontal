@@ -405,3 +405,64 @@ fn test_usage_modal_wraps_long_model_descriptions_and_errors() {
         .iter()
         .any(|r| r.contains("     ") && r.contains("Orchestrator")));
 }
+
+#[test]
+fn test_usage_modal_body_cache_invalidates_on_resize_and_state_change() {
+    use frontal::ui::modal::usage::{
+        QuotaBucket, QuotaGroup, StatsState, UsagePage, UsagePlanInfo, UsageState, UsageSummary,
+    };
+    use frontal::ui::modal::UsageModal;
+    use ratatui::backend::TestBackend;
+    use ratatui::layout::Rect;
+    use ratatui::Terminal;
+
+    let mut modal = UsageModal::with_data(UsageSummary {
+        plan: UsagePlanInfo {
+            tier_name: "Pro".to_string(),
+            account_email: None,
+            upgrade_url: None,
+            manage_url: None,
+        },
+        groups: vec![QuotaGroup {
+            name: "G".to_string(),
+            description: Some("Alpha Beta Gamma Delta Epsilon Zeta".to_string()),
+            buckets: vec![QuotaBucket {
+                name: "Weekly".to_string(),
+                remaining_pct: 50.0,
+                reset_label: "1h".to_string(),
+                exhausted: false,
+            }],
+        }],
+    });
+
+    let mut term = Terminal::new(TestBackend::new(80, 20)).unwrap();
+    term.draw(|f| modal.render(f, Rect::new(0, 0, 80, 20)))
+        .unwrap();
+    let wide_max_scroll = modal.max_scroll.get();
+
+    term.draw(|f| modal.render(f, Rect::new(0, 0, 24, 10)))
+        .unwrap();
+    let narrow_max_scroll = modal.max_scroll.get();
+    assert!(narrow_max_scroll > wide_max_scroll);
+
+    *modal.state.lock().unwrap() = UsageState::Unavailable("offline".to_string());
+    term.draw(|f| modal.render(f, Rect::new(0, 0, 80, 20)))
+        .unwrap();
+    let buf = term.backend().buffer();
+    let screen: String = (0..20)
+        .map(|y| (0..80).map(|x| buf[(x, y)].symbol()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(screen.contains("Status: offline"));
+
+    modal.page = UsagePage::OpenCodeStats;
+    *modal.stats_state.lock().unwrap() = StatsState::Unavailable("stats err".to_string());
+    term.draw(|f| modal.render(f, Rect::new(0, 0, 80, 20)))
+        .unwrap();
+    let buf2 = term.backend().buffer();
+    let stats_screen: String = (0..20)
+        .map(|y| (0..80).map(|x| buf2[(x, y)].symbol()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(stats_screen.contains("stats err"));
+}

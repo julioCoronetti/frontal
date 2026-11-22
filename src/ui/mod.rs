@@ -181,10 +181,11 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                 if timers_expired || titles_updated {
                     app.dirty = true;
                 }
-                if app.waiting_for_response
+                let spinner_active = app.waiting_for_response
                     || app.tabs.iter().any(|t| {
                         t.waiting_for_response || t.cache.has_unconsolidated_blocks()
-                    })
+                    });
+                if (spinner_active && app.spinner_tick.is_multiple_of(4))
                     || app.modals.is_top_loading()
                 {
                     app.dirty = true;

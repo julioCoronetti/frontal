@@ -4,7 +4,7 @@ pub mod opencode_api;
 pub mod render;
 pub mod stats;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -73,6 +73,7 @@ pub struct UsageModal {
     opencode_fallback: Option<UsageSummary>,
     rx: Option<Arc<Mutex<Receiver<UsageState>>>>,
     stats_rx: Option<Arc<Mutex<Receiver<StatsState>>>>,
+    body_cache: RefCell<render::UsageBodyCache>,
 }
 
 impl UsageModal {
@@ -107,6 +108,7 @@ impl UsageModal {
             opencode_fallback: None,
             rx: Some(Arc::new(Mutex::new(rx))),
             stats_rx: None,
+            body_cache: Default::default(),
         }
     }
 
@@ -123,6 +125,7 @@ impl UsageModal {
             opencode_fallback: None,
             rx: None,
             stats_rx: None,
+            body_cache: Default::default(),
         }
     }
 
@@ -166,6 +169,7 @@ impl UsageModal {
             opencode_fallback: Some(fallback),
             rx: Some(Arc::new(Mutex::new(rx))),
             stats_rx: None,
+            body_cache: Default::default(),
         }
     }
 

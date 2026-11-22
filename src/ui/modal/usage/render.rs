@@ -4,8 +4,27 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
-use super::{build_stats_lines, UsageModal, UsagePage, UsageState, UsageSummary};
+use super::{build_stats_lines, StatsState, UsageModal, UsagePage, UsageState, UsageSummary};
 use crate::ui::theme::{ACCENT_HIGHLIGHT, ACCENT_RUBY, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY};
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum CachedBodyKey {
+    Main {
+        wrap_width: usize,
+        is_opencode: bool,
+        state: UsageState,
+    },
+    Stats {
+        wrap_width: usize,
+        state: StatsState,
+    },
+}
+
+#[derive(Clone, Debug, Default)]
+pub(super) struct UsageBodyCache {
+    key: Option<CachedBodyKey>,
+    lines: Vec<Line<'static>>,
+}
 
 pub fn render_modal(modal: &UsageModal, frame: &mut Frame, area: Rect) {
     modal.poll_rx();
@@ -67,81 +86,116 @@ pub fn render_modal(modal: &UsageModal, frame: &mut Frame, area: Rect) {
     lines.push(Line::raw(""));
 
     let inner_height = (area.height as usize).saturating_sub(7);
+    let wrap_width = (area.width as usize).saturating_sub(5).max(1);
 
-    let body_lines = match modal.page {
+    let mut cache = modal.body_cache.borrow_mut();
+    match modal.page {
         UsagePage::OpenCodeStats => {
             let stats_state = modal.stats_state.lock().unwrap_or_else(|e| e.into_inner());
-            build_stats_lines(&stats_state)
+            let hit = matches!(
+                cache.key.as_ref(),
+                Some(CachedBodyKey::Stats {
+                    wrap_width: w,
+                    state,
+                }) if *w == wrap_width && *state == *stats_state
+            );
+            if !hit {
+                let raw_lines = build_stats_lines(&stats_state);
+                cache.key = Some(CachedBodyKey::Stats {
+                    wrap_width,
+                    state: stats_state.clone(),
+                });
+                drop(stats_state);
+                cache.lines =
+                    crate::ui::markdown::wrap_lines_preserving_indent(raw_lines, wrap_width);
+            }
         }
         UsagePage::Main => {
             let current_state = modal.state.lock().unwrap_or_else(|e| e.into_inner());
-            let mut body = match &*current_state {
-                UsageState::Loading => vec![Line::from(vec![Span::styled(
-                    "   Loading subscription and quota...",
-                    Style::default().fg(TEXT_MUTED),
-                )])],
-                UsageState::Unavailable(err) => vec![
-                    Line::from(vec![
-                        Span::raw("   Your Plan: "),
+            let hit = matches!(
+                cache.key.as_ref(),
+                Some(CachedBodyKey::Main {
+                    wrap_width: w,
+                    is_opencode,
+                    state,
+                }) if *w == wrap_width
+                    && *is_opencode == modal.is_opencode
+                    && *state == *current_state
+            );
+            if !hit {
+                let mut body = match &*current_state {
+                    UsageState::Loading => vec![Line::from(vec![Span::styled(
+                        "   Loading subscription and quota...",
+                        Style::default().fg(TEXT_MUTED),
+                    )])],
+                    UsageState::Unavailable(err) => vec![
+                        Line::from(vec![
+                            Span::raw("   Your Plan: "),
+                            Span::styled(
+                                "Antigravity Subscriber (Offline)",
+                                Style::default()
+                                    .fg(ACCENT_HIGHLIGHT)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                        ]),
+                        Line::raw(""),
+                        Line::from(vec![Span::styled(
+                            format!("   Status: {}", err),
+                            Style::default().fg(Color::Yellow),
+                        )]),
+                        Line::raw(""),
+                        Line::from(vec![Span::styled(
+                            "   Press 'r' to retry.",
+                            Style::default().fg(TEXT_MUTED),
+                        )]),
+                    ],
+                    UsageState::Ready(summary) => build_summary_lines(summary),
+                };
+                if modal.is_opencode {
+                    body.push(Line::from(vec![
+                        Span::raw("   "),
                         Span::styled(
-                            "Antigravity Subscriber (Offline)",
+                            " ● Global Usage & Tool Stats ",
                             Style::default()
+                                .bg(ACCENT_RUBY)
+                                .fg(TEXT_PRIMARY)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            "[Enter] ",
+                            Style::default()
+                                .bg(ACCENT_RUBY)
                                 .fg(ACCENT_HIGHLIGHT)
                                 .add_modifier(Modifier::BOLD),
                         ),
-                    ]),
-                    Line::raw(""),
-                    Line::from(vec![Span::styled(
-                        format!("   Status: {}", err),
-                        Style::default().fg(Color::Yellow),
-                    )]),
-                    Line::raw(""),
-                    Line::from(vec![Span::styled(
-                        "   Press 'r' to retry.",
-                        Style::default().fg(TEXT_MUTED),
-                    )]),
-                ],
-                UsageState::Ready(summary) => build_summary_lines(summary),
-            };
-            if modal.is_opencode {
-                body.push(Line::from(vec![
-                    Span::raw("   "),
-                    Span::styled(
-                        " ● Global Usage & Tool Stats ",
-                        Style::default()
-                            .bg(ACCENT_RUBY)
-                            .fg(TEXT_PRIMARY)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(
-                        "[Enter] ",
-                        Style::default()
-                            .bg(ACCENT_RUBY)
-                            .fg(ACCENT_HIGHLIGHT)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                ]));
-                body.push(Line::raw(""));
+                    ]));
+                    body.push(Line::raw(""));
+                }
+                cache.key = Some(CachedBodyKey::Main {
+                    wrap_width,
+                    is_opencode: modal.is_opencode,
+                    state: current_state.clone(),
+                });
+                drop(current_state);
+                cache.lines = crate::ui::markdown::wrap_lines_preserving_indent(body, wrap_width);
             }
-            body
         }
-    };
+    }
 
-    let wrap_width = (area.width as usize).saturating_sub(5).max(1);
-    let body_lines = crate::ui::markdown::wrap_lines_preserving_indent(body_lines, wrap_width);
-
-    let total_body = body_lines.len();
+    let total_body = cache.lines.len();
     let limit = total_body.saturating_sub(inner_height);
     modal.max_scroll.set(limit);
 
     let active_scroll = modal.scroll_offset.min(limit);
-    for line in body_lines
-        .into_iter()
-        .skip(active_scroll)
-        .take(inner_height)
-    {
-        lines.push(line);
-    }
+    lines.extend(
+        cache
+            .lines
+            .iter()
+            .skip(active_scroll)
+            .take(inner_height)
+            .cloned(),
+    );
+    drop(cache);
 
     let widget = Paragraph::new(lines).block(block);
     frame.render_widget(Clear, area);
