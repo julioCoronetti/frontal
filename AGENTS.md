@@ -1,14 +1,13 @@
 ## Guardrails
 - Never add crate deps to `Cargo.toml` (package version `0.21.0`) without explicit authorization.
-- Keep `Cargo.toml` version `0.21.0` immutable during `In Progress`; bump patch (`0.21.x`) or minor (`0.x.0`) only in an authorized `Done` commit with annotated `vX.Y.Z` tag and identical CLI (`-V`)/TUI (`/help`) versions.
-- Enforce <= 500 lines per `.rs` file and zero comments, `#[doc]`/`#![doc]`, `#[rustfmt::skip]`, or `include*!` macros in Rust code.
-- Limit commits to 1 logical change (<= 5 files unless `ATOMIC_OVERRIDE=1`) and keep `.wiki/` clean before `In Review` or `Done`.
-- Use `WaitMsBeforeAsync: 10000` on synchronous commands (no `manage_task` polling), read `.rs` files in full before editing, and batch edits before running the gate.
+- Keep `Cargo.toml` version `0.21.0` immutable during `In Progress`; bump patch (`0.21.x`) or minor (`0.x.0`) only in an authorized `Done` commit with annotated `vX.Y.Z` tag and identical CLI (`-V`) and TUI (`/help`) versions.
+- Keep commits to 1 logical change (<= 5 files unless `ATOMIC_OVERRIDE=1`) and commit `.wiki/` updates before `In Review` or `Done`.
+- Delegate multi-file `.rs` exploration (`>= 8` reads) to `invoke_subagent(research)` or `run_workflow` before reading source files in the primary context.
 
 ## Commands
 - Snapshot (`--files`, `--board [id]`): `.agents/skills/frontal-context/scripts/bootstrap.sh`
 - Atomic commit (`.git/FRONTAL_COMMIT_EDITMSG` or flags): `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh commit`
-- Quality gate (pre-checks, `fmt`, `clippy -D warnings`, `tests/suite.rs`): `.agents/skills/frontal-quality-gate/scripts/quality_gate.sh`
+- Quality gate (`--fast`, `--domain <name>`, `--full`): `.agents/skills/frontal-quality-gate/scripts/quality_gate.sh`
 - Full suite (`tests/suite.rs`): `cargo test --quiet`
 - Architecture (`tests/domains/architecture.rs`): `cargo test --test suite domains::architecture`
 - Protocol & CLI (`tests/domains/protocol_and_cli.rs`): `cargo test --test suite domains::protocol_and_cli`
@@ -27,11 +26,11 @@
 - Isolate test fixtures with `PromptHistory::open_in_memory()` and `SystemClipboard::new_isolated()`.
 
 ## Documentation & Knowledge Index
-- Session snapshot & board lookup: `.agents/skills/frontal-context/SKILL.md`.
-- Quality gate & failure remediation: `.agents/skills/frontal-quality-gate/SKILL.md`.
-- Commit format, SemVer bump, tags, & Board #8: `.agents/skills/frontal-card-lifecycle/SKILL.md`.
-- Wiki mirror audit & commit: `.agents/skills/frontal-wiki-sync/SKILL.md`.
-- Multi-harness contracts (`AgyEngine`/`OpenCodeEngine`, `/model`, `/quota`): read `.agents/docs/multi_harness_architecture.md`.
-- Module layout (`src/`, `tests/`): read `.agents/docs/structure.md`.
-- Subagent delegation rules: read `.agents/docs/subagents.md`.
-- GitHub Wiki & Project Board #8 URLs: read `.agents/docs/sources.md`.
+- Session refresh, file line counts, or Project Board #8 lookup: follow `.agents/skills/frontal-context/SKILL.md`.
+- Mid-edit checks, full gate, or parallel codebase audits: follow `.agents/skills/frontal-quality-gate/SKILL.md`.
+- Commits, SemVer bumps, release tags, or closing Board #8 cards: follow `.agents/skills/frontal-card-lifecycle/SKILL.md`.
+- Editing `.wiki/` pages or validating mirror parity before `In Review` or `Done`: follow `.agents/skills/frontal-wiki-sync/SKILL.md`.
+- Multi-harness engine, `/model`, or `/quota` changes: read `.agents/docs/multi_harness_architecture.md` before modifying engine or modal code.
+- Locating unfamiliar modules across `src/` or `tests/`: read `.agents/docs/structure.md` first.
+- Subagent delegation boundaries and parallel audit workflow usage: read `.agents/docs/subagents.md` first.
+- GitHub Wiki or Project Board #8 references: read `.agents/docs/sources.md`.

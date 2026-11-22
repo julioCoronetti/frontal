@@ -1,46 +1,25 @@
 # Subagent Guidelines and Patterns for Frontal
 
-Governance and delegation standards for subagents in Frontal development, aligned with empirical findings from SWE-bench, OpenHands, and Argon Advisor directives.
+Delegation rules for isolating heavy reads, speculative diagnostics, and parallel multi-module sweeps away from the primary conversation context.
 
-## 1. Context Asymmetry Principle
-Empirical benchmarks demonstrate that LLM subagents introduce a 2x to 3x token overhead and latency penalty due to context re-initialization.
-Delegation to subagents is justified only under **context asymmetry**: tasks with heavy reading or noisy intermediate exploration where transient steps must be discarded, returning only the final structured synthesis to the primary agent.
+## 1. Context Asymmetry
+Delegate tasks that require broad reading or noisy intermediate steps so transient output stays isolated and the primary agent receives only file paths, line ranges, and verified contracts.
 
----
+## 2. Profiles and Invocation
 
-## 2. Recommended Profiles and Use Cases
+### `research` Subagent (Read-Only Investigation)
+- Use when tracing call sites or auditing across `>= 8` `.rs` files, transcript logs, or documentation.
+- Invoke with `invoke_subagent(TypeName="research", Workspace="inherit", ...)`.
 
-### `research` Subagent (Isolated Read and Investigation)
-- **When to use**:
-  - Deep auditing or flow tracing across 10 or more `.rs` files (e.g., `EngineEvent` lifecycle, `TabState` transitions, or `RenderCache` invalidation).
-  - Sweeping large transcript logs or technical documentation.
-- **Benefits**:
-  - All raw reading stays inside the isolated sandbox.
-  - The primary agent receives only structured conclusions, preserving context window hygiene and preventing context rot.
-- **Constraints**:
-  - Read-only sandbox without external network access.
+### `self` Subagent (Isolated Diagnostics)
+- Use for speculative troubleshooting experiments that require command execution without polluting the primary trajectory.
+- Invoke with `invoke_subagent(TypeName="self", Workspace="branch" | "share", ...)` to isolate mutations from the primary working tree.
 
-### `self` Subagent (Isolated Diagnostic Execution)
-- **When to use**:
-  - Running speculative troubleshooting experiments or generating transient diagnostic traces before converging on a solution.
-- **Benefits**:
-  - Discards noisy failed attempts, keeping the primary agent context pristine.
+### Parallel Audit Workflow (`run_workflow`)
+- Use `.agents/skills/frontal-quality-gate/scripts/audit_workflow.py` when auditing multiple `src/` or `tests/domains/` slices concurrently instead of running sequential `advisor.sh` loops.
+- Invoke with `run_workflow(ScriptPath="/home/timexp/workspace/frontal/.agents/skills/frontal-quality-gate/scripts/audit_workflow.py", Args={"targets": [...], "objective": "..."})`.
 
----
-
-## 3. Forbidden Anti-Patterns
-
-1. **Subagents for Deterministic Mechanical Tasks**:
-   - Never invoke LLM subagents for routines such as:
-     - Running the Cargo triad (`fmt`, `clippy`, `test`).
-     - Bumping SemVer in `Cargo.toml`.
-     - Creating annotated Git tags.
-     - Updating status on GitHub Project Board #8.
-     - Synchronizing the `.wiki/` mirror.
-   - **Rationale**: These tasks are fully deterministic and must execute through **local skill scripts** (`.agents/skills/`) with zero token overhead and zero hallucination risk.
-
-2. **Concurrent Mutations in the Same Workspace**:
-   - Subagents must not edit files or attempt concurrent commits in the shared working tree, preventing lock collisions (`.git/index.lock` and `target/`).
-
-3. **Unauthorized Network Operations**:
-   - Subagents must not perform external network calls without prior explicit operator authorization.
+## 3. Boundaries
+- Execute deterministic routines (`cargo fmt`/`clippy`/`test`, SemVer bumps, tags, Board #8 updates, `.wiki/` sync) directly through `.agents/skills/` scripts rather than LLM subagents.
+- Never run concurrent mutations from subagents inside the primary `inherit` workspace.
+- Never execute outbound network requests in subagents without explicit authorization.
