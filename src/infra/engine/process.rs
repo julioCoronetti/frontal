@@ -100,13 +100,17 @@ pub(crate) async fn shutdown_isolated_child(
     sender: &mpsc::Sender<SessionEnvelope>,
 ) -> Result<Option<i32>, EngineError> {
     let child_pid = child.id();
-    if let Some(pid) = child_pid {
-        unregister_child_pgid(pid as i32);
-    }
 
     let wait_result = timeout(grace, child.wait()).await;
     let exit_status = match wait_result {
-        Ok(Ok(status)) => status.code(),
+        Ok(Ok(status)) => {
+            if let Some(pid) = child_pid {
+                unsafe {
+                    libc::killpg(pid as libc::pid_t, libc::SIGTERM);
+                }
+            }
+            status.code()
+        }
         _ => {
             if let Some(pid) = child_pid {
                 unsafe {
@@ -128,9 +132,7 @@ pub(crate) async fn shutdown_isolated_child(
     };
 
     if let Some(pid) = child_pid {
-        unsafe {
-            libc::killpg(pid as libc::pid_t, libc::SIGTERM);
-        }
+        unregister_child_pgid(pid as i32);
     }
 
     let tail = {

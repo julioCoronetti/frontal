@@ -468,3 +468,18 @@ fn test_terminal_escape_codes_and_carriage_return_sanitization() {
     assert_eq!(wrapped_tab.len(), 1);
     assert_eq!(wrapped_tab[0], "Col1    Col2    Col3");
 }
+
+#[test]
+fn test_editor_selected_text_expands_paste_pill_after_multibyte_prefix() {
+    let mut editor = PromptEditor::new();
+    editor.insert_str("🦀 é ");
+    editor.insert_paste("a\nb\nc\nd\ne\nf");
+    editor.insert_str(" — meio 🚀 ");
+    editor.insert_paste("1\n2\n3\n4\n5\n6");
+    editor.insert_str(" fim");
+    editor.select_all();
+    assert_eq!(
+        editor.selected_text(),
+        Some("🦀 é a\nb\nc\nd\ne\nf — meio 🚀 1\n2\n3\n4\n5\n6 fim".to_string())
+    );
+}

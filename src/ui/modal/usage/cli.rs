@@ -42,6 +42,11 @@ pub(super) fn run_bounded_command(
         if let (Some(bytes), Some(mut stdin)) = (stdin_data, child.stdin.take()) {
             use std::io::Write;
             if let Err(err) = stdin.write_all(&bytes) {
+                #[cfg(unix)]
+                unsafe {
+                    libc::killpg(pid, libc::SIGKILL);
+                }
+                #[cfg(not(unix))]
                 let _ = child.kill();
                 let _ = child.wait();
                 let _ = tx.send(Err(err));
@@ -53,10 +58,6 @@ pub(super) fn run_bounded_command(
 
     match rx.recv_timeout(timeout) {
         Ok(res) => {
-            #[cfg(unix)]
-            unsafe {
-                libc::killpg(pid, libc::SIGKILL);
-            }
             crate::engine::unregister_child_pgid(pid);
             res.map_err(|e| e.to_string())
         }

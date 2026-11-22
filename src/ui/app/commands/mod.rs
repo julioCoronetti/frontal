@@ -22,6 +22,7 @@ impl App {
         self.last_turn_usage = None;
         self.in_flight_usage = None;
         self.accumulated_usage = crate::protocol::TokenUsage::default();
+        self.served_model = None;
         self.context_window_hint = None;
         self.steps_seen = 0;
         self.last_step_index = None;

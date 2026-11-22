@@ -171,18 +171,10 @@ impl PromptEditor {
                 if let Some(payload) = self.paste_registry.get(&id) {
                     let rel_start = ext.start_char - start;
                     let rel_end = ext.end_char - start;
-                    let pill_str = format!(
-                        "[Pasted #{}: ~{} lines]",
-                        id.0,
-                        match ext.kind {
-                            ExtmarkKind::PastePill { line_count, .. } => line_count,
-                            _ => 0,
-                        }
-                    );
-                    if cloned.contains(&pill_str) {
-                        cloned = cloned.replacen(&pill_str, payload, 1);
-                    } else if rel_start <= cloned.len() && rel_end <= cloned.len() {
-                        cloned.replace_range(rel_start..rel_end, payload);
+                    if let Some((byte_start, byte_end)) =
+                        char_range_to_byte_range(&cloned, rel_start, rel_end)
+                    {
+                        cloned.replace_range(byte_start..byte_end, payload);
                     }
                 }
             }
@@ -401,6 +393,36 @@ fn unescape_shell_path(input: &str) -> String {
         out.push(ch);
     }
     out
+}
+
+fn char_range_to_byte_range(
+    text: &str,
+    start_char: usize,
+    end_char: usize,
+) -> Option<(usize, usize)> {
+    if start_char > end_char {
+        return None;
+    }
+    let mut byte_start = None;
+    let mut byte_end = None;
+    let mut count = 0usize;
+    for (byte_idx, _) in text.char_indices() {
+        if count == start_char {
+            byte_start = Some(byte_idx);
+        }
+        if count == end_char {
+            byte_end = Some(byte_idx);
+            break;
+        }
+        count += 1;
+    }
+    if byte_start.is_none() && start_char == count {
+        byte_start = Some(text.len());
+    }
+    if byte_end.is_none() && end_char == count {
+        byte_end = Some(text.len());
+    }
+    Some((byte_start?, byte_end?))
 }
 
 pub fn extract_pasted_image_path(raw: &str) -> Option<(PathBuf, &'static str)> {
