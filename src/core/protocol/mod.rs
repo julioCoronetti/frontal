@@ -171,10 +171,19 @@ pub fn media_source_label(uri: &str) -> String {
 }
 
 pub fn parse_engine_line(line: &str) -> Result<Option<StreamEvent>, ProtocolError> {
-    if OpenCodeStreamParser::matches(line) {
-        OpenCodeStreamParser::parse_line(line)
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.starts_with("error:") {
+        return AgyStreamParser::parse_line(trimmed);
+    }
+    let val: serde_json::Value =
+        serde_json::from_str(trimmed).map_err(|e| ProtocolError::Deserialization(e.to_string()))?;
+    if OpenCodeStreamParser::matches_value(&val) {
+        Ok(OpenCodeStreamParser::parse_value(&val))
     } else {
-        parse_stream_line(line)
+        Ok(Some(AgyStreamParser::parse_value(val)))
     }
 }
 

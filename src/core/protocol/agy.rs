@@ -16,12 +16,17 @@ impl AgyStreamParser {
                 message: None,
             })));
         }
-        let val: serde_json::Value = serde_json::from_str(trimmed)
-            .map_err(|e| ProtocolError::Deserialization(e.to_string()))?;
-        match serde_json::from_value::<StreamEvent>(val) {
+        match serde_json::from_str::<StreamEvent>(trimmed) {
             Ok(event) => Ok(Some(event)),
-            Err(_) => Ok(Some(StreamEvent::Unknown)),
+            Err(e) if e.is_data() => serde_json::from_str::<serde::de::IgnoredAny>(trimmed)
+                .map(|_| Some(StreamEvent::Unknown))
+                .map_err(|syntax_err| ProtocolError::Deserialization(syntax_err.to_string())),
+            Err(e) => Err(ProtocolError::Deserialization(e.to_string())),
         }
+    }
+
+    pub(crate) fn parse_value(val: serde_json::Value) -> StreamEvent {
+        serde_json::from_value::<StreamEvent>(val).unwrap_or(StreamEvent::Unknown)
     }
 }
 

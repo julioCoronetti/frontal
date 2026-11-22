@@ -474,3 +474,20 @@ fn test_build_opencode_args_requires_session_prefix() {
     let native = frontal::transport::build_opencode_args(&config, Some("ses_abc"), "hi");
     assert!(native.iter().any(|arg| arg == "--session"));
 }
+
+#[test]
+fn test_agy_parser_data_mismatch_vs_trailing_garbage() {
+    let ok_cases = ["{}", r#"{"event":123}"#, "[1,2]"];
+    for v in ok_cases {
+        assert_eq!(parse_stream_line(v), Ok(Some(StreamEvent::Unknown)));
+        assert_eq!(parse_engine_line(v), Ok(Some(StreamEvent::Unknown)));
+    }
+    let bad = [r#"{"event":123,broken"#, "{} trailing", "123 trailing"];
+    for b in bad {
+        assert!(parse_stream_line(b).is_err());
+        assert!(parse_engine_line(b).is_err());
+    }
+    let bad_tag = r#"{"event":"step_update","step_update":"bad"}"#;
+    assert_eq!(parse_stream_line(bad_tag), Ok(Some(StreamEvent::Unknown)));
+    assert!(parse_engine_line(r#"{"event":"init","init":123} x"#).is_err());
+}

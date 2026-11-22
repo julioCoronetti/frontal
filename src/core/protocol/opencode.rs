@@ -11,15 +11,39 @@ const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 pub struct OpenCodeStreamParser;
 
 impl OpenCodeStreamParser {
-    pub fn matches(line: &str) -> bool {
-        let Ok(val) = serde_json::from_str::<Value>(line.trim()) else {
-            return false;
-        };
+    pub(crate) fn matches_value(val: &Value) -> bool {
         match val.get("type").and_then(Value::as_str) {
             Some("step_start") | Some("text") | Some("reasoning") | Some("thought")
             | Some("tool_use") | Some("step_finish") | Some("error") => true,
             _ => val.get("sessionID").is_some() || val.get("part").is_some_and(Value::is_object),
         }
+    }
+
+    pub(crate) fn parse_value(val: &Value) -> Option<StreamEvent> {
+        let Some(kind) = val.get("type").and_then(Value::as_str) else {
+            return Some(StreamEvent::Unknown);
+        };
+        let conversation_id = extract_opencode_session_id(val);
+        let part = val.get("part").unwrap_or(&Value::Null);
+        match kind {
+            "step_start" => Some(StreamEvent::Init(InitEvent {
+                conversation_id,
+                init: None,
+            })),
+            "text" => text_delta_event(part, val, conversation_id, StepType::AgentResponse),
+            "reasoning" | "thought" => thought_delta_event(part, val, conversation_id),
+            "tool_use" => Some(tool_event(part, conversation_id)),
+            "step_finish" => step_finish_event(part, val, conversation_id),
+            "error" => Some(StreamEvent::Error(ErrorEvent {
+                error: error_message(val),
+                message: None,
+            })),
+            _ => Some(StreamEvent::Unknown),
+        }
+    }
+
+    pub fn matches(line: &str) -> bool {
+        serde_json::from_str::<Value>(line.trim()).is_ok_and(|val| Self::matches_value(&val))
     }
 
     pub fn parse_line(line: &str) -> Result<Option<StreamEvent>, ProtocolError> {
@@ -29,31 +53,7 @@ impl OpenCodeStreamParser {
         }
         let val: Value = serde_json::from_str(trimmed)
             .map_err(|e| ProtocolError::Deserialization(e.to_string()))?;
-        let Some(kind) = val.get("type").and_then(Value::as_str) else {
-            return Ok(Some(StreamEvent::Unknown));
-        };
-        let conversation_id = extract_opencode_session_id(&val);
-        let part = val.get("part").unwrap_or(&Value::Null);
-        match kind {
-            "step_start" => Ok(Some(StreamEvent::Init(InitEvent {
-                conversation_id,
-                init: None,
-            }))),
-            "text" => Ok(text_delta_event(
-                part,
-                &val,
-                conversation_id,
-                StepType::AgentResponse,
-            )),
-            "reasoning" | "thought" => Ok(thought_delta_event(part, &val, conversation_id)),
-            "tool_use" => Ok(Some(tool_event(part, conversation_id))),
-            "step_finish" => Ok(step_finish_event(part, &val, conversation_id)),
-            "error" => Ok(Some(StreamEvent::Error(ErrorEvent {
-                error: error_message(&val),
-                message: None,
-            }))),
-            _ => Ok(Some(StreamEvent::Unknown)),
-        }
+        Ok(Self::parse_value(&val))
     }
 }
 
