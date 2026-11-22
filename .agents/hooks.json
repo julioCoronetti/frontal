@@ -1,0 +1,42 @@
+{
+  "frontal-workflow-guard": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "./hooks/session_start.sh",
+        "timeout": 15
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "read_file|edit_file|write_file|run_command|manage_task|invoke_subagent|run_workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/pre_tool_use.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "run_command|invoke_subagent|run_workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./hooks/post_tool_use.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "./hooks/stop_cleanup.sh",
+        "timeout": 10
+      }
+    ]
+  }
+}
