@@ -32,26 +32,19 @@ fn default_media_cache_dir() -> Option<PathBuf> {
 
 pub struct SystemClipboard {
     internal: Arc<Mutex<(u64, Option<Clipboard>)>>,
+    next_seq: AtomicU64,
     emit_osc52: bool,
     isolated_buffer: Option<String>,
     isolated_image: Option<(u32, u32, Vec<u8>)>,
     media_cache_dir: Option<PathBuf>,
 }
 
-fn try_write_arboard(
-    internal: &Mutex<(u64, Option<Clipboard>)>,
-    seq: Option<u64>,
-    text: &str,
-) -> bool {
+fn try_write_arboard(internal: &Mutex<(u64, Option<Clipboard>)>, seq: u64, text: &str) -> bool {
     let mut guard = internal.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(s) = seq {
-        if s <= guard.0 {
-            return true;
-        }
-        guard.0 = s;
-    } else {
-        guard.0 = guard.0.saturating_add(1);
+    if seq <= guard.0 {
+        return true;
     }
+    guard.0 = seq;
     if let Some(ref mut cb) = guard.1 {
         cb.set_text(text).is_ok()
     } else {
@@ -63,6 +56,7 @@ impl SystemClipboard {
     pub fn new() -> Self {
         Self {
             internal: Arc::new(Mutex::new((0, Clipboard::new().ok()))),
+            next_seq: AtomicU64::new(1),
             emit_osc52: true,
             isolated_buffer: None,
             isolated_image: None,
@@ -73,6 +67,7 @@ impl SystemClipboard {
     pub fn new_isolated() -> Self {
         Self {
             internal: Arc::new(Mutex::new((0, None))),
+            next_seq: AtomicU64::new(1),
             emit_osc52: false,
             isolated_buffer: None,
             isolated_image: None,
@@ -83,6 +78,7 @@ impl SystemClipboard {
     pub fn new_isolated_with_dir(dir: PathBuf) -> Self {
         Self {
             internal: Arc::new(Mutex::new((0, None))),
+            next_seq: AtomicU64::new(1),
             emit_osc52: false,
             isolated_buffer: None,
             isolated_image: None,
@@ -160,7 +156,8 @@ impl SystemClipboard {
             self.isolated_buffer = Some(text.to_string());
             return Ok(());
         }
-        if !try_write_arboard(&self.internal, None, text) && self.emit_osc52 {
+        let seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
+        if !try_write_arboard(&self.internal, seq, text) && self.emit_osc52 {
             Self::write_osc52_stdout(text);
         }
         Ok(())
@@ -168,18 +165,19 @@ impl SystemClipboard {
 
     pub fn prepare_background_write(
         &self,
-        seq: u64,
-    ) -> impl FnOnce(String) -> Option<String> + Send + 'static {
+    ) -> (u64, impl FnOnce(String) -> Option<String> + Send + 'static) {
+        let seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
         let internal = Arc::clone(&self.internal);
         let emit_osc52 = self.emit_osc52;
-        move |text: String| {
-            let arboard_ok = try_write_arboard(&internal, Some(seq), &text);
+        let write_fn = move |text: String| {
+            let arboard_ok = try_write_arboard(&internal, seq, &text);
             if !arboard_ok && emit_osc52 {
                 Some(text)
             } else {
                 None
             }
-        }
+        };
+        (seq, write_fn)
     }
 
     pub fn write_osc52_stdout(text: &str) {

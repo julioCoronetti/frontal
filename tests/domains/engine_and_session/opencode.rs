@@ -155,7 +155,7 @@ async fn test_error_event_unwedges_session_and_tab() {
 #[tokio::test]
 async fn test_opencode_interrupt_emits_terminal_result_and_releases_pgid() {
     let _lock = PGID_TEST_LOCK.lock().await;
-    let script = "#!/usr/bin/env bash\ntrap 'exit 130' SIGINT\necho '{\"type\":\"step_start\",\"sessionID\":\"ses_int\"}'\nsleep 30\n";
+    let script = "#!/usr/bin/env bash\ntrap 'kill -TERM $! 2>/dev/null || true; exit 130' SIGINT\nsleep 30 >/dev/null 2>&1 &\necho '{\"type\":\"step_start\",\"sessionID\":\"ses_int\"}'\nwait $!\n";
     let mock = TempFileGuard::new("mock_opencode_interrupt", "sh", script);
 
     #[cfg(unix)]

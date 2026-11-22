@@ -286,6 +286,9 @@ fn test_crc32_update_and_background_clipboard_prepare() {
     );
 
     let isolated = SystemClipboard::new_isolated();
-    let writer = isolated.prepare_background_write(1);
-    assert_eq!(writer("secret".to_string()), None);
+    let (seq1, writer1) = isolated.prepare_background_write();
+    let (seq2, writer2) = isolated.prepare_background_write();
+    assert!(seq2 > seq1);
+    assert_eq!(writer2("latest".to_string()), None);
+    assert_eq!(writer1("stale".to_string()), None);
 }

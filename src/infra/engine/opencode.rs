@@ -193,11 +193,13 @@ impl OpenCodeEngine {
 
             let exit_status = child.wait().await;
             unregister_child_pgid(pgid);
-            let _ = active_pgid.compare_exchange(pgid, 0, Ordering::Release, Ordering::Relaxed);
+            let cleared = active_pgid
+                .compare_exchange(pgid, 0, Ordering::Release, Ordering::Relaxed)
+                .is_ok();
             pgid_notify.notify_waiters();
             let stderr_tail = stderr_task.await.unwrap_or_default();
 
-            if saw_terminal {
+            if !cleared || saw_terminal {
                 return;
             }
 
