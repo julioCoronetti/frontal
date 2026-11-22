@@ -34,6 +34,14 @@ pub fn resolve_session_telemetry(
     } else {
         crate::infra::history::transcript::load_usage(conv_id)
     };
+    merge_session_telemetry(conv_id, local, fallback)
+}
+
+fn merge_session_telemetry(
+    conv_id: &str,
+    local: Option<TelemetrySnapshot>,
+    fallback: Option<TelemetrySnapshot>,
+) -> Option<TelemetrySnapshot> {
     match (local, fallback) {
         (Some(mut l), Some(f)) => {
             if conv_id.starts_with("ses_")
@@ -88,7 +96,8 @@ pub fn hydrate_session_blocking(
     db_path: Option<&std::path::Path>,
 ) -> HydratedSession {
     let mut cache = RenderCache::new();
-    let hydrated = hydrate_conversation(conv_id, &mut cache, db_path);
+    let (hydrated, transcript_usage) =
+        hydrate_conversation_with_usage(conv_id, &mut cache, db_path);
     let is_custom_title = db_path
         .map(|path| crate::infra::history::messages::is_custom_title_at(path, conv_id))
         .unwrap_or(false);
@@ -122,7 +131,12 @@ pub fn hydrate_session_blocking(
         };
         (t, src)
     };
-    let mut telemetry = resolve_session_telemetry(conv_id, db_path);
+    let mut telemetry = if conv_id.starts_with("ses_") {
+        resolve_session_telemetry(conv_id, db_path)
+    } else {
+        let local = db_path.and_then(|path| crate::infra::history::telemetry::load(path, conv_id));
+        merge_session_telemetry(conv_id, local, transcript_usage)
+    };
     let effort = if conv_id.starts_with("ses_") {
         let (oc_model, oc_effort) = crate::infra::history::opencode::query_opencode_model(conv_id);
         if let Some(ref mut snap) = telemetry {
@@ -155,9 +169,8 @@ pub fn hydrate_session_blocking(
     }
 }
 
-pub fn hydrate_cache_from_reader<R: BufRead>(reader: R, cache: &mut RenderCache) -> usize {
+fn push_transcript_blocks(blocks: Vec<TranscriptBlock>, cache: &mut RenderCache) -> usize {
     let initial_count = cache.block_count();
-    let blocks = parse_transcript_reader(reader);
     for block in blocks {
         match block {
             TranscriptBlock::UserMessage(msg) => {
@@ -188,14 +201,25 @@ pub fn hydrate_cache_from_reader<R: BufRead>(reader: R, cache: &mut RenderCache)
     cache.block_count().saturating_sub(initial_count)
 }
 
-pub fn hydrate_conversation(
+pub fn hydrate_cache_from_reader<R: BufRead>(reader: R, cache: &mut RenderCache) -> usize {
+    let blocks = parse_transcript_reader(reader);
+    push_transcript_blocks(blocks, cache)
+}
+
+fn hydrate_conversation_with_usage(
     conv_id: &str,
     cache: &mut RenderCache,
     db_path: Option<&std::path::Path>,
-) -> bool {
-    if !conv_id.starts_with("ses_") && hydrate_cache_from_transcript(conv_id, cache) {
-        return true;
-    }
+) -> (bool, Option<TelemetrySnapshot>) {
+    let transcript_usage = if !conv_id.starts_with("ses_") {
+        let (hydrated, usage) = hydrate_cache_from_transcript_with_usage(conv_id, cache);
+        if hydrated {
+            return (true, usage);
+        }
+        usage
+    } else {
+        None
+    };
     let local_messages = db_path
         .map(|path| crate::infra::history::conversation_messages_at(path, conv_id))
         .unwrap_or_default();
@@ -210,10 +234,18 @@ pub fn hydrate_conversation(
         local_messages
     };
     if messages.is_empty() {
-        return false;
+        return (false, transcript_usage);
     }
     hydrate_stored_messages(&messages, cache);
-    true
+    (true, transcript_usage)
+}
+
+pub fn hydrate_conversation(
+    conv_id: &str,
+    cache: &mut RenderCache,
+    db_path: Option<&std::path::Path>,
+) -> bool {
+    hydrate_conversation_with_usage(conv_id, cache, db_path).0
 }
 
 fn hydrate_stored_messages(messages: &[StoredMessage], cache: &mut RenderCache) {
@@ -254,16 +286,24 @@ pub fn conversation_title(conv_id: &str, db_path: Option<&std::path::Path>) -> O
     external.or_else(|| db_path.and_then(|path| conversation_title_at(path, conv_id)))
 }
 
-pub fn hydrate_cache_from_transcript(conv_id: &str, cache: &mut RenderCache) -> bool {
+fn hydrate_cache_from_transcript_with_usage(
+    conv_id: &str,
+    cache: &mut RenderCache,
+) -> (bool, Option<TelemetrySnapshot>) {
     let path = match transcript_path_for_conversation(conv_id) {
         Some(p) => p,
-        None => return false,
+        None => return (false, None),
     };
     let file = match File::open(&path) {
         Ok(f) => f,
-        Err(_) => return false,
+        Err(_) => return (false, None),
     };
     let reader = BufReader::new(file);
-    let count = hydrate_cache_from_reader(reader, cache);
-    count > 0
+    let (blocks, usage) = crate::infra::history::transcript::parse_transcript_all(reader);
+    let count = push_transcript_blocks(blocks, cache);
+    (count > 0, usage)
+}
+
+pub fn hydrate_cache_from_transcript(conv_id: &str, cache: &mut RenderCache) -> bool {
+    hydrate_cache_from_transcript_with_usage(conv_id, cache).0
 }

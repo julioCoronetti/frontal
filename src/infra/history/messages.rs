@@ -88,16 +88,26 @@ fn read_connection<T>(
 }
 
 pub(crate) fn insert_messages(conn: &Connection, conv_id: &str, messages: &[StoredMessage]) {
+    if messages.is_empty() {
+        return;
+    }
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    for message in messages {
-        let _ = conn.execute(
+    let Ok(tx) = conn.unchecked_transaction() else {
+        return;
+    };
+    {
+        let Ok(mut stmt) = tx.prepare_cached(
             "INSERT INTO messages
              (conversation_id, role, content, tool_name, tool_args, step_index, turn_meta, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
+        ) else {
+            return;
+        };
+        for message in messages {
+            let _ = stmt.execute(params![
                 conv_id,
                 message.role,
                 message.content,
@@ -106,7 +116,8 @@ pub(crate) fn insert_messages(conn: &Connection, conv_id: &str, messages: &[Stor
                 message.step_index.map(|value| value as i64),
                 message.turn_meta,
                 now,
-            ],
-        );
+            ]);
+        }
     }
+    let _ = tx.commit();
 }

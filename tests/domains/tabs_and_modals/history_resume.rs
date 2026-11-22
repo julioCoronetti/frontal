@@ -426,3 +426,51 @@ async fn test_respawn_active_session_preserves_old_session_on_spawn_failure() {
         .shutdown_all(std::time::Duration::from_millis(200))
         .await;
 }
+
+#[test]
+fn test_parse_transcript_all_preserves_order_and_batch_messages() {
+    use frontal::infra::history::transcript::{parse_transcript_all, TranscriptBlock};
+    use std::io::BufReader;
+
+    let raw = concat!(
+        r#"{"type":"USER_INPUT","content":"<USER_REQUEST>\noi\n</USER_REQUEST>"}"#,
+        "\n",
+        r#"{"type":"PLANNER_RESPONSE","step_index":1,"model":"gemini-3.8-flash","input_tokens":10,"output_tokens":5,"tool_calls":[{"name":"a","args":"1"},{"name":"b","args":"2"}]}"#,
+        "\n",
+        r#"{"type":"GENERIC","content":"out-a"}"#,
+        "\n",
+        r#"{"type":"GENERIC","content":"out-b"}"#,
+        "\n",
+        r#"{"type":"PLANNER_RESPONSE","step_index":1,"input_tokens":20,"output_tokens":10,"content":"resposta"}"#,
+        "\n",
+        r#"{"type":"PLANNER_RESPONSE","input_tokens":5,"output_tokens":3}"#,
+        "\n"
+    );
+    let (blocks, snap) = parse_transcript_all(BufReader::new(raw.as_bytes()));
+    assert_eq!(blocks.len(), 4);
+    assert!(matches!(blocks[1], TranscriptBlock::ToolCall { ref name, .. } if name == "a"));
+    assert!(matches!(blocks[2], TranscriptBlock::ToolCall { ref name, .. } if name == "b"));
+    let snap = snap.unwrap();
+    assert_eq!(snap.steps, 2);
+    assert_eq!(snap.last.output_tokens, 3);
+    assert_eq!(snap.accumulated.input_tokens, 25);
+
+    let dir = TempDirGuard::new("batch_msgs");
+    let db = dir.path().join("history.db");
+    let history = PromptHistory::open(&db).unwrap();
+    let msgs: Vec<StoredMessage> = (0..50)
+        .map(|i| StoredMessage {
+            role: "user".to_string(),
+            content: format!("msg-{}", i),
+            tool_name: None,
+            tool_args: None,
+            step_index: None,
+            turn_meta: None,
+        })
+        .collect();
+    history.append_messages("conv_batch_1".to_string(), msgs);
+    history.flush();
+    let loaded = frontal::infra::history::conversation_messages_at(&db, "conv_batch_1");
+    assert_eq!(loaded.len(), 50);
+    assert_eq!(loaded[49].content, "msg-49");
+}
