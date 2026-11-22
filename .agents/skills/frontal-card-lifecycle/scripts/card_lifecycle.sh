@@ -10,7 +10,7 @@ DONE_OPTION_ID="98236657"
 DEFAULT_COMMIT_MSG_FILE="$ROOT_DIR/.git/FRONTAL_COMMIT_EDITMSG"
 
 usage() {
-  echo "Usage: $0 {check|bump-patch|bump-minor|tag <version>|close-board <item_id>|validate-commit [--hook] <file|--head>|commit [--file <path> | --header ... --why ... --what ... --invariants ... --refs ... --status ... --advisor ...]}" >&2
+  echo "Usage: $0 {check|bump-patch|bump-minor|tag <version>|close-board <item_id>|validate-commit <file|--head>|commit [--file <path> | --header ... --why ... --what ... --invariants ... --refs ... --status ... --advisor ...]}" >&2
   exit 1
 }
 
@@ -116,14 +116,14 @@ validate_commit_msg() {
     commit_msg=$(cat "$target")
   fi
 
-  if [[ "$stage_mode" == "strict" || "$stage_mode" == "hook" ]]; then
+  if [[ "$stage_mode" == "strict" ]]; then
     local staged_count
     staged_count=$(git diff --cached --name-only | wc -l)
-    if [[ "$stage_mode" == "strict" ]] && [[ "$staged_count" -eq 0 ]]; then
+    if [[ "$staged_count" -eq 0 ]]; then
       echo "Error: No staged files to commit. Stage files for this atomic slice first." >&2
       exit 1
     fi
-    if [[ "$staged_count" -gt 0 ]] && [[ "${ATOMIC_OVERRIDE:-0}" != "1" ]] && [[ "$staged_count" -gt 5 ]]; then
+    if [[ "${ATOMIC_OVERRIDE:-0}" != "1" ]] && [[ "$staged_count" -gt 5 ]]; then
       echo "Error: Atomic commit threshold exceeded ($staged_count staged files, max 5 allowed; set ATOMIC_OVERRIDE=1)." >&2
       exit 1
     fi
@@ -228,17 +228,12 @@ case "$cmd" in
     echo "Updated card $item_id to Done on Project Board #8"
     ;;
   validate-commit)
-    stage_mode="none"
-    if [[ "${2:-}" == "--hook" ]]; then
-      stage_mode="hook"
-      shift
-    fi
     target="${2:-}"
     if [[ -z "$target" ]]; then
       echo "Error: target file or --head required." >&2
       exit 1
     fi
-    validate_commit_msg "$target" "$stage_mode"
+    validate_commit_msg "$target" "none"
     echo "Commit message validation passed."
     ;;
   commit)

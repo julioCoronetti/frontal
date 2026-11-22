@@ -16,14 +16,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Shell Script & Hook Syntax Check
-        run: bash -n .githooks/commit-msg .agents/skills/*/scripts/*.sh
+      - name: Agent Hooks, Workflow & Script Syntax Check
+        run: |
+          bash -n .agents/hooks/*.sh .agents/skills/*/scripts/*.sh
+          python3 -c '
+          import json, sys
+          json.load(open(".agents/hooks.json", encoding="utf-8"))
+          wf = ".agents/skills/frontal-quality-gate/scripts/audit_workflow.py"
+          with open(wf, encoding="utf-8") as f:
+              compile("async def _wf():\n" + "".join("    " + l for l in f), wf, "exec")
+          '
 
       - name: Validate HEAD Commit Contract
         if: github.event_name == 'push'
         run: |
           if [[ "$(git cat-file -p HEAD | grep -c '^parent ')" -le 1 ]]; then
-            .agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh validate-commit --head
+            msg=$(git log -1 --pretty=format:"%B")
+            header=$(printf '%s\n' "$msg" | head -n 1)
+            if ! [[ "$header" =~ ^(feat|fix|refactor|test|docs|chore|perf)(\([a-z0-9_/-]+\))?:\ .{1,72}$ ]]; then
+              echo "Error: Commit header must follow Conventional Commits (<type>(<scope>): <summary>, max 72 chars)." >&2
+              echo "Header: '$header'" >&2
+              exit 1
+            fi
+            if printf '%s\n' "$msg" | grep -qE "^(Refs|Card-Status): "; then
+              .agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh validate-commit --head
+            fi
           fi
 
       - name: Install Rust Toolchain
@@ -35,4 +52,4 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Canonical Quality Gate
-        run: ATOMIC_OVERRIDE=1 .agents/skills/frontal-quality-gate/scripts/quality_gate.sh
+        run: ATOMIC_OVERRIDE=1 .agents/skills/frontal-quality-gate/scripts/quality_gate.sh --full
