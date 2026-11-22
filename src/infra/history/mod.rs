@@ -6,6 +6,7 @@ use std::sync::{Arc, RwLock};
 
 pub mod agent;
 mod api;
+mod external;
 pub mod messages;
 pub mod opencode;
 mod sessions;

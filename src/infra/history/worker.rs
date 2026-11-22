@@ -8,7 +8,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rusqlite::{params, Connection};
 
 use super::sessions::{is_deleted_key, is_deleted_record};
-use super::{agent, messages, sync, telemetry, HistoryCommand, SessionRecord, TitleSource};
+use super::{
+    agent, external, messages, sync, telemetry, HistoryCommand, SessionRecord, TitleSource,
+};
 
 pub(super) fn init_connection(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.busy_timeout(Duration::from_millis(5000))?;
@@ -96,12 +98,12 @@ pub(super) fn spawn_history_worker(
         pinned_titles.extend(sync::load_pinned_titles(&bg_conn));
         let mut probed_empty = std::collections::HashSet::new();
         if agent_db_path.is_some() || opencode_db_path.is_some() {
-            let mut records = sync::load_external_sql_conversations(
+            let mut records = external::load_external_sql_conversations(
                 agent_db_path.as_deref(),
                 opencode_db_path.as_deref(),
                 &known_models,
             );
-            sync::apply_pinned_titles(&bg_conn, &mut records, &pinned_titles, &deleted_ids);
+            external::apply_pinned_titles(&bg_conn, &mut records, &pinned_titles, &deleted_ids);
             records.retain(|r| !is_deleted_record(r, &deleted_ids));
             if let Ok(mut guard) = agent_cache.write() {
                 *guard = records;
