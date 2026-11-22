@@ -33,8 +33,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -x "$ROOT_DIR/.githooks/commit-msg" ]] && [[ "$(git config core.hooksPath || true)" != ".githooks" ]]; then
-  git config core.hooksPath .githooks
+if [[ "$(git config --local core.hooksPath || true)" == ".githooks" ]]; then
+  git config --local --unset core.hooksPath
 fi
 
 if [[ "$MODE" == "files" ]]; then
@@ -66,7 +66,14 @@ fi
 
 VERSION=$(grep '^version = ' Cargo.toml | cut -d '"' -f 2)
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
-HOOKS_PATH=$(git config core.hooksPath || echo "unset")
+HOOK_STATE="missing"
+if [[ -f "$ROOT_DIR/.agents/hooks.json" ]] \
+  && [[ -x "$ROOT_DIR/.agents/hooks/session_start.sh" ]] \
+  && [[ -x "$ROOT_DIR/.agents/hooks/pre_tool_use.sh" ]] \
+  && [[ -x "$ROOT_DIR/.agents/hooks/post_tool_use.sh" ]] \
+  && [[ -x "$ROOT_DIR/.agents/hooks/stop_cleanup.sh" ]]; then
+  HOOK_STATE="active"
+fi
 WIKI_STATE="missing"
 if [[ -d ".wiki/.git" ]]; then
   WIKI_DIRTY=$(git -C .wiki status --porcelain)
@@ -78,7 +85,7 @@ if [[ -d ".wiki/.git" ]]; then
 fi
 
 echo "=== FRONTAL SNAPSHOT ==="
-echo "Version: $VERSION | Branch: $BRANCH | Hooks: $HOOKS_PATH | .wiki: $WIKI_STATE"
+echo "Version: $VERSION | Branch: $BRANCH | AgentHooks: $HOOK_STATE | .wiki: $WIKI_STATE"
 
 echo ""
 echo "=== GIT STATUS (TRACKED) ==="
