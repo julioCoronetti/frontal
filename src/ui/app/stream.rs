@@ -42,68 +42,70 @@ impl App {
         };
         let is_active = tab_idx == self.active_tab_index;
 
-        if let EngineEvent::Stream(ref boxed_ev) = envelope.event {
-            if let StreamEvent::Init(ref ev) = **boxed_ev {
-                if let Some(ref conv_id) = ev.conversation_id {
-                    self.session_manager.set_session_metadata(
-                        &envelope.session_id,
-                        Some(conv_id.clone()),
-                        None,
-                        None,
-                        None,
-                    );
-                    self.sync_session_to_history(&envelope.session_id);
-                    if self.tabs[tab_idx].custom_title {
-                        let custom = self.tabs[tab_idx].title.clone();
-                        self.history.rename_session(conv_id, &custom);
-                        if !self.history.is_in_memory() {
-                            self.history.rename_agent_title(conv_id, &custom);
+        if self.tabs[tab_idx].pending_danger.is_none() {
+            if let EngineEvent::Stream(ref boxed_ev) = envelope.event {
+                if let StreamEvent::Init(ref ev) = **boxed_ev {
+                    if let Some(ref conv_id) = ev.conversation_id {
+                        self.session_manager.set_session_metadata(
+                            &envelope.session_id,
+                            Some(conv_id.clone()),
+                            None,
+                            None,
+                            None,
+                        );
+                        self.sync_session_to_history(&envelope.session_id);
+                        if self.tabs[tab_idx].custom_title {
+                            let custom = self.tabs[tab_idx].title.clone();
+                            self.history.rename_session(conv_id, &custom);
+                            if !self.history.is_in_memory() {
+                                self.history.rename_agent_title(conv_id, &custom);
+                            }
                         }
                     }
-                }
-            } else if let StreamEvent::Result(ref res) = **boxed_ev {
-                let conv_id = res
-                    .conversation_id
-                    .clone()
-                    .or_else(|| res.result.as_ref().and_then(|r| r.conversation_id.clone()));
-                if let Some(cid) = conv_id {
-                    self.session_manager.set_session_metadata(
-                        &envelope.session_id,
-                        Some(cid.clone()),
-                        None,
-                        None,
-                        None,
-                    );
-                    if self.tabs[tab_idx].custom_title
-                        || self.tabs[tab_idx].title_source
-                            == crate::infra::history::TitleSource::Custom
-                    {
-                        self.sync_session_to_history(&envelope.session_id);
-                        let custom = self.tabs[tab_idx].title.clone();
-                        self.history.rename_session_with_source(
-                            &cid,
-                            &custom,
-                            crate::infra::history::TitleSource::Custom,
+                } else if let StreamEvent::Result(ref res) = **boxed_ev {
+                    let conv_id = res
+                        .conversation_id
+                        .clone()
+                        .or_else(|| res.result.as_ref().and_then(|r| r.conversation_id.clone()));
+                    if let Some(cid) = conv_id {
+                        self.session_manager.set_session_metadata(
+                            &envelope.session_id,
+                            Some(cid.clone()),
+                            None,
+                            None,
+                            None,
                         );
-                        if !self.history.is_in_memory() {
-                            self.history.rename_agent_title(&cid, &custom);
-                        }
-                    } else {
-                        if !self.history.is_in_memory() {
-                            if let Some((agent_title, source)) =
-                                self.history.cached_agent_entry(&cid)
-                            {
-                                if source == crate::infra::history::TitleSource::Semantic
-                                    && source >= self.tabs[tab_idx].title_source
-                                {
-                                    self.tabs[tab_idx].title = agent_title.clone();
-                                    self.tabs[tab_idx].title_source = source;
-                                    self.history.rename_session(&cid, &agent_title);
-                                }
+                        if self.tabs[tab_idx].custom_title
+                            || self.tabs[tab_idx].title_source
+                                == crate::infra::history::TitleSource::Custom
+                        {
+                            self.sync_session_to_history(&envelope.session_id);
+                            let custom = self.tabs[tab_idx].title.clone();
+                            self.history.rename_session_with_source(
+                                &cid,
+                                &custom,
+                                crate::infra::history::TitleSource::Custom,
+                            );
+                            if !self.history.is_in_memory() {
+                                self.history.rename_agent_title(&cid, &custom);
                             }
-                            self.history.request_agent_refresh(Some(cid.clone()));
+                        } else {
+                            if !self.history.is_in_memory() {
+                                if let Some((agent_title, source)) =
+                                    self.history.cached_agent_entry(&cid)
+                                {
+                                    if source == crate::infra::history::TitleSource::Semantic
+                                        && source >= self.tabs[tab_idx].title_source
+                                    {
+                                        self.tabs[tab_idx].title = agent_title.clone();
+                                        self.tabs[tab_idx].title_source = source;
+                                        self.history.rename_session(&cid, &agent_title);
+                                    }
+                                }
+                                self.history.request_agent_refresh(Some(cid.clone()));
+                            }
+                            self.sync_session_to_history(&envelope.session_id);
                         }
-                        self.sync_session_to_history(&envelope.session_id);
                     }
                 }
             }

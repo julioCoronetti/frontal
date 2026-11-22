@@ -282,3 +282,147 @@ async fn test_respawn_agy_session_ignores_incompatible_opencode_user_config_mode
         std::env::remove_var("HOME");
     }
 }
+
+#[test]
+fn test_approve_danger_defers_init_and_result_side_effects_until_approved() {
+    use frontal::protocol::{
+        EngineEvent, InitEvent, ResultData, ResultEvent, ResultStatus, SessionEnvelope, SessionId,
+        StepState, StepUpdateData, StepUpdateEvent, StreamEvent, ToolInfo,
+    };
+    use frontal::session::SessionManager;
+    use frontal::ui::app::App;
+    use frontal::ui::modal::ModalAction;
+
+    let mut manager = SessionManager::new();
+    let session_id = SessionId::new();
+    manager.register_mock_session(session_id.clone());
+    let mut app = App::new_isolated(manager, session_id.clone());
+
+    let tool_info = ToolInfo {
+        name: Some("run_command".to_string()),
+        parameters: Some(serde_json::json!({
+            "CommandLine": "rm -rf /tmp/frontal_test_danger"
+        })),
+        output: None,
+    };
+    let danger_ev = StreamEvent::StepUpdate(StepUpdateEvent {
+        conversation_id: None,
+        step_update: Some(StepUpdateData {
+            step_index: Some(1),
+            state: Some(StepState::Active),
+            tool_name: Some("run_command".to_string()),
+            tool_info: Some(tool_info),
+            ..Default::default()
+        }),
+    });
+    app.handle_engine_envelope(SessionEnvelope {
+        session_id: session_id.clone(),
+        event: EngineEvent::Stream(Box::new(danger_ev)),
+    });
+    assert!(app.pending_danger.is_some());
+
+    app.handle_engine_envelope(SessionEnvelope {
+        session_id: session_id.clone(),
+        event: EngineEvent::Stream(Box::new(StreamEvent::Init(InitEvent {
+            conversation_id: Some("conv-danger-defer-1".to_string()),
+            init: None,
+        }))),
+    });
+    app.handle_engine_envelope(SessionEnvelope {
+        session_id: session_id.clone(),
+        event: EngineEvent::Stream(Box::new(StreamEvent::Result(ResultEvent {
+            conversation_id: Some("conv-danger-defer-1".to_string()),
+            result: Some(ResultData {
+                status: Some(ResultStatus::Success),
+                ..Default::default()
+            }),
+        }))),
+    });
+
+    assert_eq!(
+        app.session_manager
+            .get_metadata(&session_id)
+            .unwrap()
+            .conversation_id,
+        None
+    );
+    assert!(app.history.sessions().is_empty());
+    assert_eq!(app.suspended_events.len(), 2);
+    assert_eq!(app.turns_completed, 0);
+
+    app.dispatch_modal_action(ModalAction::ApproveDanger);
+
+    assert!(app.pending_danger.is_none());
+    assert!(app.suspended_events.is_empty());
+    assert_eq!(
+        app.session_manager
+            .get_metadata(&session_id)
+            .unwrap()
+            .conversation_id
+            .as_deref(),
+        Some("conv-danger-defer-1")
+    );
+    assert_eq!(
+        app.history
+            .sessions()
+            .iter()
+            .filter(|s| s.conversation_id.as_deref() == Some("conv-danger-defer-1"))
+            .count(),
+        1
+    );
+    assert_eq!(app.turns_completed, 1);
+}
+
+#[tokio::test]
+async fn test_respawn_active_session_preserves_old_session_on_spawn_failure() {
+    use frontal::protocol::PromptPayload;
+    use frontal::session::{SessionManager, SessionStatus};
+    use frontal::transport::EngineConfig;
+    use frontal::ui::app::App;
+
+    let _lock = crate::common::PGID_TEST_LOCK.lock().await;
+    let script_guard =
+        crate::common::TempFileGuard::new("respawn_fail", "sh", "#!/usr/bin/env bash\nsleep 5\n");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(script_guard.path())
+            .unwrap()
+            .permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(script_guard.path(), perms).unwrap();
+    }
+
+    let mut manager = SessionManager::new();
+    let mut config = EngineConfig::new_isolated();
+    config.agy_bin = script_guard.path().to_path_buf();
+    let old_id = manager.create_subprocess_session(config).await.unwrap();
+
+    let mut app = App::new_isolated(manager, old_id.clone());
+    app.pending_engine_prompts.push_back((
+        old_id.clone(),
+        PromptPayload::from_text("queued".to_string()),
+    ));
+
+    drop(script_guard);
+    app.dirty = false;
+
+    let res = app
+        .respawn_active_session(None, Some("gemini-3.8-flash".to_string()), None, None)
+        .await;
+    assert!(res.is_err());
+    assert_eq!(app.active_session, old_id);
+    assert_eq!(app.tabs[0].session_id, old_id);
+    assert_ne!(
+        app.session_manager.get_metadata(&old_id).unwrap().status,
+        SessionStatus::Closed
+    );
+    assert_eq!(app.pending_engine_prompts.len(), 1);
+    assert!(app.status_text.starts_with("Failed to respawn session:"));
+    assert!(app.dirty);
+
+    let _ = app
+        .session_manager
+        .shutdown_all(std::time::Duration::from_millis(200))
+        .await;
+}

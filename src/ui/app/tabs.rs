@@ -203,12 +203,6 @@ impl App {
                 meta.and_then(|m| m.mode.clone()),
             )
         };
-        self.pending_engine_prompts
-            .retain(|(sid, _)| sid != &old_id);
-        let _ = self
-            .session_manager
-            .shutdown_session(&old_id, std::time::Duration::from_millis(500))
-            .await;
         let prev_backend = base_engine_config
             .as_ref()
             .map(|config| config.backend)
@@ -354,8 +348,18 @@ impl App {
             config.mode = final_mode.clone();
             self.session_manager
                 .create_subprocess_session(config)
-                .await?
+                .await
+                .inspect_err(|err| {
+                    self.tabs[tab_idx].status_text = format!("Failed to respawn session: {}", err);
+                    self.dirty = true;
+                })?
         };
+        self.pending_engine_prompts
+            .retain(|(sid, _)| sid != &old_id);
+        let _ = self
+            .session_manager
+            .shutdown_session(&old_id, std::time::Duration::from_millis(500))
+            .await;
         if let Some(backend) = requested_backend {
             self.user_config.backend = backend;
         }

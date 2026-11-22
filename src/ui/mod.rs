@@ -149,9 +149,13 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                                 effort,
                                 mode,
                             } => {
-                                let _ = app
+                                if let Err(err) = app
                                     .respawn_active_session(conversation_id, model, effort, mode)
-                                    .await;
+                                    .await
+                                {
+                                    app.status_text = format!("Failed to respawn session: {}", err);
+                                    app.dirty = true;
+                                }
                             }
                             AppAction::Quit => {
                                 break;
