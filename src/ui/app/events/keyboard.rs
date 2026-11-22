@@ -75,13 +75,16 @@ impl App {
                 .or_else(|| self.editor.selected_text());
             if let Some(selected) = sel {
                 if !selected.is_empty() {
-                    let _ = self.clipboard.set_text(&selected);
                     self.viewport.clear_selection();
                     self.editor.clear_selection();
                     self.last_ctrl_c_at = None;
                     self.status_text = String::from("Selection copied to clipboard");
                     self.dirty = true;
-                    return None;
+                    if self.clipboard.is_isolated() {
+                        let _ = self.clipboard.set_text(&selected);
+                        return None;
+                    }
+                    return Some(AppAction::CopyClipboard(selected));
                 }
             }
 

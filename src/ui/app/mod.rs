@@ -43,6 +43,7 @@ pub enum AppAction {
     SubmitPrompt(crate::protocol::PromptPayload),
     PasteClipboard,
     InspectPastedText(String),
+    CopyClipboard(String),
     Interrupt,
     Quit,
     NewTab,

@@ -4,6 +4,7 @@ mod platform;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use arboard::Clipboard;
 
@@ -28,17 +29,39 @@ fn default_media_cache_dir() -> Option<PathBuf> {
 }
 
 pub struct SystemClipboard {
-    internal: Option<Clipboard>,
+    internal: Arc<Mutex<Option<Clipboard>>>,
     emit_osc52: bool,
     isolated_buffer: Option<String>,
     isolated_image: Option<(u32, u32, Vec<u8>)>,
     media_cache_dir: Option<PathBuf>,
 }
 
+fn write_clipboard_backend(
+    internal: &Mutex<Option<Clipboard>>,
+    emit_osc52: bool,
+    text: &str,
+) -> Result<(), String> {
+    let mut arboard_ok = false;
+    {
+        let mut guard = internal.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(ref mut cb) = *guard {
+            arboard_ok = cb.set_text(text.to_string()).is_ok();
+        }
+    }
+    if !arboard_ok && emit_osc52 {
+        let osc = SystemClipboard::format_osc52(text);
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+        let _ = std::io::Write::write_all(&mut handle, osc.as_bytes());
+        let _ = std::io::Write::flush(&mut handle);
+    }
+    Ok(())
+}
+
 impl SystemClipboard {
     pub fn new() -> Self {
         Self {
-            internal: Clipboard::new().ok(),
+            internal: Arc::new(Mutex::new(Clipboard::new().ok())),
             emit_osc52: true,
             isolated_buffer: None,
             isolated_image: None,
@@ -48,7 +71,7 @@ impl SystemClipboard {
 
     pub fn new_isolated() -> Self {
         Self {
-            internal: None,
+            internal: Arc::new(Mutex::new(None)),
             emit_osc52: false,
             isolated_buffer: None,
             isolated_image: None,
@@ -58,7 +81,7 @@ impl SystemClipboard {
 
     pub fn new_isolated_with_dir(dir: PathBuf) -> Self {
         Self {
-            internal: None,
+            internal: Arc::new(Mutex::new(None)),
             emit_osc52: false,
             isolated_buffer: None,
             isolated_image: None,
@@ -102,29 +125,32 @@ impl SystemClipboard {
             };
             return save_rgba_png_dedup(&cache_dir, w, h, &bytes).map(Some);
         }
-        if let Some(ref mut cb) = self.internal {
-            if let Ok(img) = cb.get_image() {
-                let w = u32::try_from(img.width)
-                    .map_err(|_| "clipboard image width overflow".to_string())?;
-                let h = u32::try_from(img.height)
-                    .map_err(|_| "clipboard image height overflow".to_string())?;
-                return save_rgba_png_dedup(&cache_dir, w, h, img.bytes.as_ref()).map(Some);
-            }
+        let image_res = {
+            let mut guard = self.internal.lock().unwrap_or_else(|e| e.into_inner());
+            guard.as_mut().and_then(|cb| cb.get_image().ok())
+        };
+        if let Some(img) = image_res {
+            let w = u32::try_from(img.width)
+                .map_err(|_| "clipboard image width overflow".to_string())?;
+            let h = u32::try_from(img.height)
+                .map_err(|_| "clipboard image height overflow".to_string())?;
+            return save_rgba_png_dedup(&cache_dir, w, h, img.bytes.as_ref()).map(Some);
         }
         platform::read_system_clipboard_image(&cache_dir)
     }
 
     pub fn get_text(&mut self) -> Option<String> {
         if self.is_isolated() {
-            self.isolated_buffer.clone()
-        } else if let Some(ref mut cb) = self.internal {
-            cb.get_text()
-                .ok()
-                .filter(|s| !s.is_empty())
-                .or_else(platform::read_system_clipboard_text)
-        } else {
-            platform::read_system_clipboard_text()
+            return self.isolated_buffer.clone();
         }
+        let text_opt = {
+            let mut guard = self.internal.lock().unwrap_or_else(|e| e.into_inner());
+            guard
+                .as_mut()
+                .and_then(|cb| cb.get_text().ok())
+                .filter(|s| !s.is_empty())
+        };
+        text_opt.or_else(platform::read_system_clipboard_text)
     }
 
     pub fn set_text(&mut self, text: &str) -> Result<(), String> {
@@ -132,16 +158,15 @@ impl SystemClipboard {
             self.isolated_buffer = Some(text.to_string());
             return Ok(());
         }
-        let mut arboard_ok = false;
-        if let Some(ref mut cb) = self.internal {
-            arboard_ok = cb.set_text(text.to_string()).is_ok();
+        write_clipboard_backend(&self.internal, self.emit_osc52, text)
+    }
+
+    pub fn prepare_background_write(&self) -> impl FnOnce(String) + Send + 'static {
+        let internal = Arc::clone(&self.internal);
+        let emit_osc52 = self.emit_osc52;
+        move |text: String| {
+            let _ = write_clipboard_backend(&internal, emit_osc52, &text);
         }
-        if !arboard_ok && self.emit_osc52 {
-            let osc = Self::format_osc52(text);
-            let _ = std::io::Write::write_all(&mut std::io::stdout(), osc.as_bytes());
-            let _ = std::io::Write::flush(&mut std::io::stdout());
-        }
-        Ok(())
     }
 
     pub fn format_osc52(text: &str) -> String {
@@ -149,27 +174,7 @@ impl SystemClipboard {
     }
 
     pub fn encode_base64(data: &[u8]) -> String {
-        const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        let mut out = String::new();
-        for chunk in data.chunks(3) {
-            let b0 = chunk[0];
-            let b1 = *chunk.get(1).unwrap_or(&0);
-            let b2 = *chunk.get(2).unwrap_or(&0);
-            let n = ((b0 as u32) << 16) | ((b1 as u32) << 8) | (b2 as u32);
-            out.push(TABLE[((n >> 18) & 63) as usize] as char);
-            out.push(TABLE[((n >> 12) & 63) as usize] as char);
-            if chunk.len() > 1 {
-                out.push(TABLE[((n >> 6) & 63) as usize] as char);
-            } else {
-                out.push('=');
-            }
-            if chunk.len() > 2 {
-                out.push(TABLE[(n & 63) as usize] as char);
-            } else {
-                out.push('=');
-            }
-        }
-        out
+        crate::protocol::acp::encode_base64(data)
     }
 }
 

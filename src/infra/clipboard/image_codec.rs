@@ -1,16 +1,36 @@
 pub const MAX_RAW_RGBA_BYTES: usize = 32 * 1024 * 1024;
 pub const PNG_SIGNATURE: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
 
-pub fn crc32_ieee(data: &[u8]) -> u32 {
-    let mut crc = 0xFFFF_FFFFu32;
-    for &byte in data {
-        crc ^= byte as u32;
-        for _ in 0..8 {
-            let mask = (crc & 1).wrapping_neg();
-            crc = (crc >> 1) ^ (0xEDB8_8320u32 & mask);
+const fn build_crc32_table() -> [u32; 256] {
+    let mut table = [0u32; 256];
+    let mut i = 0usize;
+    while i < 256 {
+        let mut c = i as u32;
+        let mut bit = 0;
+        while bit < 8 {
+            let mask = (c & 1).wrapping_neg();
+            c = (c >> 1) ^ (0xEDB8_8320u32 & mask);
+            bit += 1;
         }
+        table[i] = c;
+        i += 1;
     }
-    !crc
+    table
+}
+
+const CRC32_TABLE: [u32; 256] = build_crc32_table();
+
+pub fn crc32_update(crc: u32, data: &[u8]) -> u32 {
+    let mut c = !crc;
+    for &byte in data {
+        let idx = ((c ^ (byte as u32)) & 0xFF) as usize;
+        c = (c >> 8) ^ CRC32_TABLE[idx];
+    }
+    !c
+}
+
+pub fn crc32_ieee(data: &[u8]) -> u32 {
+    crc32_update(0, data)
 }
 
 pub fn adler32(data: &[u8]) -> u32 {
@@ -28,10 +48,8 @@ fn write_png_chunk(out: &mut Vec<u8>, chunk_type: &[u8; 4], data: &[u8]) {
     out.extend_from_slice(&(data.len() as u32).to_be_bytes());
     out.extend_from_slice(chunk_type);
     out.extend_from_slice(data);
-    let mut crc_input = Vec::with_capacity(4 + data.len());
-    crc_input.extend_from_slice(chunk_type);
-    crc_input.extend_from_slice(data);
-    out.extend_from_slice(&crc32_ieee(&crc_input).to_be_bytes());
+    let crc = crc32_update(crc32_update(0, chunk_type), data);
+    out.extend_from_slice(&crc.to_be_bytes());
 }
 
 pub fn encode_rgba_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {

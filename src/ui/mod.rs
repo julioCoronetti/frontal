@@ -114,6 +114,10 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                                     let _ = tx.blocking_send((sid, res));
                                 });
                             }
+                            AppAction::CopyClipboard(text) => {
+                                let write_fn = app.clipboard.prepare_background_write();
+                                tokio::task::spawn_blocking(move || write_fn(text));
+                            }
                             AppAction::Interrupt => {
                                 let _ = app.session_manager.interrupt_active();
                             }
