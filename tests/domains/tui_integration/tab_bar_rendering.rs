@@ -146,3 +146,42 @@ fn test_tab_bar_overflow_truncates_and_keeps_active_tab_and_plus_visible() {
         assert!(region.rect.right() <= 58);
     }
 }
+
+#[test]
+fn test_tab_bar_wide_unicode_truncation_and_divider_render() {
+    let (mut app, _) = test_app();
+    app.add_tab(
+        SessionId::new(),
+        Some("🚀 日本語セッションタイトルテスト".to_string()),
+    );
+    let (term, _) = render_app(&mut app, 40, 15);
+    let row0 = row_zero_string(term.backend().buffer());
+    assert!(row0.contains('…'));
+    let row1: String = (0..40)
+        .map(|x| term.backend().buffer()[(x, 1)].symbol())
+        .collect();
+    assert!(row1.trim().chars().all(|c| c == '─'));
+    assert!(row1.contains('─'));
+}
+
+#[test]
+fn test_render_input_wraps_multibyte_media_and_selection_cleanly() {
+    let (mut app, _) = test_app();
+    app.cache.push_user_message("init");
+    app.editor.insert_str("olá 🦀 ");
+    app.editor
+        .insert_media_attachment("/tmp/test.png", "image/png");
+    app.editor
+        .insert_str(" continuação longa para quebrar linha");
+    app.editor.select_all();
+    let (term, _) = render_app(&mut app, 32, 16);
+    let full: String = (0..16)
+        .map(|y| {
+            (0..32)
+                .map(|x| term.backend().buffer()[(x, y)].symbol())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(full.contains("Image #1"));
+}

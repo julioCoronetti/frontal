@@ -393,3 +393,26 @@ fn test_thought_and_tool_blocks_use_atlas_crimson_palette() {
     assert_eq!(err.spans[0].content.as_ref(), "  ");
     assert_eq!(err.spans[1].style.fg, Some(Color::Red));
 }
+
+#[test]
+fn test_extract_text_range_handles_usize_max_and_interior_lines() {
+    let mut cache = RenderCache::new();
+    cache.push_user_message("pergunta");
+    cache.append_streaming_delta(
+        BlockKind::Assistant,
+        "linha 1\n\nlinha 2\n\nlinha 3\n\nlinha 4",
+    );
+    cache.consolidate_active_turn(None);
+    let total = cache.ensure_visual_lines(80);
+
+    let full = cache.extract_text_range(0, 0, usize::MAX, 1000);
+    assert!(full.contains("pergunta"));
+    assert!(full.contains("linha 1"));
+    assert!(full.contains("linha 2"));
+    assert!(full.contains("linha 3"));
+    assert!(full.contains("linha 4"));
+
+    let mid = cache.extract_text_range(1, 0, total.saturating_sub(2), 100);
+    assert!(mid.contains("linha 1"));
+    assert!(mid.contains("linha 2"));
+}

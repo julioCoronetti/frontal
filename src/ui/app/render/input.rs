@@ -8,16 +8,42 @@ use crate::ui::app::App;
 use crate::ui::editor::{Extmark, ExtmarkKind};
 use crate::ui::theme::{ACCENT_PRIMARY, ACCENT_RUBY};
 
-fn char_input_style(
+fn build_media_ranges(extmarks: &[Extmark]) -> Vec<(usize, usize)> {
+    let mut ranges: Vec<(usize, usize)> = extmarks
+        .iter()
+        .filter_map(|ext| match ext.kind {
+            ExtmarkKind::Media { .. } if ext.start_char < ext.end_char => {
+                Some((ext.start_char, ext.end_char))
+            }
+            _ => None,
+        })
+        .collect();
+    ranges.sort_unstable_by_key(|r| r.0);
+    let mut merged: Vec<(usize, usize)> = Vec::with_capacity(ranges.len());
+    for (start, end) in ranges {
+        if let Some(last) = merged.last_mut() {
+            if start <= last.1 {
+                last.1 = last.1.max(end);
+                continue;
+            }
+        }
+        merged.push((start, end));
+    }
+    merged
+}
+
+fn style_at_char(
     char_idx: usize,
-    extmarks: &[Extmark],
+    media_ranges: &[(usize, usize)],
+    media_cursor: &mut usize,
     selection: Option<(usize, usize)>,
 ) -> Style {
-    let is_media = extmarks.iter().any(|ext| {
-        matches!(ext.kind, ExtmarkKind::Media { .. })
-            && char_idx >= ext.start_char
-            && char_idx < ext.end_char
-    });
+    while *media_cursor < media_ranges.len() && media_ranges[*media_cursor].1 <= char_idx {
+        *media_cursor += 1;
+    }
+    let is_media = *media_cursor < media_ranges.len()
+        && char_idx >= media_ranges[*media_cursor].0
+        && char_idx < media_ranges[*media_cursor].1;
     let mut style = if is_media {
         Style::default()
             .fg(ACCENT_RUBY)
@@ -68,6 +94,8 @@ pub(crate) fn build_input_text(
     selection: Option<(usize, usize)>,
     inner_width: usize,
 ) -> Text<'static> {
+    let media_ranges = build_media_ranges(extmarks);
+    let mut media_cursor = 0usize;
     let mut lines = Vec::new();
     let mut global_char_idx = 0usize;
     let wrap_w = inner_width.max(1);
@@ -75,30 +103,44 @@ pub(crate) fn build_input_text(
     for line_str in full_text.split('\n') {
         let mut spans: Vec<Span<'static>> = Vec::new();
         let mut current_style: Option<Style> = None;
-        let mut current_buf = String::new();
+        let mut run_start_byte = 0usize;
         let mut line_len = 0usize;
         let mut col_in_row = 0usize;
 
-        for ch in line_str.chars() {
+        for (byte_idx, _) in line_str.char_indices() {
             if col_in_row == wrap_w {
                 if let Some(active) = current_style.take() {
-                    if !current_buf.is_empty() {
-                        spans.push(Span::styled(std::mem::take(&mut current_buf), active));
+                    if byte_idx > run_start_byte {
+                        spans.push(Span::styled(
+                            line_str[run_start_byte..byte_idx].to_string(),
+                            active,
+                        ));
                     }
                 }
                 lines.push(Line::from(std::mem::take(&mut spans)));
+                run_start_byte = byte_idx;
                 col_in_row = 0;
             }
-            let style = char_input_style(global_char_idx + line_len, extmarks, selection);
+            let style = style_at_char(
+                global_char_idx + line_len,
+                &media_ranges,
+                &mut media_cursor,
+                selection,
+            );
             match current_style {
-                Some(active) if active == style => current_buf.push(ch),
+                Some(active) if active == style => {}
                 Some(active) => {
-                    spans.push(Span::styled(std::mem::take(&mut current_buf), active));
-                    current_buf.push(ch);
+                    if byte_idx > run_start_byte {
+                        spans.push(Span::styled(
+                            line_str[run_start_byte..byte_idx].to_string(),
+                            active,
+                        ));
+                    }
+                    run_start_byte = byte_idx;
                     current_style = Some(style);
                 }
                 None => {
-                    current_buf.push(ch);
+                    run_start_byte = byte_idx;
                     current_style = Some(style);
                 }
             }
@@ -107,8 +149,8 @@ pub(crate) fn build_input_text(
         }
 
         if let Some(active) = current_style {
-            if !current_buf.is_empty() {
-                spans.push(Span::styled(current_buf, active));
+            if line_str.len() > run_start_byte {
+                spans.push(Span::styled(line_str[run_start_byte..].to_string(), active));
             }
         }
         lines.push(Line::from(spans));

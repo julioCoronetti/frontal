@@ -47,22 +47,6 @@ impl RenderCache {
         self.blocks.len()
     }
 
-    pub fn line_info_at(&self, visual_idx: usize) -> Option<(crate::ui::cache::BlockKind, String)> {
-        let mut current = 0;
-        for block in &self.blocks {
-            if let Some(cached) = self.l2_cache.get(&block.id) {
-                if visual_idx < current + cached.lines.len() {
-                    let local = visual_idx - current;
-                    let line = &cached.lines[local];
-                    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-                    return Some((block.kind.clone(), text));
-                }
-                current += cached.lines.len();
-            }
-        }
-        None
-    }
-
     pub fn extract_text_range(
         &self,
         start_line: usize,
@@ -79,113 +63,122 @@ impl RenderCache {
 
         let has_margin = self.last_width > 4;
         let mut extracted = Vec::new();
-        for l in s_line..=e_line {
-            if let Some((kind, text)) = self.line_info_at(l) {
+        let mut current = 0usize;
+        for block in &self.blocks {
+            let Some(cached) = self.l2_cache.get(&block.id) else {
+                continue;
+            };
+            if current > e_line {
+                break;
+            }
+            let block_len = cached.lines.len();
+            if current + block_len <= s_line {
+                current += block_len;
+                continue;
+            }
+            let local_start = s_line.saturating_sub(current);
+            for (offset, line) in cached.lines[local_start..].iter().enumerate() {
+                let l = current + local_start + offset;
+                if l > e_line {
+                    break;
+                }
+                let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
                 let trimmed = text.trim_end();
-                let (stripped, prefix_len) = match kind {
+                let (stripped, prefix_len) = match &block.kind {
                     crate::ui::cache::BlockKind::Assistant => {
                         if has_margin {
                             if let Some(rest) = trimmed.strip_prefix("  ") {
-                                (rest.to_string(), 2)
+                                (rest, 2)
                             } else {
-                                (trimmed.to_string(), 0)
+                                (trimmed, 0)
                             }
                         } else {
-                            (trimmed.to_string(), 0)
+                            (trimmed, 0)
                         }
                     }
                     crate::ui::cache::BlockKind::User => {
-                        if trimmed.starts_with("▌ ") {
-                            (trimmed.replacen("▌ ", "", 1), 2)
-                        } else if trimmed.starts_with('▌') {
-                            (trimmed.replacen('▌', "", 1), 1)
+                        if let Some(rest) = trimmed.strip_prefix("▌ ") {
+                            (rest, 2)
+                        } else if let Some(rest) = trimmed.strip_prefix('▌') {
+                            (rest, 1)
                         } else {
-                            (trimmed.to_string(), 0)
+                            (trimmed, 0)
                         }
                     }
                     _ => {
                         if has_margin && trimmed == "  │" {
-                            (String::new(), 4)
+                            ("", 4)
                         } else if trimmed == "│" {
-                            (String::new(), 2)
+                            ("", 2)
                         } else if has_margin && trimmed == "  ● Error:" {
-                            (String::new(), 11)
+                            ("", 11)
                         } else if trimmed == "● Error:" {
-                            (String::new(), 9)
+                            ("", 9)
                         } else if has_margin {
                             if let Some(rest) = trimmed.strip_prefix("  │ ") {
-                                (rest.to_string(), 4)
+                                (rest, 4)
                             } else if let Some(rest) = trimmed.strip_prefix("  ● Error: ") {
-                                (rest.to_string(), 11)
+                                (rest, 11)
                             } else if let Some(rest) = trimmed.strip_prefix("  ") {
-                                (rest.to_string(), 2)
+                                (rest, 2)
                             } else {
-                                (trimmed.to_string(), 0)
+                                (trimmed, 0)
                             }
                         } else if let Some(rest) = trimmed.strip_prefix("│ ") {
-                            (rest.to_string(), 2)
+                            (rest, 2)
                         } else if let Some(rest) = trimmed.strip_prefix("● Error: ") {
-                            (rest.to_string(), 9)
+                            (rest, 9)
                         } else {
-                            (trimmed.to_string(), 0)
+                            (trimmed, 0)
                         }
                     }
                 };
 
                 if matches!(
-                    kind,
+                    block.kind,
                     crate::ui::cache::BlockKind::Thought | crate::ui::cache::BlockKind::Tool { .. }
                 ) && !trimmed.starts_with("  │")
                     && !trimmed.starts_with('│')
-                    && is_structural_metadata(&stripped)
+                    && is_structural_metadata(stripped)
                 {
                     continue;
                 }
 
-                let chars: Vec<char> = stripped.chars().collect();
-                let sc = s_col.saturating_sub(prefix_len).min(chars.len());
-                let ec = if e_col <= prefix_len {
-                    0
-                } else {
-                    e_col.saturating_sub(prefix_len).min(chars.len())
-                };
-                if l == s_line && l == e_line {
-                    let slice: String = if sc <= ec {
-                        chars[sc..ec].iter().collect()
+                if l == s_line || l == e_line {
+                    let chars: Vec<char> = stripped.chars().collect();
+                    let sc = s_col.saturating_sub(prefix_len).min(chars.len());
+                    let ec = if e_col <= prefix_len {
+                        0
                     } else {
-                        String::new()
+                        e_col.saturating_sub(prefix_len).min(chars.len())
+                    };
+                    let slice: String = if l == s_line && l == e_line {
+                        if sc <= ec {
+                            chars[sc..ec].iter().collect()
+                        } else {
+                            String::new()
+                        }
+                    } else if l == s_line {
+                        chars[sc..].iter().collect()
+                    } else {
+                        chars[..ec].iter().collect()
                     };
                     extracted.push(slice);
-                } else if l == s_line {
-                    let slice: String = chars[sc..].iter().collect();
-                    extracted.push(slice);
-                } else if l == e_line {
-                    let slice: String = chars[..ec].iter().collect();
-                    extracted.push(slice);
                 } else {
-                    extracted.push(stripped);
+                    extracted.push(stripped.to_string());
                 }
             }
+            current += block_len;
         }
 
-        while extracted
-            .first()
-            .map(|s| s.trim().is_empty())
-            .unwrap_or(false)
-        {
-            extracted.remove(0);
-        }
-        while extracted
-            .last()
-            .map(|s| s.trim().is_empty())
-            .unwrap_or(false)
-        {
+        while extracted.last().is_some_and(|s| s.trim().is_empty()) {
             extracted.pop();
         }
+        let leading = extracted.iter().take_while(|s| s.trim().is_empty()).count();
 
         let mut sanitized = Vec::new();
         let mut prev_empty = false;
-        for line in extracted {
+        for line in extracted.into_iter().skip(leading) {
             let is_empty = line.trim().is_empty();
             if is_empty && prev_empty {
                 continue;

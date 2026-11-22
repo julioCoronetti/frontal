@@ -27,15 +27,19 @@ fn truncate_to_display_width(text: &str, max_width: usize) -> String {
     if max_width == 1 {
         return String::from("…");
     }
-    let mut out = String::new();
-    for ch in text.chars() {
-        let mut candidate = out.clone();
-        candidate.push(ch);
-        if Span::raw(&candidate).width() + 1 > max_width {
+    let mut used_w = 0usize;
+    let mut end_byte = 0usize;
+    for (idx, ch) in text.char_indices() {
+        let next_byte = idx + ch.len_utf8();
+        let ch_w = Span::raw(&text[idx..next_byte]).width();
+        if used_w + ch_w + 1 > max_width {
             break;
         }
-        out = candidate;
+        used_w += ch_w;
+        end_byte = next_byte;
     }
+    let mut out = String::with_capacity(end_byte + '…'.len_utf8());
+    out.push_str(&text[..end_byte]);
     out.push('…');
     out
 }
@@ -244,11 +248,16 @@ impl App {
     }
 
     pub(crate) fn render_divider(&self, frame: &mut Frame, divider_area: Rect, width: u16) {
-        let divider_widget = Paragraph::new(Line::from(vec![Span::styled(
-            "─".repeat(width as usize),
-            Style::default().fg(BORDER_SUBTLE),
-        )]));
-        frame.render_widget(divider_widget, divider_area);
+        let buf = frame.buffer_mut();
+        let area = divider_area.intersection(*buf.area());
+        if area.height == 0 || area.width == 0 || width == 0 {
+            return;
+        }
+        let draw_w = area.width.min(width);
+        let style = Style::default().fg(BORDER_SUBTLE);
+        for x in area.x..area.x.saturating_add(draw_w) {
+            buf[(x, area.y)].set_symbol("─").set_style(style);
+        }
     }
 
     pub(crate) fn render_footer(&self, frame: &mut Frame, footer_area: Rect, show_sidebar: bool) {
