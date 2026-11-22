@@ -62,10 +62,10 @@ impl super::ModelEffortModal {
             return (0..self.providers.len()).map(ListEntry::Provider).collect();
         }
         if self.searching() {
-            let query = self.query.trim().to_lowercase();
+            let query = self.query.trim();
             let mut entries = Vec::new();
             for (index, model) in self.agy_models.iter().enumerate() {
-                if Self::matches_query(model, &query) {
+                if Self::matches_query(model, query) {
                     entries.push(ListEntry::Model {
                         backend: BackendKind::Agy,
                         index,
@@ -73,7 +73,7 @@ impl super::ModelEffortModal {
                 }
             }
             for (index, model) in self.opencode_models.iter().enumerate() {
-                if Self::matches_query(model, &query) {
+                if Self::matches_query(model, query) {
                     entries.push(ListEntry::Model {
                         backend: BackendKind::OpenCode,
                         index,
@@ -101,7 +101,10 @@ impl super::ModelEffortModal {
                     .iter()
                     .enumerate()
                     .filter(|(_, model)| match &self.provider {
-                        Some(provider) => model.id.starts_with(&format!("{}/", provider)),
+                        Some(provider) => model
+                            .id
+                            .strip_prefix(provider.as_str())
+                            .is_some_and(|rest| rest.starts_with('/')),
                         None => true,
                     })
                     .map(|(index, _)| ListEntry::Model {
@@ -120,7 +123,8 @@ impl super::ModelEffortModal {
     }
 
     fn matches_query(model: &ModelItem, query: &str) -> bool {
-        model.id.to_lowercase().contains(query) || model.name.to_lowercase().contains(query)
+        crate::ui::modal::select::contains_ignore_ascii_case(&model.id, query)
+            || crate::ui::modal::select::contains_ignore_ascii_case(&model.name, query)
     }
 
     pub(crate) fn selected_entry(&self) -> Option<ListEntry> {
@@ -174,14 +178,17 @@ impl super::ModelEffortModal {
     pub(crate) fn scope_models_to_provider(&mut self) {
         self.models = match (self.backend, &self.provider) {
             (BackendKind::Agy, _) => self.agy_models.clone(),
-            (BackendKind::OpenCode, Some(provider)) => {
-                let prefix = format!("{}/", provider);
-                self.opencode_models
-                    .iter()
-                    .filter(|model| model.id.starts_with(&prefix))
-                    .cloned()
-                    .collect()
-            }
+            (BackendKind::OpenCode, Some(provider)) => self
+                .opencode_models
+                .iter()
+                .filter(|model| {
+                    model
+                        .id
+                        .strip_prefix(provider.as_str())
+                        .is_some_and(|rest| rest.starts_with('/'))
+                })
+                .cloned()
+                .collect(),
             (BackendKind::OpenCode, None) => self.opencode_models.clone(),
         };
         self.selected_model_idx = 0;

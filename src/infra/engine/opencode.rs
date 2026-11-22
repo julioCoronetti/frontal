@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
@@ -5,7 +6,7 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use tokio::process::{ChildStderr, Command};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, Notify, RwLock};
 use tokio_util::codec::{FramedRead, LinesCodec};
 
 use super::{register_child_pgid, unregister_child_pgid};
@@ -20,6 +21,7 @@ pub struct OpenCodeEngine {
     config: EngineConfig,
     conversation_id: Arc<RwLock<Option<String>>>,
     active_pgid: Arc<AtomicI32>,
+    pgid_notify: Arc<Notify>,
     sender: mpsc::Sender<SessionEnvelope>,
 }
 
@@ -43,7 +45,26 @@ impl OpenCodeEngine {
             config,
             conversation_id: Arc::new(RwLock::new(initial_conversation)),
             active_pgid: Arc::new(AtomicI32::new(0)),
+            pgid_notify: Arc::new(Notify::new()),
             sender,
+        }
+    }
+
+    async fn wait_for_pgid_clear(&self, timeout: Duration) -> bool {
+        if self.active_pgid.load(Ordering::Acquire) == 0 {
+            return true;
+        }
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            let notified = self.pgid_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.active_pgid.load(Ordering::Acquire) == 0 {
+                return true;
+            }
+            if tokio::time::timeout_at(deadline, notified).await.is_err() {
+                return self.active_pgid.load(Ordering::Acquire) == 0;
+            }
         }
     }
 
@@ -67,15 +88,7 @@ impl OpenCodeEngine {
         if payload.is_empty() {
             return Err(EngineError::from(ProtocolError::EmptyPrompt));
         }
-        if self.active_pgid.load(Ordering::Relaxed) > 0 {
-            for _ in 0..50 {
-                if self.active_pgid.load(Ordering::Relaxed) == 0 {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        }
-        if self.active_pgid.load(Ordering::Relaxed) > 0 {
+        if !self.wait_for_pgid_clear(Duration::from_millis(500)).await {
             return Err(EngineError::Io("turn already running".to_string()));
         }
         let current_conversation = self.conversation_id.read().await.clone();
@@ -114,7 +127,7 @@ impl OpenCodeEngine {
         })?;
 
         let pgid = child.id().map(|pid| pid as i32).unwrap_or(0);
-        self.active_pgid.store(pgid, Ordering::Relaxed);
+        self.active_pgid.store(pgid, Ordering::Release);
         register_child_pgid(pgid);
 
         let stdout = child.stdout.take();
@@ -123,6 +136,7 @@ impl OpenCodeEngine {
         let session_id = self.session_id.clone();
         let conversation_id = Arc::clone(&self.conversation_id);
         let active_pgid = Arc::clone(&self.active_pgid);
+        let pgid_notify = Arc::clone(&self.pgid_notify);
 
         tokio::spawn(async move {
             let stderr_task = tokio::spawn(read_stderr_tail(stderr));
@@ -179,7 +193,8 @@ impl OpenCodeEngine {
 
             let exit_status = child.wait().await;
             unregister_child_pgid(pgid);
-            let _ = active_pgid.compare_exchange(pgid, 0, Ordering::Relaxed, Ordering::Relaxed);
+            let _ = active_pgid.compare_exchange(pgid, 0, Ordering::Release, Ordering::Relaxed);
+            pgid_notify.notify_waiters();
             let stderr_tail = stderr_task.await.unwrap_or_default();
 
             if saw_terminal {
@@ -221,7 +236,7 @@ impl OpenCodeEngine {
     }
 
     pub fn interrupt(&mut self) -> Result<(), EngineError> {
-        let pgid = self.active_pgid.load(Ordering::Relaxed);
+        let pgid = self.active_pgid.load(Ordering::Acquire);
         if pgid > 0 {
             unsafe {
                 libc::killpg(pgid, libc::SIGINT);
@@ -233,32 +248,22 @@ impl OpenCodeEngine {
     }
 
     pub async fn shutdown(&mut self, grace: Duration) -> Result<Option<i32>, EngineError> {
-        let pgid = self.active_pgid.load(Ordering::Relaxed);
+        let pgid = self.active_pgid.load(Ordering::Acquire);
         if pgid > 0 {
             unsafe {
                 libc::killpg(pgid, libc::SIGTERM);
             }
-            let deadline = tokio::time::Instant::now() + grace;
-            while self.active_pgid.load(Ordering::Relaxed) > 0
-                && tokio::time::Instant::now() < deadline
-            {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-            if self.active_pgid.load(Ordering::Relaxed) > 0 {
+            if !self.wait_for_pgid_clear(grace).await {
                 unsafe {
                     libc::killpg(pgid, libc::SIGKILL);
                 }
-                let reap_deadline = tokio::time::Instant::now() + Duration::from_millis(500);
-                while self.active_pgid.load(Ordering::Relaxed) > 0
-                    && tokio::time::Instant::now() < reap_deadline
-                {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                }
+                let _ = self.wait_for_pgid_clear(Duration::from_millis(500)).await;
             }
             unregister_child_pgid(pgid);
             let _ =
                 self.active_pgid
-                    .compare_exchange(pgid, 0, Ordering::Relaxed, Ordering::Relaxed);
+                    .compare_exchange(pgid, 0, Ordering::Release, Ordering::Relaxed);
+            self.pgid_notify.notify_waiters();
         }
         let _ = self
             .sender
@@ -276,7 +281,7 @@ impl OpenCodeEngine {
 
 impl Drop for OpenCodeEngine {
     fn drop(&mut self) {
-        let pgid = self.active_pgid.load(Ordering::Relaxed);
+        let pgid = self.active_pgid.load(Ordering::Acquire);
         if pgid > 0 {
             unregister_child_pgid(pgid);
             unsafe {
@@ -292,12 +297,12 @@ async fn read_stderr_tail(stderr: Option<ChildStderr>) -> String {
     };
     let codec = LinesCodec::new_with_max_length(64 * 1024);
     let mut reader = FramedRead::new(stream, codec);
-    let mut tail: Vec<String> = Vec::new();
+    let mut tail: VecDeque<String> = VecDeque::with_capacity(64);
     while let Some(Ok(line)) = reader.next().await {
         if tail.len() >= 64 {
-            tail.remove(0);
+            tail.pop_front();
         }
-        tail.push(line);
+        tail.push_back(line);
     }
-    tail.join("\n")
+    tail.make_contiguous().join("\n")
 }

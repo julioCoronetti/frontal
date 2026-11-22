@@ -78,6 +78,19 @@ pub struct DialogSelect<T = String> {
     pub last_area: Cell<Rect>,
 }
 
+pub(crate) fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    if needle.is_ascii() {
+        return haystack
+            .as_bytes()
+            .windows(needle.len())
+            .any(|window| window.eq_ignore_ascii_case(needle.as_bytes()));
+    }
+    haystack.to_lowercase().contains(&needle.to_lowercase())
+}
+
 impl<T: Clone> DialogSelect<T> {
     pub fn new(title: impl Into<String>, items: Vec<SelectItem<T>>) -> Self {
         Self {
@@ -98,37 +111,32 @@ impl<T: Clone> DialogSelect<T> {
     }
 
     pub fn filtered_indices(&self) -> Vec<usize> {
-        let q = self.query.trim().to_lowercase();
+        let q = self.query.trim();
+        if q.is_empty() {
+            return (0..self.items.len()).collect();
+        }
         self.items
             .iter()
             .enumerate()
             .filter(|(_, it)| {
-                if q.is_empty() {
-                    true
-                } else {
-                    it.title.to_lowercase().contains(&q)
-                        || it.id.to_lowercase().contains(&q)
-                        || it
-                            .category
-                            .as_ref()
-                            .map(|c| c.to_lowercase().contains(&q))
-                            .unwrap_or(false)
-                        || it
-                            .description
-                            .as_ref()
-                            .map(|d| d.to_lowercase().contains(&q))
-                            .unwrap_or(false)
-                        || it
-                            .shortcut
-                            .as_ref()
-                            .map(|s| s.to_lowercase().contains(&q))
-                            .unwrap_or(false)
-                        || it
-                            .badge
-                            .as_ref()
-                            .map(|b| b.to_lowercase().contains(&q))
-                            .unwrap_or(false)
-                }
+                contains_ignore_ascii_case(&it.title, q)
+                    || contains_ignore_ascii_case(&it.id, q)
+                    || it
+                        .category
+                        .as_deref()
+                        .is_some_and(|c| contains_ignore_ascii_case(c, q))
+                    || it
+                        .description
+                        .as_deref()
+                        .is_some_and(|d| contains_ignore_ascii_case(d, q))
+                    || it
+                        .shortcut
+                        .as_deref()
+                        .is_some_and(|s| contains_ignore_ascii_case(s, q))
+                    || it
+                        .badge
+                        .as_deref()
+                        .is_some_and(|b| contains_ignore_ascii_case(b, q))
             })
             .map(|(idx, _)| idx)
             .collect()
@@ -252,7 +260,7 @@ impl<T: Clone> DialogSelect<T> {
         if self.pending_delete.as_deref() == Some(item_id.as_str()) {
             self.pending_delete = None;
             let removed = self.items.remove(item_idx);
-            let new_len = self.filtered_indices().len();
+            let new_len = filtered.len().saturating_sub(1);
             if new_len == 0 {
                 self.selected_idx = 0;
                 self.scroll_offset.set(0);

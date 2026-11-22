@@ -386,3 +386,75 @@ fn test_display_names_pretty_print_slugs() {
         "Gemini 3.8 Flash"
     );
 }
+
+#[test]
+fn test_dialog_select_and_model_effort_case_insensitive_and_unicode_filtering() {
+    use frontal::ui::modal::{DialogSelect, SelectItem};
+
+    let items = vec![
+        SelectItem::new("id-1", "Sessão Café", 1)
+            .with_category("Ações")
+            .with_badge("OpenCode"),
+        SelectItem::new("id-2", "Gemini 4 Hydrogen", 2).with_shortcut("/model"),
+    ];
+    let mut dialog = DialogSelect::new("Test", items);
+    assert_eq!(dialog.filtered_indices(), vec![0, 1]);
+
+    dialog.query = "café".to_string();
+    assert_eq!(dialog.filtered_indices(), vec![0]);
+
+    dialog.query = "CAFÉ".to_string();
+    assert_eq!(dialog.filtered_indices(), vec![0]);
+
+    dialog.query = "HYDROGEN".to_string();
+    assert_eq!(dialog.filtered_indices(), vec![1]);
+
+    dialog.query = "opencode".to_string();
+    assert_eq!(dialog.filtered_indices(), vec![0]);
+
+    let mut modal = ModelEffortModal::with_models(vec![(
+        "gemini-3.8-flash-high".to_string(),
+        "Gemini".to_string(),
+    )]);
+    modal.set_opencode_models(vec![
+        (
+            "opencode-go/deepseek-v4.1-flash".to_string(),
+            "DeepSeek Go".to_string(),
+        ),
+        (
+            "opencode/deepseek-v4.1-flash-free".to_string(),
+            "DeepSeek Free".to_string(),
+        ),
+        ("opencode/café-model".to_string(), "Café Model".to_string()),
+    ]);
+
+    modal.set_query("FREE");
+    assert!(!modal.showing_providers());
+    assert_eq!(
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        ModalAction::SelectModelEffort {
+            model: "opencode/deepseek-v4.1-flash-free".to_string(),
+            effort: "high".to_string(),
+        }
+    );
+
+    modal.set_query("CAFÉ");
+    assert_eq!(
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        ModalAction::SelectModelEffort {
+            model: "opencode/café-model".to_string(),
+            effort: "high".to_string(),
+        }
+    );
+
+    modal.set_query("");
+    assert!(modal.showing_providers());
+    modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(!modal.showing_providers());
+    assert_eq!(modal.models.len(), 2);
+    assert!(modal
+        .models
+        .iter()
+        .all(|model| model.id.starts_with("opencode/")));
+}
