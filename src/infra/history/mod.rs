@@ -9,6 +9,7 @@ mod api;
 mod external;
 pub mod messages;
 pub mod opencode;
+mod session_types;
 mod sessions;
 mod sync;
 pub mod telemetry;
@@ -19,7 +20,7 @@ pub use agent::*;
 pub use messages::{
     conversation_messages_at, conversation_title_at, default_history_path, StoredMessage,
 };
-pub use sessions::{format_relative_time, infer_backend, SessionRecord, TitleSource};
+pub use session_types::{format_relative_time, infer_backend, SessionRecord, TitleSource};
 pub use telemetry::TelemetrySnapshot;
 pub use transcript::*;
 
