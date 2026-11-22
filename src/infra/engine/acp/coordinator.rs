@@ -369,7 +369,7 @@ impl CoordinatorCtx {
             }),
         });
         self.send_stream_event(init_ev).await;
-        let buffered: Vec<_> = self.buffered_updates.drain(..).collect();
+        let buffered = std::mem::take(&mut self.buffered_updates);
         for ev in buffered {
             self.send_stream_event(ev).await;
         }
