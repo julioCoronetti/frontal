@@ -8,7 +8,9 @@ use std::sync::{Arc, Mutex};
 
 use arboard::Clipboard;
 
-pub use image_codec::{adler32, crc32_ieee, decode_base64, decode_bmp_to_rgba, encode_rgba_png};
+pub use image_codec::{
+    adler32, crc32_ieee, crc32_update, decode_base64, decode_bmp_to_rgba, encode_rgba_png,
+};
 pub use platform::windows_path_to_wsl;
 
 static TMP_MEDIA_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -29,39 +31,38 @@ fn default_media_cache_dir() -> Option<PathBuf> {
 }
 
 pub struct SystemClipboard {
-    internal: Arc<Mutex<Option<Clipboard>>>,
+    internal: Arc<Mutex<(u64, Option<Clipboard>)>>,
     emit_osc52: bool,
     isolated_buffer: Option<String>,
     isolated_image: Option<(u32, u32, Vec<u8>)>,
     media_cache_dir: Option<PathBuf>,
 }
 
-fn write_clipboard_backend(
-    internal: &Mutex<Option<Clipboard>>,
-    emit_osc52: bool,
+fn try_write_arboard(
+    internal: &Mutex<(u64, Option<Clipboard>)>,
+    seq: Option<u64>,
     text: &str,
-) -> Result<(), String> {
-    let mut arboard_ok = false;
-    {
-        let mut guard = internal.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(ref mut cb) = *guard {
-            arboard_ok = cb.set_text(text.to_string()).is_ok();
+) -> bool {
+    let mut guard = internal.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(s) = seq {
+        if s <= guard.0 {
+            return true;
         }
+        guard.0 = s;
+    } else {
+        guard.0 = guard.0.saturating_add(1);
     }
-    if !arboard_ok && emit_osc52 {
-        let osc = SystemClipboard::format_osc52(text);
-        let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
-        let _ = std::io::Write::write_all(&mut handle, osc.as_bytes());
-        let _ = std::io::Write::flush(&mut handle);
+    if let Some(ref mut cb) = guard.1 {
+        cb.set_text(text).is_ok()
+    } else {
+        false
     }
-    Ok(())
 }
 
 impl SystemClipboard {
     pub fn new() -> Self {
         Self {
-            internal: Arc::new(Mutex::new(Clipboard::new().ok())),
+            internal: Arc::new(Mutex::new((0, Clipboard::new().ok()))),
             emit_osc52: true,
             isolated_buffer: None,
             isolated_image: None,
@@ -71,7 +72,7 @@ impl SystemClipboard {
 
     pub fn new_isolated() -> Self {
         Self {
-            internal: Arc::new(Mutex::new(None)),
+            internal: Arc::new(Mutex::new((0, None))),
             emit_osc52: false,
             isolated_buffer: None,
             isolated_image: None,
@@ -81,7 +82,7 @@ impl SystemClipboard {
 
     pub fn new_isolated_with_dir(dir: PathBuf) -> Self {
         Self {
-            internal: Arc::new(Mutex::new(None)),
+            internal: Arc::new(Mutex::new((0, None))),
             emit_osc52: false,
             isolated_buffer: None,
             isolated_image: None,
@@ -127,7 +128,7 @@ impl SystemClipboard {
         }
         let image_res = {
             let mut guard = self.internal.lock().unwrap_or_else(|e| e.into_inner());
-            guard.as_mut().and_then(|cb| cb.get_image().ok())
+            guard.1.as_mut().and_then(|cb| cb.get_image().ok())
         };
         if let Some(img) = image_res {
             let w = u32::try_from(img.width)
@@ -146,6 +147,7 @@ impl SystemClipboard {
         let text_opt = {
             let mut guard = self.internal.lock().unwrap_or_else(|e| e.into_inner());
             guard
+                .1
                 .as_mut()
                 .and_then(|cb| cb.get_text().ok())
                 .filter(|s| !s.is_empty())
@@ -158,15 +160,34 @@ impl SystemClipboard {
             self.isolated_buffer = Some(text.to_string());
             return Ok(());
         }
-        write_clipboard_backend(&self.internal, self.emit_osc52, text)
+        if !try_write_arboard(&self.internal, None, text) && self.emit_osc52 {
+            Self::write_osc52_stdout(text);
+        }
+        Ok(())
     }
 
-    pub fn prepare_background_write(&self) -> impl FnOnce(String) + Send + 'static {
+    pub fn prepare_background_write(
+        &self,
+        seq: u64,
+    ) -> impl FnOnce(String) -> Option<String> + Send + 'static {
         let internal = Arc::clone(&self.internal);
         let emit_osc52 = self.emit_osc52;
         move |text: String| {
-            let _ = write_clipboard_backend(&internal, emit_osc52, &text);
+            let arboard_ok = try_write_arboard(&internal, Some(seq), &text);
+            if !arboard_ok && emit_osc52 {
+                Some(text)
+            } else {
+                None
+            }
         }
+    }
+
+    pub fn write_osc52_stdout(text: &str) {
+        let osc = Self::format_osc52(text);
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+        let _ = std::io::Write::write_all(&mut handle, osc.as_bytes());
+        let _ = std::io::Write::flush(&mut handle);
     }
 
     pub fn format_osc52(text: &str) -> String {

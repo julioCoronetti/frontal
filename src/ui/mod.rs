@@ -59,6 +59,9 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let (paste_tx, mut paste_rx) = tokio::sync::mpsc::channel(8);
+    let (osc52_tx, mut osc52_rx) = tokio::sync::watch::channel::<(u64, String)>((0, String::new()));
+    let mut copy_seq: u64 = 0;
+    let mut applied_osc52_seq: u64 = 0;
 
     guard.terminal_mut().draw(|f| app.render(f))?;
 
@@ -75,6 +78,13 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
             }
             Some((sid, paste_res)) = paste_rx.recv() => {
                 app.apply_paste_outcome(&sid, paste_res);
+            }
+            Ok(()) = osc52_rx.changed() => {
+                let (seq, text) = osc52_rx.borrow_and_update().clone();
+                if seq > applied_osc52_seq {
+                    applied_osc52_seq = seq;
+                    clipboard::SystemClipboard::write_osc52_stdout(&text);
+                }
             }
             maybe_event = event_stream.next() => {
                 if let Some(Ok(event)) = maybe_event {
@@ -115,8 +125,26 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                                 });
                             }
                             AppAction::CopyClipboard(text) => {
-                                let write_fn = app.clipboard.prepare_background_write();
-                                tokio::task::spawn_blocking(move || write_fn(text));
+                                if app.clipboard.is_isolated() {
+                                    let _ = app.clipboard.set_text(&text);
+                                } else {
+                                    copy_seq = copy_seq.saturating_add(1);
+                                    let seq = copy_seq;
+                                    let write_fn = app.clipboard.prepare_background_write(seq);
+                                    let tx = osc52_tx.clone();
+                                    tokio::task::spawn_blocking(move || {
+                                        if let Some(fallback_text) = write_fn(text) {
+                                            tx.send_if_modified(|current| {
+                                                if seq > current.0 {
+                                                    *current = (seq, fallback_text);
+                                                    true
+                                                } else {
+                                                    false
+                                                }
+                                            });
+                                        }
+                                    });
+                                }
                             }
                             AppAction::Interrupt => {
                                 let _ = app.session_manager.interrupt_active();

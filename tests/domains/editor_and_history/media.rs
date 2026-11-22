@@ -1,5 +1,5 @@
 use frontal::infra::clipboard::{
-    adler32, crc32_ieee, decode_base64, decode_bmp_to_rgba, encode_rgba_png,
+    adler32, crc32_ieee, crc32_update, decode_base64, decode_bmp_to_rgba, encode_rgba_png,
     save_encoded_media_dedup, windows_path_to_wsl, SystemClipboard,
 };
 use frontal::ui::editor::{extract_pasted_image_path, ExtmarkKind, PromptEditor};
@@ -272,4 +272,20 @@ fn test_decode_base64_encoded_dedup_and_wsl_path_translation() {
         windows_path_to_wsl(r#"\\WSL.LOCALHOST\Ubuntu\tmp\img.png"#),
         std::path::PathBuf::from("/tmp/img.png")
     );
+}
+
+#[test]
+fn test_crc32_update_and_background_clipboard_prepare() {
+    let part_a = b"IHDR";
+    let part_b = b"payload-1234567890";
+    let mut joined = Vec::from(part_a.as_slice());
+    joined.extend_from_slice(part_b);
+    assert_eq!(
+        crc32_update(crc32_update(0, part_a), part_b),
+        crc32_ieee(&joined)
+    );
+
+    let isolated = SystemClipboard::new_isolated();
+    let writer = isolated.prepare_background_write(1);
+    assert_eq!(writer("secret".to_string()), None);
 }
