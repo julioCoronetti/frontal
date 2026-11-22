@@ -1,17 +1,18 @@
 pub mod cli;
 pub mod fetch;
+mod input;
 pub mod opencode_api;
 mod quota_parse;
 pub mod render;
 pub mod stats;
 mod stats_render;
+mod types;
 
 use std::cell::{Cell, RefCell};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use ratatui::Frame;
 
@@ -20,47 +21,10 @@ pub use stats::{
     build_stats_lines, parse_opencode_stats_json, OpenCodeStats, StatsState, UsagePage,
     OPENCODE_STATS_CACHE,
 };
-
-use crate::ui::modal::ModalAction;
-
-pub static USAGE_CACHE: Mutex<Option<(Instant, UsageSummary)>> = Mutex::new(None);
-pub static OPENCODE_USAGE_CACHE: Mutex<Option<(Instant, UsageSummary)>> = Mutex::new(None);
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct UsagePlanInfo {
-    pub tier_name: String,
-    pub account_email: Option<String>,
-    pub upgrade_url: Option<String>,
-    pub manage_url: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct QuotaBucket {
-    pub name: String,
-    pub remaining_pct: f64,
-    pub reset_label: String,
-    pub exhausted: bool,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct QuotaGroup {
-    pub name: String,
-    pub description: Option<String>,
-    pub buckets: Vec<QuotaBucket>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct UsageSummary {
-    pub plan: UsagePlanInfo,
-    pub groups: Vec<QuotaGroup>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum UsageState {
-    Loading,
-    Ready(UsageSummary),
-    Unavailable(String),
-}
+pub use types::{
+    QuotaBucket, QuotaGroup, UsagePlanInfo, UsageState, UsageSummary, OPENCODE_USAGE_CACHE,
+    USAGE_CACHE,
+};
 
 #[derive(Clone, Debug)]
 pub struct UsageModal {
@@ -197,80 +161,7 @@ impl UsageModal {
     }
 
     pub fn offline_fallback() -> Self {
-        let summary = UsageSummary {
-            plan: UsagePlanInfo {
-                tier_name: "Google AI Pro".to_string(),
-                account_email: None,
-                upgrade_url: None,
-                manage_url: None,
-            },
-            groups: vec![
-                QuotaGroup {
-                    name: "GEMINI MODELS".to_string(),
-                    description: Some(
-                        "Models within this group: Gemini Flash, Gemini Pro".to_string(),
-                    ),
-                    buckets: vec![
-                        QuotaBucket {
-                            name: "Weekly Limit Remaining".to_string(),
-                            remaining_pct: 100.0,
-                            reset_label: "Quota available".to_string(),
-                            exhausted: false,
-                        },
-                        QuotaBucket {
-                            name: "Five Hour Limit Remaining".to_string(),
-                            remaining_pct: 100.0,
-                            reset_label: "Quota available".to_string(),
-                            exhausted: false,
-                        },
-                    ],
-                },
-                QuotaGroup {
-                    name: "CLAUDE AND GPT MODELS".to_string(),
-                    description: Some(
-                        "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS".to_string(),
-                    ),
-                    buckets: vec![
-                        QuotaBucket {
-                            name: "Weekly Limit Remaining".to_string(),
-                            remaining_pct: 100.0,
-                            reset_label: "Quota available".to_string(),
-                            exhausted: false,
-                        },
-                        QuotaBucket {
-                            name: "Five Hour Limit Remaining".to_string(),
-                            remaining_pct: 100.0,
-                            reset_label: "Quota available".to_string(),
-                            exhausted: false,
-                        },
-                    ],
-                },
-                QuotaGroup {
-                    name: "GEMINI 4 ARGON".to_string(),
-                    description: Some("For paid Pro plans, Argon quota is separate.".to_string()),
-                    buckets: vec![QuotaBucket {
-                        name: "Gemini 4 Argon Weekly Limit".to_string(),
-                        remaining_pct: 100.0,
-                        reset_label: "Quota available".to_string(),
-                        exhausted: false,
-                    }],
-                },
-            ],
-        };
-
-        Self::with_data(summary)
-    }
-
-    pub fn scroll_up(&mut self, n: usize) {
-        self.scroll_offset = self
-            .scroll_offset
-            .saturating_sub(n)
-            .min(self.max_scroll.get());
-    }
-
-    pub fn scroll_down(&mut self, n: usize) {
-        let limit = self.max_scroll.get();
-        self.scroll_offset = (self.scroll_offset + n).min(limit);
+        Self::with_data(types::offline_summary())
     }
 
     pub fn refresh(&mut self) {
@@ -371,75 +262,6 @@ impl UsageModal {
         *self.stats_state.lock().unwrap_or_else(|e| e.into_inner()) = StatsState::Loading;
         self.stats_rx = Some(Arc::new(Mutex::new(rx)));
         stats::fetch_stats_async(tx);
-    }
-
-    pub fn handle_key(&mut self, key: KeyEvent) -> ModalAction {
-        match key.code {
-            KeyCode::Esc => {
-                if self.page == UsagePage::OpenCodeStats {
-                    self.page = UsagePage::Main;
-                    self.scroll_offset = 0;
-                    self.max_scroll.set(0);
-                    ModalAction::None
-                } else {
-                    ModalAction::Close
-                }
-            }
-            KeyCode::Enter => {
-                if self.is_opencode && self.page == UsagePage::Main {
-                    self.open_stats_subpage();
-                    ModalAction::None
-                } else if self.page == UsagePage::OpenCodeStats {
-                    ModalAction::None
-                } else {
-                    ModalAction::Close
-                }
-            }
-            KeyCode::Char('q') => ModalAction::Close,
-            KeyCode::Up | KeyCode::Char('k') => {
-                self.scroll_up(1);
-                ModalAction::None
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.scroll_down(1);
-                ModalAction::None
-            }
-            KeyCode::PageUp => {
-                self.scroll_up(5);
-                ModalAction::None
-            }
-            KeyCode::PageDown => {
-                self.scroll_down(5);
-                ModalAction::None
-            }
-            KeyCode::Home => {
-                self.scroll_offset = 0;
-                ModalAction::None
-            }
-            KeyCode::End => {
-                self.scroll_offset = self.max_scroll.get();
-                ModalAction::None
-            }
-            KeyCode::Char('r') => {
-                self.refresh();
-                ModalAction::None
-            }
-            _ => ModalAction::None,
-        }
-    }
-
-    pub fn handle_mouse(&mut self, mouse: MouseEvent) -> ModalAction {
-        match mouse.kind {
-            MouseEventKind::ScrollUp => {
-                self.scroll_up(2);
-                ModalAction::None
-            }
-            MouseEventKind::ScrollDown => {
-                self.scroll_down(2);
-                ModalAction::None
-            }
-            _ => ModalAction::None,
-        }
     }
 
     pub fn is_loading(&self) -> bool {
