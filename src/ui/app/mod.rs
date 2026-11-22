@@ -202,14 +202,6 @@ impl App {
         }
     }
 
-    pub fn active_tab(&self) -> &TabState {
-        &self.tabs[self.active_tab_index]
-    }
-
-    pub fn active_tab_mut(&mut self) -> &mut TabState {
-        &mut self.tabs[self.active_tab_index]
-    }
-
     pub fn expire_interrupt_timers(&mut self) -> bool {
         let mut expired = false;
         for tab in &mut self.tabs {

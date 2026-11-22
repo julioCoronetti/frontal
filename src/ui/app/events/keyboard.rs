@@ -202,12 +202,6 @@ impl App {
                 self.dirty = true;
                 return None;
             }
-            if self.popover.is_visible() {
-                self.popover.close();
-                self.esc_armed_at = None;
-                self.dirty = true;
-                return None;
-            }
             if self.is_turn_active() {
                 if self.is_interrupt_armed() {
                     let _ = self.session_manager.interrupt_active();

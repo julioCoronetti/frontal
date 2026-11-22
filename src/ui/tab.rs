@@ -276,16 +276,4 @@ impl TabState {
             self.context_window_hint = Some(tokens);
         }
     }
-
-    pub fn handle_background_stream_event(
-        &mut self,
-        event: &StreamEvent,
-        mode: &str,
-        model: &str,
-    ) -> bool {
-        matches!(
-            self.apply_stream_event(event, mode, model, false),
-            Some(StreamOutcome::TurnCompleted { .. })
-        )
-    }
 }

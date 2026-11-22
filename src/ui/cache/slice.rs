@@ -63,10 +63,6 @@ impl RenderCache {
         None
     }
 
-    pub fn line_text_at(&self, visual_idx: usize) -> Option<String> {
-        self.line_info_at(visual_idx).map(|(_, t)| t)
-    }
-
     pub fn extract_text_range(
         &self,
         start_line: usize,

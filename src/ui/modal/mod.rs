@@ -220,10 +220,6 @@ impl ModalStack {
         let y = r.y + (r.height.saturating_sub(height)) / 2;
         Rect::new(x, y, width, height)
     }
-
-    pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-        Self::centered_rect_bounded(percent_x, percent_y, 0, r.width, 0, r.height, r)
-    }
 }
 
 impl Default for ModalStack {
