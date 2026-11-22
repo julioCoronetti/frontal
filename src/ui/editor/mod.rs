@@ -1,8 +1,9 @@
 use ropey::Rope;
 use std::collections::{HashMap, VecDeque};
-use std::path::{Path, PathBuf};
 
-use crate::protocol::{media_uri_to_path, MediaItem, PromptPayload};
+use crate::protocol::{MediaItem, PromptPayload};
+
+pub use crate::core::media::{extract_pasted_image_path, image_mime_for_path};
 
 mod mutations;
 mod navigation;
@@ -365,36 +366,6 @@ pub fn sanitize_paste_text(text: &str) -> String {
     clean
 }
 
-pub fn image_mime_for_path(path: &Path) -> Option<&'static str> {
-    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
-    match ext.as_str() {
-        "png" => Some("image/png"),
-        "jpg" | "jpeg" => Some("image/jpeg"),
-        "webp" => Some("image/webp"),
-        "gif" => Some("image/gif"),
-        "bmp" => Some("image/bmp"),
-        _ => None,
-    }
-}
-
-fn unescape_shell_path(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    let mut chars = input.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            if let Some(&next) = chars.peek() {
-                if matches!(next, ' ' | '\'' | '"' | '\\' | '(' | ')' | '[' | ']') {
-                    chars.next();
-                    out.push(next);
-                    continue;
-                }
-            }
-        }
-        out.push(ch);
-    }
-    out
-}
-
 fn char_range_to_byte_range(
     text: &str,
     start_char: usize,
@@ -423,30 +394,4 @@ fn char_range_to_byte_range(
         byte_end = Some(text.len());
     }
     Some((byte_start?, byte_end?))
-}
-
-pub fn extract_pasted_image_path(raw: &str) -> Option<(PathBuf, &'static str)> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() || trimmed.contains('\n') || trimmed.contains('\r') {
-        return None;
-    }
-    let unquoted = if (trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2)
-        || (trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2)
-    {
-        &trimmed[1..trimmed.len() - 1]
-    } else {
-        trimmed
-    };
-    let normalized = if unquoted.starts_with("file://") {
-        media_uri_to_path(unquoted)
-    } else {
-        unescape_shell_path(unquoted)
-    };
-    let path = PathBuf::from(normalized);
-    let mime = image_mime_for_path(&path)?;
-    if path.is_file() {
-        Some((path, mime))
-    } else {
-        None
-    }
 }

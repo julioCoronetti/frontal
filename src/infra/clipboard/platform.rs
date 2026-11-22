@@ -7,7 +7,7 @@ use arboard::Clipboard;
 
 use super::image_codec::{decode_base64, decode_bmp_to_rgba, MAX_RAW_RGBA_BYTES, PNG_SIGNATURE};
 use super::{save_encoded_media_dedup, save_rgba_png_dedup, SavedMediaImage};
-use crate::ui::editor::{extract_pasted_image_path, image_mime_for_path};
+use crate::core::media::{extract_pasted_image_path, image_mime_for_path};
 
 fn run_command_bounded(program: &str, args: &[&str], max_bytes: usize) -> Option<Vec<u8>> {
     let mut child = Command::new(program)

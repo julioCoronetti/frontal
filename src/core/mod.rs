@@ -1,4 +1,5 @@
 pub mod config;
+pub mod media;
 pub mod model_catalog;
 pub mod model_spec;
 pub mod protocol;
