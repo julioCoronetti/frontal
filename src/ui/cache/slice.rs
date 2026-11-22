@@ -126,14 +126,6 @@ impl RenderCache {
                             (rest.to_string(), 2)
                         } else if let Some(rest) = trimmed.strip_prefix("● Error: ") {
                             (rest.to_string(), 9)
-                        } else if let Some(rest) = trimmed.strip_prefix("   ▎ ") {
-                            (rest.to_string(), 5)
-                        } else if let Some(rest) = trimmed.strip_prefix("   ! ") {
-                            (rest.to_string(), 5)
-                        } else if let Some(rest) = trimmed.strip_prefix("     ") {
-                            (rest.to_string(), 5)
-                        } else if let Some(rest) = trimmed.strip_prefix("   ") {
-                            (rest.to_string(), 3)
                         } else {
                             (trimmed.to_string(), 0)
                         }
@@ -145,7 +137,7 @@ impl RenderCache {
                     crate::ui::cache::BlockKind::Thought | crate::ui::cache::BlockKind::Tool { .. }
                 ) && !trimmed.starts_with("  │")
                     && !trimmed.starts_with('│')
-                    && is_structural_metadata(trimmed, &stripped)
+                    && is_structural_metadata(&stripped)
                 {
                     continue;
                 }
@@ -206,17 +198,7 @@ impl RenderCache {
     }
 }
 
-fn is_structural_metadata(trimmed: &str, stripped: &str) -> bool {
+fn is_structural_metadata(stripped: &str) -> bool {
     let check = stripped.trim_start();
-    trimmed.starts_with("▣ ")
-        || check.starts_with("+ Thought")
-        || check.starts_with("- Thought")
-        || check.starts_with("▸ Thought")
-        || check == "▾ Thought"
-        || check.starts_with("● ")
-        || check.starts_with("◌ ")
-        || check.contains("[RUNNING]")
-        || check.contains("[DONE]")
-        || check.contains("[ERROR]")
-        || check.contains("[PENDING]")
+    check.starts_with("+ Thought") || check.starts_with("- Thought") || check.starts_with("● ")
 }

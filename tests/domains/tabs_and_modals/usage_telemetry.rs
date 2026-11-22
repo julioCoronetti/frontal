@@ -477,7 +477,10 @@ fn test_sidebar_toggle_via_command_and_commands_modal() {
     }
     let filtered = commands.filtered_indices();
     assert_eq!(commands.items[filtered[0]].id, "toggle_sidebar");
-    assert_eq!(commands.items[filtered[0]].shortcut, "Ctrl+B");
+    assert_eq!(
+        commands.items[filtered[0]].shortcut.as_deref(),
+        Some("Ctrl+B")
+    );
     let action = commands.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(
         action,

@@ -11,7 +11,7 @@ pub mod model_effort;
 pub mod select;
 pub mod usage;
 
-pub use commands::{CommandItem, CommandsModal};
+pub use commands::CommandsModal;
 pub use danger::DangerConfirmationModal;
 pub use model_effort::{ModelEffortModal, ModelEffortStep, ModelItem};
 pub use select::{DialogSelect, SelectItem, SelectResult};
