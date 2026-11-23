@@ -10,9 +10,9 @@
 O Frontal foi concebido originalmente como uma TUI desacoplada para o Antigravity CLI (`agy`). Esta especificação expande o Frontal para um **harness universal e agnóstico de apresentação e controle**, permitindo conectar múltiplos motores agênticos (`FrontalEngine`) sem comprometer o motor padrão `agy` e sem alterar o contrato de renderização L1/L2 a 60 FPS.
 
 ### Princípios Inegociáveis
-1. **Isolamento Estrito do Agy**: O motor padrão do Google (`AgyEngine`) permanece 100% intacto em seu caminho de execução, com default `BackendKind::Agy` em todas as configurações e testes. Zero risco de regressão ou detecção.
+1. **Isolamento Estrito do Agy**: O motor padrão do Google é servido pelo `AcpEngine` (`src/infra/engine/acp/`), que mantém `agy acp --stdio` (JSON-RPC 2.0 bidirecional) como caminho de execução e `BackendKind::Agy` como default em todas as configurações e testes. Os motores e aliases do transporte `stream-json` legado foram removidos do código.
 2. **Desacoplamento Visual pela Fronteira de Mensagens**: O núcleo da TUI (`TabState`, `RenderCache`, `MessageBlock`, `pulldown-cmark`, `Viewport`) consome exclusivamente a tipagem canônica `StreamEvent` via canal assíncrono `mpsc::Sender<SessionEnvelope>`. Nenhum componente de tela acessa binários ou protocolos externos diretamente.
-3. **Semântica Adaptada por Motor**: O `AgyEngine` é um daemon persistente interativo via pipe `stdin`/`stdout`. O `OpenCodeEngine` é um supervisor de processos efêmeros **por turno** (`opencode run --format json --thinking`), cuja terminação normal de processo encerra o turno e mantém a sessão ativa.
+3. **Semântica Adaptada por Motor**: O `AcpEngine` é um daemon persistente interativo sobre JSON-RPC 2.0 (`agy acp --stdio`) via pipes `stdin`/`stdout`. O `OpenCodeEngine` é um supervisor de processos efêmeros **por turno** (`opencode run --format json --thinking`), cuja terminação normal de processo encerra o turno e mantém a sessão ativa.
 4. **Governança Mecânica**: Limite estrito de 500 linhas por arquivo `.rs`, zero comentários no código-fonte, zero warnings no Clippy (`-D warnings`) e suíte completa de 8 domínios preservada.
 
 ---
@@ -26,10 +26,10 @@ A nomenclatura interna é padronizada para distinguir claramente entre abstraç�
 | Escopo | Símbolo Atual | Novo Símbolo Padronizado | Função e Arquivo Destino |
 | :--- | :--- | :--- | :--- |
 | **Genérico** | `SessionEngine` | `FrontalEngine` | `enum FrontalEngine { Agy, OpenCode, Replay }` em `src/infra/session.rs`. `pub type SessionEngine = FrontalEngine;` mantido como alias. |
-| **Agy** | `SubprocessEngine` | `AgyEngine` | Motor persistente em `src/infra/engine/mod.rs`. `pub type SubprocessEngine = AgyEngine;` mantido como alias. |
+| **Agy** | *(removido)* | `AcpEngine` | Motor persistente em `src/infra/engine/acp/mod.rs`. O transporte `stream-json` legado e seus aliases foram removidos; `BackendKind::Agy` permanece como rótulo do backend. |
 | **OpenCode** | *(Novo)* | `OpenCodeEngine` | Motor por turno em `src/infra/engine/opencode.rs`. |
 | **Genérico** | *(Novo)* | `BackendKind` | `pub enum BackendKind { Agy, OpenCode }` (default `Agy`) em `src/core/config.rs`. |
-| **Agy** | `parse_stream_line` | `AgyStreamParser` | Decodificador do Agy em `src/core/protocol/agy.rs` (re-exportado na raiz de `protocol`). |
+| **Agy** | `parse_stream_line` | `AgyStreamParser` | Decodificador `stream-json` legado em `src/core/protocol/agy.rs`, retido exclusivamente para replay determinístico de fixtures (`FixtureReplayEngine`). |
 | **OpenCode** | *(Novo)* | `OpenCodeStreamParser` | Tradutor de NDJSON do OpenCode em `src/core/protocol/opencode.rs`. |
 | **Agy** | `EngineConfig::default_fallback_models` | *(inalterado)* | Fallback estático de modelos Gemini do Agy em `src/infra/transport/mod.rs`. |
 | **OpenCode** | *(Novo)* | `parse_opencode_models_output` / `fetch_opencode_models` | Descoberta via `opencode models` e parser ANSI em `src/infra/transport/opencode.rs`, sem lista estática. |
@@ -160,9 +160,10 @@ Cada fatia altera no máximo 5 arquivos e é validada via `quality_gate.sh`:
   - `tests/domains/protocol_and_cli.rs` (testes de parsing de CLI e catálogo)
 - **Critério de Aceite**: Validação de binários via variáveis de ambiente e fallback para DeepSeek.
 
-### Fatia 3: Motores de Execução (`AgyEngine`, `OpenCodeEngine` e `FrontalEngine`)
+### Fatia 3: Motores de Execução (`AcpEngine`, `OpenCodeEngine` e `FrontalEngine`)
 - **Arquivos**:
-  - `src/infra/engine/mod.rs` (`AgyEngine` e aliases)
+  - `src/infra/engine/mod.rs` (registro de PGIDs de subprocessos e re-exports dos motores)
+  - `src/infra/engine/acp/` (`AcpEngine`: `coordinator.rs`, `handshake.rs`, `setup.rs`)
   - `src/infra/engine/opencode.rs` (`OpenCodeEngine`)
   - `src/infra/session.rs` (`FrontalEngine`, despacho em `create_subprocess_session`)
   - `tests/domains/engine_and_session/` (testes de mock de subprocesso por turno e killpg)

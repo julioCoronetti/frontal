@@ -1,6 +1,6 @@
 # Frontal
 
-Decoupled, asynchronous, high-performance Terminal User Interface (TUI) harness developed in **Rust** (version `0.21.0`) for the Antigravity CLI (`agy`) and agentic engines compatible with the `stream-json` protocol.
+Decoupled, asynchronous, high-performance Terminal User Interface (TUI) harness developed in **Rust** (version `0.21.0`) for the Antigravity CLI (`agy`) over ACP (JSON-RPC 2.0) and agentic engines with `stream-json` replay support.
 
 ---
 
@@ -9,7 +9,7 @@ Decoupled, asynchronous, high-performance Terminal User Interface (TUI) harness 
 Frontal provides a high-performance terminal presentation layer designed for the stable, responsive rendering of continuous LLM token streams. The harness consumes structured events (NDJSON) over process pipes (`stdin`/`stdout`), fully decoupling the AI engine lifecycle from the visual interface. Architectural stability is verified by a unified integration suite across **8 hermetic domains**.
 
 The design is informed by comparative analysis of two reference harnesses:
-- **Antigravity CLI (`agy`)**: Benchmark for operational simplicity, process stability, and a streamlined `stream-json` protocol.
+- **Antigravity CLI (`agy`)**: Benchmark for operational simplicity, process stability, and a streamlined ACP (JSON-RPC 2.0) protocol.
 - **OpenCode**: Benchmark for terminal ergonomics, message chunking, tool cards, and context management.
 
 ---
@@ -22,7 +22,7 @@ Frontal's architecture delivers deterministic 60 FPS execution with minimal reso
 | :--- | :--- | :--- |
 | **Presentation & TUI** | `ratatui` + `crossterm` | Immediate-mode rendering with double-buffering and microsecond cell diffing. |
 | **Async Runtime & IPC** | `tokio` + `tokio-util` | Asynchronous subprocess orchestration (`tokio::process`), MPSC channels, and NDJSON decoding via `LinesCodec`. |
-| **Serialization** | `serde` + `serde_json` | Strict, typed deserialization of `stream-json` events/commands and JSON-RPC 2.0 ACP (`agy acp --stdio`) multimodal payloads. |
+| **Serialization** | `serde` + `serde_json` | Strict, typed deserialization of JSON-RPC 2.0 ACP (`agy acp --stdio`) multimodal payloads and `stream-json` replay fixtures. |
 | **Prompt Editor** | `ropey` + Token Registry | B-Tree (Rope) buffer for fast multiline navigation, atomic mention and media extmarks (`@`, `/`, `[Image #N]`), and large paste collapse (`[Pasted ~N lines]`). |
 | **Markdown Parsing** | `pulldown-cmark` | High-performance CommonMark event parser building an internal AST of modular blocks (`MessageBlock`). |
 | **Syntax Highlighting** | `syntect` | Line-incremental highlighting with 150+ bundled grammars without native C compilation. |
@@ -65,7 +65,7 @@ The codebase enforces strict decoupling into three cohesive architectural layers
 
 Frontal is operational in production (version `0.21.0`), fully verified across **8 hermetic integration domains**. Development progresses continuously via GitHub Project Board #8 cards across these consolidated domains:
 
-- **Foundation, `stream-json` & ACP Protocols, and Headless IPC:**
+- **Foundation, ACP Protocol, Fixture Replay, and Headless IPC:**
   - Single Cargo crate, session multiplexing via `SessionId`, typed `stream-json` (replay fixtures) and JSON-RPC 2.0 ACP (`agy acp --stdio`) protocols, `AcpEngine` with RFC 4648 Base64 `ImageContentBlock` and async permission handling, `OpenCodeEngine`, `FixtureReplayEngine`, async line decoding via `LinesCodec` (16 MB buffer), structured `PromptPayload` (`text` + `media`), and POSIX process isolation (`setpgid`/`killpg`/`PR_SET_PDEATHSIG`).
 - **Core TUI (60 FPS), Sticky Scroll Viewport, and 2-Level Cache:**
   - Non-blocking Ratatui event loop at 60 FPS, bracketed paste, TTY restore panic hook, deterministic sticky scroll, and 2-level render cache (L1 immutable AST, L2 width/revision indexed visual lines) with O(1)-memory defensive tool output clamping (`clamp_tool_output`).
