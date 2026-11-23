@@ -60,7 +60,9 @@ impl App {
             if let Some(ref cid) = final_conv_id {
                 let cid_clone = cid.clone();
                 let db_path = self.history.path().map(|path| path.to_path_buf());
+                let history_tx = self.history.write_tx_clone();
                 tokio::task::spawn_blocking(move || {
+                    crate::infra::history::PromptHistory::flush_db_from_tx(history_tx.as_ref());
                     crate::ui::history::hydrate_session_blocking(&cid_clone, db_path.as_deref())
                 })
                 .await
@@ -154,6 +156,22 @@ impl App {
             .or(inherited_prev_mode)
             .or(Some(fallback_mode));
 
+        let shares_active_conv =
+            !was_replay && final_conv_id.is_some() && final_conv_id == prev_conv_id;
+        let prev_meta = if shares_active_conv {
+            self.session_manager.get_metadata(&old_id).cloned()
+        } else {
+            None
+        };
+        if shares_active_conv {
+            self.pending_engine_prompts
+                .retain(|(sid, _)| sid != &old_id);
+            let _ = self
+                .session_manager
+                .shutdown_session(&old_id, std::time::Duration::from_millis(500))
+                .await;
+        }
+
         let new_id = if was_replay {
             let id = SessionId::new();
             self.session_manager.register_mock_session_with_metadata(
@@ -171,20 +189,30 @@ impl App {
             config.model = final_model.clone();
             config.effort = final_effort.clone();
             config.mode = final_mode.clone();
-            self.session_manager
-                .create_subprocess_session(config)
-                .await
-                .inspect_err(|err| {
+            let dormant_config = shares_active_conv.then(|| config.clone());
+            match self.session_manager.create_subprocess_session(config).await {
+                Ok(id) => id,
+                Err(err) => {
+                    if let (Some(mut meta), Some(cfg)) = (prev_meta, dormant_config) {
+                        meta.status = crate::infra::session::SessionStatus::Closed;
+                        self.session_manager
+                            .save_dormant_metadata(old_id.clone(), meta, cfg);
+                    }
+                    self.tabs[tab_idx].waiting_for_response = false;
                     self.tabs[tab_idx].status_text = format!("Failed to respawn session: {}", err);
                     self.dirty = true;
-                })?
+                    return Err(err);
+                }
+            }
         };
-        self.pending_engine_prompts
-            .retain(|(sid, _)| sid != &old_id);
-        let _ = self
-            .session_manager
-            .shutdown_session(&old_id, std::time::Duration::from_millis(500))
-            .await;
+        if !shares_active_conv {
+            self.pending_engine_prompts
+                .retain(|(sid, _)| sid != &old_id);
+            self.session_manager
+                .detach_and_shutdown_background(&old_id, std::time::Duration::from_millis(500));
+        } else {
+            self.session_manager.remove_dormant_metadata(&old_id);
+        }
         if let Some(backend) = requested_backend {
             self.user_config.backend = backend;
         }
@@ -199,7 +227,9 @@ impl App {
                 self.user_config.mode = md.clone();
             }
             let config_to_save = self.user_config.clone();
-            let _ = tokio::task::spawn_blocking(move || config_to_save.save()).await;
+            tokio::task::spawn_blocking(move || {
+                let _ = config_to_save.save();
+            });
         }
         self.active_session = new_id.clone();
         self.session_manager.set_active_session(new_id.clone());

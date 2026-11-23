@@ -276,3 +276,54 @@ async fn test_session_manager_get_engine_config() {
     manager.register_mock_session(sid.clone());
     assert_eq!(manager.get_engine_config(&sid), None);
 }
+
+#[tokio::test]
+async fn test_detach_and_shutdown_background_drained_by_shutdown_all() {
+    let mut manager = SessionManager::new();
+    let sid = SessionId::new();
+    manager.register_mock_session(sid.clone());
+    manager.detach_and_shutdown_background(&sid, std::time::Duration::from_millis(50));
+    assert!(manager.get_metadata(&sid).is_none());
+    manager
+        .shutdown_all(std::time::Duration::from_millis(50))
+        .await
+        .expect("shutdown_all should await detached background tasks");
+}
+
+#[test]
+fn test_dormant_metadata_lifecycle() {
+    let mut manager = SessionManager::new();
+    let sid = SessionId::new();
+    let meta = frontal::infra::session::SessionMetadata {
+        session_id: sid.clone(),
+        conversation_id: Some("conv-dormant".to_string()),
+        model: Some("gemini-3.8-flash-high".to_string()),
+        mode: Some("default".to_string()),
+        effort: Some("high".to_string()),
+        turns: 1,
+        last_prompt: None,
+        status: frontal::infra::session::SessionStatus::Closed,
+    };
+    let cfg = frontal::transport::EngineConfig {
+        conversation_id: Some("conv-dormant".to_string()),
+        ..Default::default()
+    };
+    manager.save_dormant_metadata(sid.clone(), meta, cfg);
+    assert!(manager.is_dormant(&sid));
+    assert!(!manager.is_replay_session(&sid));
+    assert_eq!(
+        manager
+            .get_metadata(&sid)
+            .and_then(|m| m.conversation_id.as_deref()),
+        Some("conv-dormant")
+    );
+    assert_eq!(
+        manager
+            .get_engine_config(&sid)
+            .and_then(|c| c.conversation_id),
+        Some("conv-dormant".to_string())
+    );
+    manager.remove_dormant_metadata(&sid);
+    assert!(!manager.is_dormant(&sid));
+    assert!(manager.get_metadata(&sid).is_none());
+}

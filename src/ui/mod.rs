@@ -90,13 +90,29 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(action) = app.handle_terminal_event(event) {
                         match action {
                             AppAction::SubmitPrompt(prompt) => {
-                                let session_id = app.active_session.clone();
-                                if let Err(err) = app
-                                    .session_manager
-                                    .send_prompt(&session_id, prompt)
-                                    .await
-                                {
-                                    app.handle_prompt_failure(&session_id, &err.to_string());
+                                let mut session_id = app.active_session.clone();
+                                let ready = if app.session_manager.is_dormant(&session_id) {
+                                    match app.respawn_active_session(None, None, None, None).await {
+                                        Ok(new_id) => {
+                                            session_id = new_id;
+                                            true
+                                        }
+                                        Err(err) => {
+                                            app.handle_prompt_failure(&session_id, &err.to_string());
+                                            false
+                                        }
+                                    }
+                                } else {
+                                    true
+                                };
+                                if ready {
+                                    if let Err(err) = app
+                                        .session_manager
+                                        .send_prompt(&session_id, prompt)
+                                        .await
+                                    {
+                                        app.handle_prompt_failure(&session_id, &err.to_string());
+                                    }
                                 }
                             }
                             AppAction::PasteClipboard => {
@@ -189,6 +205,11 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                             AppAction::Quit => {
                                 break;
                             }
+                        }
+                    }
+                    while let Some((sid, prompt)) = app.pending_engine_prompts.pop_front() {
+                        if let Err(err) = app.session_manager.send_prompt(&sid, prompt).await {
+                            app.handle_prompt_failure(&sid, &err.to_string());
                         }
                     }
                 }

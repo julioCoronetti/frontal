@@ -42,6 +42,8 @@ pub struct SessionHandle {
 
 pub struct SessionManager {
     sessions: HashMap<SessionId, SessionHandle>,
+    dormant_metadata: HashMap<SessionId, (SessionMetadata, EngineConfig)>,
+    closing_tasks: Vec<tokio::task::JoinHandle<()>>,
     active_session_id: Option<SessionId>,
     tx: mpsc::Sender<SessionEnvelope>,
     rx: mpsc::Receiver<SessionEnvelope>,
@@ -52,6 +54,8 @@ impl SessionManager {
         let (tx, rx) = mpsc::channel(1024);
         Self {
             sessions: HashMap::new(),
+            dormant_metadata: HashMap::new(),
+            closing_tasks: Vec::new(),
             active_session_id: None,
             tx,
             rx,
@@ -226,15 +230,42 @@ impl SessionManager {
     }
 
     pub fn get_engine_config(&self, session_id: &SessionId) -> Option<EngineConfig> {
-        self.sessions.get(session_id).and_then(|h| match &h.engine {
-            FrontalEngine::Acp(engine) => Some(engine.config().clone()),
-            FrontalEngine::OpenCode(engine) => Some(engine.config().clone()),
-            FrontalEngine::Replay(_) => None,
-        })
+        self.sessions
+            .get(session_id)
+            .and_then(|h| match &h.engine {
+                FrontalEngine::Acp(engine) => Some(engine.config().clone()),
+                FrontalEngine::OpenCode(engine) => Some(engine.config().clone()),
+                FrontalEngine::Replay(_) => None,
+            })
+            .or_else(|| {
+                self.dormant_metadata
+                    .get(session_id)
+                    .map(|(_, cfg)| cfg.clone())
+            })
     }
 
     pub fn get_metadata(&self, session_id: &SessionId) -> Option<&SessionMetadata> {
-        self.sessions.get(session_id).map(|h| &h.metadata)
+        self.sessions
+            .get(session_id)
+            .map(|h| &h.metadata)
+            .or_else(|| self.dormant_metadata.get(session_id).map(|(m, _)| m))
+    }
+
+    pub fn save_dormant_metadata(
+        &mut self,
+        session_id: SessionId,
+        meta: SessionMetadata,
+        config: EngineConfig,
+    ) {
+        self.dormant_metadata.insert(session_id, (meta, config));
+    }
+
+    pub fn remove_dormant_metadata(&mut self, session_id: &SessionId) {
+        self.dormant_metadata.remove(session_id);
+    }
+
+    pub fn is_dormant(&self, session_id: &SessionId) -> bool {
+        self.dormant_metadata.contains_key(session_id)
     }
 
     pub fn set_session_status(&mut self, session_id: &SessionId, status: SessionStatus) {
@@ -325,6 +356,31 @@ impl SessionManager {
         }
     }
 
+    pub fn detach_and_shutdown_background(&mut self, session_id: &SessionId, grace: Duration) {
+        if self.active_session_id.as_ref() == Some(session_id) {
+            self.active_session_id = None;
+        }
+        self.dormant_metadata.remove(session_id);
+        self.closing_tasks.retain(|h| !h.is_finished());
+        if let Some(mut handle) = self.sessions.remove(session_id) {
+            handle.metadata.status = SessionStatus::Closed;
+            let task = tokio::spawn(async move {
+                match &mut handle.engine {
+                    FrontalEngine::Acp(engine) => {
+                        let _ = engine.shutdown(grace).await;
+                    }
+                    FrontalEngine::OpenCode(engine) => {
+                        let _ = engine.shutdown(grace).await;
+                    }
+                    FrontalEngine::Replay(engine) => {
+                        let _ = engine.shutdown();
+                    }
+                }
+            });
+            self.closing_tasks.push(task);
+        }
+    }
+
     pub async fn shutdown_session(
         &mut self,
         session_id: &SessionId,
@@ -333,6 +389,7 @@ impl SessionManager {
         if self.active_session_id.as_ref() == Some(session_id) {
             self.active_session_id = None;
         }
+        self.dormant_metadata.remove(session_id);
         if let Some(mut handle) = self.sessions.remove(session_id) {
             handle.metadata.status = SessionStatus::Closed;
             match &mut handle.engine {
@@ -349,6 +406,9 @@ impl SessionManager {
         let session_ids: Vec<SessionId> = self.sessions.keys().cloned().collect();
         for id in session_ids {
             let _ = self.shutdown_session(&id, grace).await;
+        }
+        for task in self.closing_tasks.drain(..) {
+            let _ = task.await;
         }
         Ok(())
     }
