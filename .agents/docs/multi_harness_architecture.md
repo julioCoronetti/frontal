@@ -42,7 +42,7 @@ O OpenCode v2.2.5 emite uma linha NDJSON por evento no `stdout` durante o comand
 
 ### Mapeamento de Eventos para `StreamEvent`
 
-O contrato canônico é o enum existente em `src/core/protocol/mod.rs`: `Init`, `StepUpdate`, `Result`, `Error`, `Unknown`. Não existem variantes `TextDelta` ou `ToolCallStart`; todo delta textual e de ferramenta trafega em `StepUpdate`.
+O contrato canônico é o enum `StreamEvent` definido em `src/core/protocol/events.rs` (e re-exportado por `src/core/protocol/mod.rs`): `Init`, `StepUpdate`, `Result`, `Error`, `Unknown`. Não existem variantes `TextDelta` ou `ToolCallStart`; todo delta textual e de ferramenta trafega em `StepUpdate`.
 
 1. **`type: "step_start"`**:
    - Extrai `sessionID` (ex: `"ses_e33f0c..."`).
@@ -88,7 +88,8 @@ O contrato canônico é o enum existente em `src/core/protocol/mod.rs`: `Init`, 
    - Emite imediatamente `StreamEvent::Init` com `conversation_id` inicial (se existente) para colocar a aba em `SessionStatus::Ready`.
 2. **Execução de Turno (`send_prompt`)**:
    - Constrói argumentos CLI a partir da assinatura real do binário verificado (`opencode run --help`, v2.2.7):
-     `["run", "--format", "json", "--thinking", "--auto", "--model", "<provider>/<model>#<variant>", "--", "<prompt>"]`.
+     `["run", "--format", "json", "--thinking", "--auto", "--model", "<provider>/<model>#<variant>", ...("--file", "<path>"), "--", "<prompt>"]`.
+   - Anexos multimodais em `PromptPayload::media` são encaminhados via flags repetidas `--file <path>`.
    - `--thinking` apenas solicita a emissão dos blocos de raciocínio; **não** controla esforço.
    - O esforço é o sufixo `#<variant>` de `--model` (formato documentado pelo CLI: `provider/model#variant`). Mapeamento: `Low -> low`, `Medium -> high`, `High -> max`. Se o modelo já contiver `#`, o valor é passado verbatim.
    - `--auto` evita bloqueio por aprovação de ferramentas em execução não interativa.
@@ -133,10 +134,11 @@ O contrato canônico é o enum existente em `src/core/protocol/mod.rs`: `Init`, 
 ### C. Modal `/quota` (`UsageModal`)
 - **Inferência Contextual pela Aba Ativa**:
   - Se a aba ativa for `BackendKind::Agy`: carrega a consulta OAuth do Google (`UsageModal::load`), exibindo cotas do Gemini.
-  - Se a aba ativa for `BackendKind::OpenCode`: carrega `UsageModal::for_opencode`, com telemetria local:
+  - Se a aba ativa for `BackendKind::OpenCode`: carrega `UsageModal::for_opencode` com telemetria local e dispara consulta assíncrona das janelas de cota OpenCode Go (`src/ui/modal/usage/opencode_api.rs`):
     - *Context Window Capacity*: `last_turn_usage.input_tokens + last_turn_usage.cache_read_tokens` sobre `context_window_for_model(model)`. Mede o turno mais recente, nunca o acumulado da sessão.
     - *Prompt Cache Efficiency*: `accumulated_usage.cache_hit_percentage()`.
     - *Session Accumulated Tokens*: `accumulated_usage` do `TabState`.
+  - **Subpágina `Global Usage & Tool Stats`** (`src/ui/modal/usage/{stats.rs,stats_render.rs}`): exibe estatísticas globais agregadas e uso de ferramentas, alternável dentro do modal via `input.rs`.
 
 ---
 
@@ -182,8 +184,8 @@ Cada fatia altera no máximo 5 arquivos e é validada via `quality_gate.sh`:
 
 ## 7. Histórico e Retomada (`/resume`)
 
-- **Persistência**: ao fim de cada turno, os blocos consolidados (`user`, `assistant`, `thought`, `tool`) são gravados na tabela `messages` do `history.db`, com watermark por aba para evitar duplicação.
-- **Hidratação**: `hydrate_conversation` tenta primeiro o transcript do Agy (`~/.gemini/antigravity-cli/brain/<id>/...`) e, na ausência, reconstrói o `RenderCache` a partir do store do Frontal. Isso cobre sessões `ses_...` do OpenCode sem depender do formato privado de terceiros.
+- **Persistência**: ao fim de cada turno, os blocos consolidados (`user`, `assistant`, `thought`, `tool`) são gravados em transação atômica na tabela `messages` do `history.db`, com watermark (`persisted_block_id`) por aba para evitar duplicação.
+- **Hidratação (`hydrate_session_blocking`)**: após flush do `history_worker`, resolve em três camadas: (1) transcript JSONL do Agy (`~/.gemini/antigravity-cli/brain/<id>/...`), (2) leitor SQLite direto do OpenCode (`opencode.db` `session_message` via `src/infra/history/opencode/{mod.rs,messages.rs}` e `opencode::load_usage`), e (3) fallback para a tabela `messages` do `history.db` do Frontal.
 - **Backend na retomada**: o `conversation_id` define o motor (`ses_` → OpenCode, UUID → Agy). A sessão estrangeira troca o backend em vez de ser descartada; trocas de modelo sem conversa continuam limpando ids incompatíveis.
-- **Título**: consulta o resumo do Agy e, como fallback, a tabela `sessions` do Frontal.
-- **Limite**: conversas iniciadas antes da persistência existir não têm transcript local e só reabrem quando houver transcript do Agy.
+- **Título e Exclusão**: rastreamento explícito de procedência via `TitleSource` (título customizado, resumo do Agy/OpenCode ou tabela `sessions`) e tombstones em `deleted_sessions` para impedir ressurgimento de sessões removidas.
+- **Limite**: conversas Agy iniciadas antes da persistência local dependem do transcript JSONL correspondente; sessões OpenCode preexistentes são recuperadas diretamente via `opencode.db`.

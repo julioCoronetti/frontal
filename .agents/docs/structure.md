@@ -51,4 +51,12 @@ Reference documentation for on-demand inspection of repository modules.
 ## Integration Test Suite (`tests/`)
 - `tests/suite.rs`: Canonical entry point for the single integration test crate.
 - `tests/common/mod.rs`: Hermetic test utilities (`test_app`, `press_key`, RAII guards `TempDirGuard`/`TempFileGuard`, `PGID_TEST_LOCK`).
-- `tests/domains/`: Directory housing the 8 partitioned integration test domains.
+- `tests/domains/`: Partitioned 8 integration test domains (500-line ceiling per file):
+  - `tests/domains/architecture.rs`: Repository architecture & module boundary invariants.
+  - `tests/domains/protocol_and_cli.rs`: NDJSON/ACP protocol parsing, CLI flags, and model catalog decoding.
+  - `tests/domains/viewport_and_clipboard.rs`: Viewport sticky scroll, text selection, and clipboard integration.
+  - `tests/domains/cache_and_markdown/`: `mod.rs`, `cache_l1_l2.rs`, `markdown_ast.rs`, `table_wrap.rs`, `tool_clamping.rs`.
+  - `tests/domains/editor_and_history/`: `mod.rs`, `agent_async.rs`, `core.rs`, `media.rs`, `opencode_sync.rs`.
+  - `tests/domains/engine_and_session/`: `mod.rs`, `acp.rs`, `lifecycle.rs`, `media.rs`, `model_identity.rs`, `opencode.rs`, `turn_meta.rs`.
+  - `tests/domains/tabs_and_modals/`: `mod.rs`, `history_resume.rs`, `modals.rs`, `model_effort.rs`, `resume.rs`, `resume_delete.rs`, `select.rs`, `tab_bar_mouse.rs`, `tabs.rs`, `unified_resume.rs`, `usage.rs`, `usage_stats.rs`, `usage_telemetry.rs`.
+  - `tests/domains/tui_integration/`: `mod.rs`, `context_gauge.rs`, `input_and_events.rs`, `interrupt.rs`, `media.rs`, `rendering.rs`, `tab_bar_rendering.rs`, `welcome.rs`.
