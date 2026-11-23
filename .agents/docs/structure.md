@@ -4,6 +4,7 @@ Reference documentation for on-demand inspection of repository modules.
 
 ## Core Domain (`src/core/`)
 - `src/core/mod.rs`: Domain module declarations and public exports.
+- `src/core/media.rs`: Media URI/path normalization, shell-escape unescaping, and image MIME detection (`extract_pasted_image_path`, `image_mime_for_path`).
 - `src/core/protocol/`: Strict typing and NDJSON/ACP deserialization (`EngineEvent`, `StreamEvent`, `ToolInfo`, `PromptPayload`, `MediaItem`) partitioned into `mod.rs`, `events.rs`, `agy.rs`, `opencode.rs`, and `acp.rs`.
 - `src/core/security/`: Deterministic containment security guard (`DangerAssessment`, `RiskCategory`) partitioned into `mod.rs`, `shell.rs`, and `sql.rs`.
 - `src/core/model_catalog.rs`: Runtime catalog mapping for discovered OpenCode/Antigravity models and providers.
@@ -12,17 +13,18 @@ Reference documentation for on-demand inspection of repository modules.
 
 ## Infrastructure & IPC (`src/infra/`)
 - `src/infra/mod.rs`: Infrastructure module declarations.
-- `src/infra/engine/`: High-level agentic engines (`AgyEngine` persistent pipe daemon, `AcpEngine` over `agy acp --stdio`, and `OpenCodeEngine` per-turn supervisor) partitioned into `mod.rs`, `agy.rs`, `opencode.rs`, `acp/`, and `process.rs`, with shared POSIX pgid registry and streaming channels.
-- `src/infra/transport/`: `EngineTransport` implementations (`AgyEngine` config with 16 MB `LinesCodec` buffer and `FixtureReplayEngine`) partitioned into `mod.rs` and `opencode.rs`.
+- `src/infra/engine/`: High-level agentic engines (`AgyEngine` persistent pipe daemon, `AcpEngine` over `agy acp --stdio`, and `OpenCodeEngine` per-turn supervisor) partitioned into `mod.rs`, `agy.rs`, `opencode.rs`, `acp/{mod.rs,coordinator.rs,handshake.rs,setup.rs}`, and `process.rs`, with shared POSIX pgid registry and streaming channels.
+- `src/infra/transport/`: `EngineTransport` implementations (`EngineConfig`, `EngineError`, `OpenCode` helpers, and `FixtureReplayEngine`) partitioned into `mod.rs`, `opencode.rs`, and `replay.rs`.
 - `src/infra/session.rs`: Session multiplexing and management via `SessionId` and `SessionManager`.
 - `src/infra/clipboard/`: System clipboard integration via `arboard`, zero-dep PNG encoding (`image_codec.rs`), platform media fallbacks (`platform.rs`), isolated in-memory buffer, and OSC 52 fallback.
-- `src/infra/history/`: Command history and unified session persistence in SQLite WAL (`PromptHistory`) with dedicated background worker (`worker.rs`), partitioned session methods (`sessions.rs`), external Agy/OpenCode synchronization (`sync.rs`), RAII `Drop` flush, non-blocking external `conversation_summaries.db` cache (`agent.rs`), JSONL transcript block & telemetry parser (`transcript.rs`), OpenCode SQLite discovery/hydration/usage reader (`opencode.rs`), and per-conversation message/telemetry storage (`messages.rs`, `telemetry.rs`) for cross-engine resume.
+- `src/infra/history/`: Command history and unified session persistence in SQLite WAL (`PromptHistory`) with dedicated background worker (`worker.rs`), partitioned session types & operations (`session_types.rs`, `sessions.rs`), local sync & external Agy/OpenCode discovery (`sync.rs`, `external.rs`), RAII `Drop` flush, non-blocking external `conversation_summaries.db` cache (`agent.rs`), JSONL transcript block & telemetry parser (`transcript.rs`), OpenCode SQLite discovery/hydration/message reader (`opencode/{mod.rs,messages.rs}`), and per-conversation message/telemetry storage (`messages.rs`, `telemetry.rs`) for cross-engine resume.
 
 ## Terminal Interface (`src/ui/`)
 - `src/ui/mod.rs`: Asynchronous 60 FPS TUI event loop (crossterm `EventStream`, cancellation, render ticks).
 - `src/ui/app/`: Central application module partitioned into modular submodules (500-line ceiling):
   - `src/ui/app/mod.rs`: `App` struct with `Deref`/`DerefMut` to active `TabState`, `AppAction` enum, and constructors.
-  - `src/ui/app/tabs.rs`: Multi-session management with O(1) tab switching and `TabState` single source of truth.
+  - `src/ui/app/tabs.rs`: Multi-session tab CRUD/reset with O(1) tab switching and `TabState` single source of truth.
+  - `src/ui/app/respawn.rs`: Active session respawn, history hydration bridge, and backend/model compatibility resolution.
   - `src/ui/app/events/`: Non-blocking terminal event routing partitioned into `mod.rs`, `keyboard.rs`, and `mouse.rs`.
   - `src/ui/app/commands/`: Command dispatch, modal actions, and session resume partitioned into `mod.rs`, `modals.rs`, and `resume.rs`.
   - `src/ui/app/stream.rs`: Streamlined asynchronous IPC engine envelope dispatch and per-turn conversation persistence.
@@ -35,7 +37,7 @@ Reference documentation for on-demand inspection of repository modules.
 - `src/ui/highlight.rs`: Incremental line-by-line syntax highlighting via `syntect` with state checkpoints.
 - `src/ui/editor/`: Multi-line prompt editor backed by B-Tree (`ropey`), atomic extmarks (`@`, `/`), and paste pills (`mod.rs`, `mutations.rs`, `navigation.rs`).
 - `src/ui/autocomplete.rs`: Floating popover autocompletion for commands and files (`FileSearchWorker`).
-- `src/ui/modal/`: Partitioned floating modal stack (`mod.rs`, `commands.rs`, `danger.rs`, `model_effort/{mod.rs,render.rs}`, `select/{mod.rs,render.rs}`, `usage/{mod.rs,cli.rs,fetch.rs,opencode_api.rs,render.rs,stats.rs}`).
+- `src/ui/modal/`: Partitioned floating modal stack (`mod.rs`, `commands.rs`, `danger.rs`, `model_effort/{mod.rs,render.rs}`, `select/{mod.rs,render.rs}`, `usage/{mod.rs,cli.rs,fetch.rs,input.rs,opencode_api.rs,quota_parse.rs,render.rs,stats.rs,stats_render.rs,types.rs}`).
 - `src/ui/notify.rs`: Terminal sensory notifications (audio bell and visual flash).
 - `src/ui/terminal.rs`: Raw mode bootstrap, bracketed paste, and TTY recovery panic hook.
 - `src/ui/theme.rs`: Visual theme definitions and color palette inspired by OpenCode.
