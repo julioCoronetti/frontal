@@ -4,7 +4,7 @@ use tokio::sync::mpsc;
 use tokio::time::timeout;
 
 use frontal::config::BackendKind;
-use frontal::engine::{AgyEngine, OpenCodeEngine};
+use frontal::engine::OpenCodeEngine;
 use frontal::protocol::{
     format_user_payload, EngineEvent, MediaItem, PromptPayload, ProtocolError, SessionId,
     StreamEvent,
@@ -131,39 +131,5 @@ async fn test_opencode_engine_send_payload_passes_file_flags_to_mock_cli() {
     let captured = std::fs::read_to_string(args_log.path()).unwrap();
     assert!(captured.contains("--file\n/tmp/mock_shot.png\n"));
     assert!(captured.contains("--\ninspect image"));
-    let _ = engine.shutdown(Duration::from_millis(200)).await;
-}
-
-#[tokio::test]
-async fn test_agy_engine_rejects_media_in_stream_json_mode() {
-    let _lock = PGID_TEST_LOCK.lock().await;
-    let script = "#!/usr/bin/env bash\necho '{\"event\":\"init\",\"conversation_id\":\"conv-media\"}'\nread -r _line\n";
-    let mock = TempFileGuard::new("mock_agy_media", "sh", script);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(mock.path()).unwrap().permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(mock.path(), perms).unwrap();
-    }
-
-    let session_id = SessionId::new();
-    let (tx, mut rx) = mpsc::channel(32);
-    let mut config = EngineConfig::new_isolated();
-    config.agy_bin = mock.path().to_path_buf();
-
-    let mut engine = AgyEngine::spawn(session_id, config, tx).await.unwrap();
-    let _ = rx.recv().await;
-    let err = engine
-        .send_prompt(PromptPayload::new(
-            "check diagram",
-            vec![MediaItem {
-                mime_type: "image/png".to_string(),
-                uri: "/tmp/diagram.png".to_string(),
-            }],
-        ))
-        .await
-        .unwrap_err();
-    assert!(err.to_string().contains("Unsupported media"));
     let _ = engine.shutdown(Duration::from_millis(200)).await;
 }

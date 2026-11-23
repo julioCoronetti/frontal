@@ -4,7 +4,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use crate::config::BackendKind;
-use crate::engine::{AcpEngine, AgyEngine, OpenCodeEngine};
+use crate::engine::{AcpEngine, OpenCodeEngine};
 use crate::protocol::{EngineEvent, PromptPayload, SessionEnvelope, SessionId, StreamEvent};
 use crate::transport::{EngineConfig, EngineError, FixtureReplayEngine, ReplayMode};
 
@@ -31,12 +31,9 @@ pub struct SessionMetadata {
 
 pub enum FrontalEngine {
     Acp(Box<AcpEngine>),
-    Agy(Box<AgyEngine>),
     OpenCode(Box<OpenCodeEngine>),
     Replay(FixtureReplayEngine),
 }
-
-pub type SessionEngine = FrontalEngine;
 
 pub struct SessionHandle {
     pub metadata: SessionMetadata,
@@ -231,7 +228,6 @@ impl SessionManager {
     pub fn get_engine_config(&self, session_id: &SessionId) -> Option<EngineConfig> {
         self.sessions.get(session_id).and_then(|h| match &h.engine {
             FrontalEngine::Acp(engine) => Some(engine.config().clone()),
-            FrontalEngine::Agy(engine) => Some(engine.config().clone()),
             FrontalEngine::OpenCode(engine) => Some(engine.config().clone()),
             FrontalEngine::Replay(_) => None,
         })
@@ -299,7 +295,6 @@ impl SessionManager {
         handle.metadata.status = SessionStatus::RunningTurn;
         let res = match &mut handle.engine {
             FrontalEngine::Acp(engine) => engine.send_prompt(payload).await,
-            FrontalEngine::Agy(engine) => engine.send_prompt(payload).await,
             FrontalEngine::OpenCode(engine) => engine.send_prompt(payload).await,
             FrontalEngine::Replay(engine) => engine.send_prompt(payload).await,
         };
@@ -317,7 +312,6 @@ impl SessionManager {
         handle.metadata.status = SessionStatus::Interrupted;
         match &mut handle.engine {
             FrontalEngine::Acp(engine) => engine.interrupt(),
-            FrontalEngine::Agy(engine) => engine.interrupt(),
             FrontalEngine::OpenCode(engine) => engine.interrupt(),
             FrontalEngine::Replay(engine) => engine.interrupt(),
         }
@@ -343,7 +337,6 @@ impl SessionManager {
             handle.metadata.status = SessionStatus::Closed;
             match &mut handle.engine {
                 FrontalEngine::Acp(engine) => engine.shutdown(grace).await,
-                FrontalEngine::Agy(engine) => engine.shutdown(grace).await,
                 FrontalEngine::OpenCode(engine) => engine.shutdown(grace).await,
                 FrontalEngine::Replay(engine) => engine.shutdown(),
             }

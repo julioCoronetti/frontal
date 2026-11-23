@@ -2,9 +2,9 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use frontal::engine::{
-    kill_registered_subprocesses, register_child_pgid, unregister_child_pgid, SubprocessEngine,
+    kill_registered_subprocesses, register_child_pgid, unregister_child_pgid, AcpEngine,
 };
-use frontal::protocol::{EngineEvent, ResultStatus, SessionId, StreamEvent};
+use frontal::protocol::{EngineEvent, SessionId, StreamEvent};
 use frontal::session::{SessionManager, SessionStatus};
 use frontal::transport::{EngineConfig, FixtureReplayEngine, ReplayMode};
 
@@ -166,70 +166,11 @@ async fn test_session_manager_multiple_sessions_multiplexing() {
 }
 
 #[tokio::test]
-async fn test_subprocess_mock_lifecycle_signals_and_orphan_cleanup() {
-    let _lock = PGID_TEST_LOCK.lock().await;
-    let pid_guard = TempFileGuard::new("orphan_pid", "txt", "");
-    let script = format!(
-        "#!/usr/bin/env bash\ntrap 'echo \"interrupted\"; exit 0' SIGINT\necho '{{\"event\":\"init\",\"conversation_id\":\"mock-conv-1\"}}'\nread -r line\necho '{{\"event\":\"result\",\"result\":{{\"status\":\"SUCCESS\",\"response\":\"done\"}}}}'\nsleep 30 &\necho $! > {}\nwait\n",
-        pid_guard.path().display()
-    );
-    let mock_guard = TempFileGuard::new("mock_agy_test", "sh", &script);
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(mock_guard.path()).unwrap().permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(mock_guard.path(), perms).unwrap();
-    }
-
-    let session_id = SessionId::new();
-    let (tx, mut rx) = mpsc::channel(100);
-    let mut config = EngineConfig::new_isolated();
-    config.agy_bin = mock_guard.path().to_path_buf();
-
-    let mut engine = SubprocessEngine::spawn(session_id.clone(), config, tx)
-        .await
-        .unwrap();
-
-    let init_env = rx.recv().await.unwrap();
-    assert_eq!(init_env.session_id, session_id);
-    assert_eq!(engine.conversation_id().await, "mock-conv-1");
-
-    engine.send_prompt("test prompt").await.unwrap();
-    let res_env = rx.recv().await.unwrap();
-    assert!(matches!(
-        *match res_env.event {
-            EngineEvent::Stream(s) => s,
-            _ => panic!(),
-        },
-        StreamEvent::Result(_)
-    ));
-
-    tokio::time::sleep(Duration::from_millis(150)).await;
-    let pid_str = std::fs::read_to_string(pid_guard.path()).unwrap();
-    let orphan_pid: i32 = pid_str.trim().parse().unwrap();
-    unsafe {
-        assert_eq!(libc::kill(orphan_pid, 0), 0);
-    }
-
-    engine.interrupt().unwrap();
-
-    let exit_code = engine.shutdown(Duration::from_millis(500)).await.unwrap();
-    assert!(exit_code.is_some());
-
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    unsafe {
-        assert_eq!(libc::kill(orphan_pid, 0), -1);
-    }
-}
-
-#[tokio::test]
-async fn test_subprocess_grandchild_process_group_cleanup() {
+async fn test_acp_grandchild_process_group_cleanup() {
     let _lock = PGID_TEST_LOCK.lock().await;
     let pid_guard = TempFileGuard::new("grandchild_pid", "txt", "");
     let script = format!(
-        "#!/usr/bin/env bash\nsleep 30 &\necho $! > {}\nread line\n",
+        "#!/usr/bin/env bash\nsleep 30 >/dev/null 2>&1 &\necho $! > {}\nwhile IFS= read -r _; do :; done\n",
         pid_guard.path().display()
     );
     let script_guard = TempFileGuard::new("grandchild_test", "sh", &script);
@@ -249,13 +190,19 @@ async fn test_subprocess_grandchild_process_group_cleanup() {
     let mut config = EngineConfig::new_isolated();
     config.agy_bin = script_guard.path().to_path_buf();
 
-    let mut engine = SubprocessEngine::spawn(session_id, config, tx)
-        .await
-        .unwrap();
+    let mut engine = AcpEngine::spawn(session_id, config, tx).await.unwrap();
 
-    tokio::time::sleep(Duration::from_millis(150)).await;
-    let pid_str = std::fs::read_to_string(pid_guard.path()).unwrap();
-    let grandchild_pid: i32 = pid_str.trim().parse().unwrap();
+    let mut grandchild_pid = None;
+    for _ in 0..50 {
+        if let Ok(pid_str) = std::fs::read_to_string(pid_guard.path()) {
+            if let Ok(pid) = pid_str.trim().parse::<i32>() {
+                grandchild_pid = Some(pid);
+                break;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let grandchild_pid = grandchild_pid.expect("grandchild pid should be recorded");
 
     unsafe {
         assert_eq!(libc::kill(grandchild_pid, 0), 0);
@@ -269,74 +216,6 @@ async fn test_subprocess_grandchild_process_group_cleanup() {
         let res = libc::kill(grandchild_pid, 0);
         assert_eq!(res, -1);
     }
-}
-
-#[tokio::test]
-async fn test_subprocess_engine_reconfigure() {
-    let _lock = PGID_TEST_LOCK.lock().await;
-    let script = r#"#!/usr/bin/env bash
-echo '{"event":"init","conversation_id":"reconfig-conv-1","init":{}}'
-while IFS= read -r line; do
-  echo '{"event":"result","result":{"status":"SUCCESS"}}'
-done
-"#;
-    let mock_guard = TempFileGuard::new("mock_reconfig", "sh", script);
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(mock_guard.path()).unwrap().permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(mock_guard.path(), perms).unwrap();
-    }
-
-    let session_id = SessionId::new();
-    let (tx, mut rx) = mpsc::channel(100);
-    let mut config = EngineConfig::new_isolated();
-    config.agy_bin = mock_guard.path().to_path_buf();
-
-    let mut engine = SubprocessEngine::spawn(session_id, config, tx)
-        .await
-        .unwrap();
-    let _ = rx.recv().await;
-
-    let mut new_config = EngineConfig::new_isolated();
-    new_config.agy_bin = mock_guard.path().to_path_buf();
-    new_config.model = Some("gemini-2.5-pro".to_string());
-
-    engine.reconfigure(new_config).await.unwrap();
-    assert_eq!(engine.config().model.as_deref(), Some("gemini-2.5-pro"));
-
-    let exit_env = rx.recv().await.unwrap();
-    assert!(matches!(exit_env.event, EngineEvent::ProcessExited { .. }));
-
-    let reinit_env = rx.recv().await.unwrap();
-    match reinit_env.event {
-        EngineEvent::Stream(s) => match *s {
-            StreamEvent::Init(ev) => {
-                assert_eq!(ev.conversation_id.as_deref(), Some("reconfig-conv-1"));
-            }
-            other => panic!("Expected Init event after reconfigure, got: {:?}", other),
-        },
-        other => panic!("Expected Stream event after reconfigure, got: {:?}", other),
-    }
-
-    engine.send_prompt("test after reconfigure").await.unwrap();
-    let res_env = rx.recv().await.unwrap();
-    match res_env.event {
-        EngineEvent::Stream(s) => match *s {
-            StreamEvent::Result(r) => {
-                assert_eq!(
-                    r.result.as_ref().and_then(|d| d.status.as_ref()),
-                    Some(&ResultStatus::Success)
-                );
-            }
-            other => panic!("Expected Result, got: {:?}", other),
-        },
-        other => panic!("Expected Stream, got: {:?}", other),
-    }
-
-    let _ = engine.shutdown(Duration::from_millis(200)).await;
 }
 
 #[test]

@@ -2,15 +2,11 @@ use std::collections::HashSet;
 use std::sync::{Mutex as StdMutex, OnceLock};
 
 mod acp;
-mod agy;
 mod opencode;
 mod process;
 
 pub use acp::AcpEngine;
-pub use agy::AgyEngine;
 pub use opencode::OpenCodeEngine;
-
-pub type SubprocessEngine = AgyEngine;
 
 static ACTIVE_CHILD_PGIDS: OnceLock<StdMutex<HashSet<i32>>> = OnceLock::new();
 
