@@ -87,27 +87,27 @@ fn read_connection<T>(
     read(&conn).ok()
 }
 
-pub(crate) fn insert_messages(conn: &Connection, conv_id: &str, messages: &[StoredMessage]) {
+pub(crate) fn insert_messages(
+    conn: &Connection,
+    conv_id: &str,
+    messages: &[StoredMessage],
+) -> Result<(), rusqlite::Error> {
     if messages.is_empty() {
-        return;
+        return Ok(());
     }
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    let Ok(tx) = conn.unchecked_transaction() else {
-        return;
-    };
+    let tx = conn.unchecked_transaction()?;
     {
-        let Ok(mut stmt) = tx.prepare_cached(
+        let mut stmt = tx.prepare_cached(
             "INSERT INTO messages
              (conversation_id, role, content, tool_name, tool_args, step_index, turn_meta, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        ) else {
-            return;
-        };
+        )?;
         for message in messages {
-            let _ = stmt.execute(params![
+            stmt.execute(params![
                 conv_id,
                 message.role,
                 message.content,
@@ -116,8 +116,55 @@ pub(crate) fn insert_messages(conn: &Connection, conv_id: &str, messages: &[Stor
                 message.step_index.map(|value| value as i64),
                 message.turn_meta,
                 now,
-            ]);
+            ])?;
         }
     }
-    let _ = tx.commit();
+    tx.commit()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn insert_messages_rolls_back_on_row_error() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL CHECK(length(content) > 0),
+                tool_name TEXT,
+                tool_args TEXT,
+                step_index INTEGER,
+                turn_meta TEXT,
+                created_at INTEGER NOT NULL
+            );",
+        )
+        .unwrap();
+        let batch = vec![
+            StoredMessage {
+                role: "user".to_string(),
+                content: "ok".to_string(),
+                tool_name: None,
+                tool_args: None,
+                step_index: None,
+                turn_meta: None,
+            },
+            StoredMessage {
+                role: "assistant".to_string(),
+                content: String::new(),
+                tool_name: None,
+                tool_args: None,
+                step_index: None,
+                turn_meta: None,
+            },
+        ];
+        assert!(insert_messages(&conn, "conv-1", &batch).is_err());
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+    }
 }

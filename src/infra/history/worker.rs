@@ -249,7 +249,7 @@ pub(super) fn spawn_history_worker(
                     messages,
                 } => {
                     if !is_deleted_key(&deleted_ids, &conversation_id) {
-                        messages::insert_messages(&bg_conn, &conversation_id, &messages);
+                        let _ = messages::insert_messages(&bg_conn, &conversation_id, &messages);
                     }
                 }
                 HistoryCommand::RecordTelemetry {

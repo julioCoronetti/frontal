@@ -214,8 +214,27 @@ impl PromptHistory {
         self.send_flush(true);
     }
 
+    pub(crate) fn write_tx_clone(&self) -> Option<Sender<HistoryCommand>> {
+        self.write_tx.clone()
+    }
+
+    pub(crate) fn flush_db_from_tx(tx: Option<&Sender<HistoryCommand>>) {
+        if let Some(tx) = tx {
+            let (done_tx, done_rx) = channel();
+            if tx
+                .send(HistoryCommand::Flush {
+                    wait_external: false,
+                    done_tx,
+                })
+                .is_ok()
+            {
+                let _ = done_rx.recv();
+            }
+        }
+    }
+
     fn flush_db(&self) {
-        self.send_flush(false);
+        Self::flush_db_from_tx(self.write_tx.as_ref());
     }
 
     fn send_flush(&self, wait_external: bool) {
