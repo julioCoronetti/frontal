@@ -1,6 +1,7 @@
 mod commands;
 mod events;
 mod render;
+mod respawn;
 mod stream;
 mod tabs;
 
