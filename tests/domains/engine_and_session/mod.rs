@@ -1,5 +1,5 @@
 pub mod acp;
-pub mod agy;
+pub mod lifecycle;
 pub mod media;
 pub mod model_identity;
 pub mod opencode;

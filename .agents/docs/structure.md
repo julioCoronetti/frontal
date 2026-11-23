@@ -13,7 +13,7 @@ Reference documentation for on-demand inspection of repository modules.
 
 ## Infrastructure & IPC (`src/infra/`)
 - `src/infra/mod.rs`: Infrastructure module declarations.
-- `src/infra/engine/`: High-level agentic engines (`AgyEngine` persistent pipe daemon, `AcpEngine` over `agy acp --stdio`, and `OpenCodeEngine` per-turn supervisor) partitioned into `mod.rs`, `agy.rs`, `opencode.rs`, `acp/{mod.rs,coordinator.rs,handshake.rs,setup.rs}`, and `process.rs`, with shared POSIX pgid registry and streaming channels.
+- `src/infra/engine/`: High-level agentic engines (`AcpEngine` over `agy acp --stdio`, and `OpenCodeEngine` per-turn supervisor) partitioned into `mod.rs`, `opencode.rs`, `acp/{mod.rs,coordinator.rs,handshake.rs,setup.rs}`, and `process.rs`, with shared POSIX pgid registry and streaming channels.
 - `src/infra/transport/`: `EngineTransport` implementations (`EngineConfig`, `EngineError`, `OpenCode` helpers, and `FixtureReplayEngine`) partitioned into `mod.rs`, `opencode.rs`, and `replay.rs`.
 - `src/infra/session.rs`: Session multiplexing and management via `SessionId` and `SessionManager`.
 - `src/infra/clipboard/`: System clipboard integration via `arboard`, zero-dep PNG encoding (`image_codec.rs`), platform media fallbacks (`platform.rs`), isolated in-memory buffer, and OSC 52 fallback.
