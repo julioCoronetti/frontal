@@ -80,7 +80,10 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
             }
             Ok(()) = osc52_rx.changed() => {
                 let guard = osc52_rx.borrow_and_update();
-                if guard.0 > applied_osc52_seq && !guard.1.is_empty() {
+                if guard.0 > applied_osc52_seq
+                    && guard.0 >= app.clipboard.last_applied_seq()
+                    && !guard.1.is_empty()
+                {
                     applied_osc52_seq = guard.0;
                     clipboard::SystemClipboard::write_osc52_stdout(&guard.1);
                 }

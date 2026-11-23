@@ -483,3 +483,16 @@ fn test_editor_selected_text_expands_paste_pill_after_multibyte_prefix() {
         Some("🦀 é a\nb\nc\nd\ne\nf — meio 🚀 1\n2\n3\n4\n5\n6 fim".to_string())
     );
 }
+
+#[test]
+fn test_clipboard_last_applied_seq_tracks_latest_write() {
+    let clipboard = SystemClipboard::new_isolated();
+    assert_eq!(clipboard.last_applied_seq(), 0);
+    let (seq1, write1) = clipboard.prepare_background_write();
+    let (seq2, write2) = clipboard.prepare_background_write();
+    assert!(seq2 > seq1);
+    assert!(write2("newer".to_string()).is_none());
+    assert_eq!(clipboard.last_applied_seq(), seq2);
+    assert!(write1("older".to_string()).is_none());
+    assert_eq!(clipboard.last_applied_seq(), seq2);
+}

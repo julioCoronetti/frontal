@@ -206,6 +206,13 @@ impl SystemClipboard {
         (seq, write_fn)
     }
 
+    pub fn last_applied_seq(&self) -> u64 {
+        self.internal
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .last_seq
+    }
+
     pub fn write_osc52_stdout(text: &str) {
         let osc = Self::format_osc52(text);
         let stdout = std::io::stdout();
