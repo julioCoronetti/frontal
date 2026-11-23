@@ -40,6 +40,7 @@ impl App {
                 }
                 self.waiting_for_response = false;
                 self.in_flight_usage = None;
+                self.turn_started_at = None;
                 self.queued_prompts.clear();
                 self.status_text = String::from("Blocked destructive command");
                 self.dirty = true;

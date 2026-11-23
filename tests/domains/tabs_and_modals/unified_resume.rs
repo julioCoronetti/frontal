@@ -274,9 +274,20 @@ fn test_approve_danger_enqueues_pending_engine_prompts_and_reject_clears_state()
     assert_eq!(app.pending_engine_prompts[0].0, sid);
 
     app.in_flight_usage = Some(frontal::protocol::TokenUsage::default());
+    app.turn_started_at = Some(std::time::Instant::now());
     app.queued_prompts
         .push_back(frontal::protocol::PromptPayload::from_text("queued-2"));
     app.dispatch_modal_action(frontal::ui::modal::ModalAction::RejectDanger);
     assert!(app.in_flight_usage.is_none());
+    assert!(app.turn_started_at.is_none());
     assert!(app.queued_prompts.is_empty());
+    assert_eq!(
+        app.session_manager.get_metadata(&sid).unwrap().status,
+        frontal::session::SessionStatus::Interrupted
+    );
+    assert!(app.session_manager.interrupt(&sid).is_ok());
+    assert_eq!(
+        app.session_manager.get_metadata(&sid).unwrap().status,
+        frontal::session::SessionStatus::Interrupted
+    );
 }

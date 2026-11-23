@@ -340,6 +340,9 @@ impl SessionManager {
             .sessions
             .get_mut(session_id)
             .ok_or(EngineError::ProcessNotRunning)?;
+        if handle.metadata.status == SessionStatus::Interrupted {
+            return Ok(());
+        }
         handle.metadata.status = SessionStatus::Interrupted;
         match &mut handle.engine {
             FrontalEngine::Acp(engine) => engine.interrupt(),
