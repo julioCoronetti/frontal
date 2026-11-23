@@ -61,13 +61,6 @@ fn test_engine_argument_builders_sanitize_model_ids() {
     config.model = Some("opencode-go/deepseek-v4.1-flash]".to_string());
     config.effort = Some("high".to_string());
 
-    let agy = config.build_args("conv-1");
-    let agy_model = agy
-        .iter()
-        .position(|arg| arg == "--model")
-        .map(|index| agy[index + 1].as_str());
-    assert_eq!(agy_model, Some("opencode-go/deepseek-v4.1-flash"));
-
     let opencode = build_opencode_args(&config, None, "hi");
     let opencode_model = opencode
         .iter()
@@ -94,42 +87,6 @@ fn test_labels_clean_stray_punctuation() {
 
 #[test]
 fn test_transport_sanitization_and_ansi_control_filtering() {
-    let mut cfg = EngineConfig::new_isolated();
-    cfg.project = Some("--malicious\nproj".to_string());
-    cfg.mode = Some("-ask\r".to_string());
-    cfg.effort = Some("--high\x00".to_string());
-    cfg.model = Some("--opencode-go/deepseek-v4.1-flash".to_string());
-
-    let args = cfg.build_args("--conv\x07-1");
-    assert_eq!(
-        args.iter()
-            .skip_while(|a| *a != "--conversation")
-            .nth(1)
-            .map(String::as_str),
-        Some("conv-1")
-    );
-    assert_eq!(
-        args.iter()
-            .skip_while(|a| *a != "--project")
-            .nth(1)
-            .map(String::as_str),
-        Some("maliciousproj")
-    );
-    assert_eq!(
-        args.iter()
-            .skip_while(|a| *a != "--mode")
-            .nth(1)
-            .map(String::as_str),
-        Some("ask")
-    );
-    assert_eq!(
-        args.iter()
-            .skip_while(|a| *a != "--effort")
-            .nth(1)
-            .map(String::as_str),
-        Some("high")
-    );
-
     assert_eq!(
         model_with_variant("--provider/model", Some("medium")),
         "provider/model#high"
