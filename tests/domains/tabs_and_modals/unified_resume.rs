@@ -258,3 +258,25 @@ async fn test_respawn_external_opencode_hydrates_viewport_model_effort_and_usage
         std::env::set_var("XDG_DATA_HOME", x);
     }
 }
+
+#[test]
+fn test_approve_danger_enqueues_pending_engine_prompts_and_reject_clears_state() {
+    let mut manager = frontal::session::SessionManager::new();
+    let sid = frontal::protocol::SessionId::new();
+    manager.register_mock_session(sid.clone());
+    let mut app = App::new_isolated(manager, sid.clone());
+    app.queued_prompts
+        .push_back(frontal::protocol::PromptPayload::from_text("queued-1"));
+    app.suspended_events
+        .push(frontal::protocol::StreamEvent::Result(Default::default()));
+    app.dispatch_modal_action(frontal::ui::modal::ModalAction::ApproveDanger);
+    assert_eq!(app.pending_engine_prompts.len(), 1);
+    assert_eq!(app.pending_engine_prompts[0].0, sid);
+
+    app.in_flight_usage = Some(frontal::protocol::TokenUsage::default());
+    app.queued_prompts
+        .push_back(frontal::protocol::PromptPayload::from_text("queued-2"));
+    app.dispatch_modal_action(frontal::ui::modal::ModalAction::RejectDanger);
+    assert!(app.in_flight_usage.is_none());
+    assert!(app.queued_prompts.is_empty());
+}
