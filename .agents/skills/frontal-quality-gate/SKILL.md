@@ -11,4 +11,4 @@ description: Runs the Frontal quality gate (--fast, --domain <name>, and --full)
 3. Run the full gate before every commit (set `ATOMIC_OVERRIDE=1` only when an indivisible slice exceeds 5 files; `ALLOW_PARTIAL_STAGING=1` to override partial staging):
    `.agents/skills/frontal-quality-gate/scripts/quality_gate.sh --full`
 4. Verify the selected command exits `0`; on failure, fix all reported formatting, clippy, or architecture errors in one batch and re-run.
-5. For multi-module codebase audits or cross-domain sweeps, invoke `run_workflow` with `ScriptPath: "/home/timexp/workspace/frontal/.agents/skills/frontal-quality-gate/scripts/audit_workflow.py"` and pass `{"targets": [...], "objective": "..."}` in `Args`.
+5. For multi-module codebase audits or cross-domain sweeps, invoke `run_workflow` with `ScriptPath: "<repo-root>/.agents/skills/frontal-quality-gate/scripts/audit_workflow.py"` and pass `{"targets": [...], "objective": "..."}` in `Args`; resolve `<repo-root>` per environment via `git rev-parse --show-toplevel`.

@@ -17,7 +17,7 @@ Delegate tasks that require broad reading or noisy intermediate steps so transie
 
 ### Parallel Audit Workflow (`run_workflow`)
 - Use `.agents/skills/frontal-quality-gate/scripts/audit_workflow.py` when auditing multiple `src/` or `tests/domains/` slices concurrently instead of running sequential `advisor.sh` loops.
-- Invoke with `run_workflow(ScriptPath="/home/timexp/workspace/frontal/.agents/skills/frontal-quality-gate/scripts/audit_workflow.py", Args={"targets": [...], "objective": "..."})`.
+- Invoke with `run_workflow(ScriptPath="<repo-root>/.agents/skills/frontal-quality-gate/scripts/audit_workflow.py", Args={"targets": [...], "objective": "..."})`, resolving `<repo-root>` per environment via `git rev-parse --show-toplevel`.
 
 ## 3. Boundaries
 - Execute deterministic routines (`cargo fmt`/`clippy`/`test`, SemVer bumps, tags, Board #8 updates, `.wiki/` sync) directly through `.agents/skills/` scripts rather than LLM subagents.
