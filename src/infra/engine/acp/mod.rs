@@ -1,4 +1,5 @@
 mod coordinator;
+mod handshake;
 mod setup;
 
 use std::collections::VecDeque;
