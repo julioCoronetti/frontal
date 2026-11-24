@@ -347,7 +347,13 @@ pub fn sanitize_paste_text(text: &str) -> String {
                 chars.next();
                 while let Some(&c) = chars.peek() {
                     chars.next();
-                    if c == '\x07' || c == '\x1b' {
+                    if c == '\x07' {
+                        break;
+                    }
+                    if c == '\x1b' {
+                        if chars.peek() == Some(&'\\') {
+                            chars.next();
+                        }
                         break;
                     }
                 }

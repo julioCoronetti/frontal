@@ -64,8 +64,14 @@ impl PromptEditor {
             return false;
         }
         let next_line = line_idx + 1;
-        let next_line_len = self.rope.line(next_line).len_chars();
-        let target_col = col_idx.min(next_line_len.saturating_sub(1));
+        let next_line_slice = self.rope.line(next_line);
+        let next_line_len = next_line_slice.len_chars();
+        let max_col = if next_line_slice.chars().last() == Some('\n') {
+            next_line_len.saturating_sub(1)
+        } else {
+            next_line_len
+        };
+        let target_col = col_idx.min(max_col);
         let next_line_start = self.rope.line_to_char(next_line);
         self.cursor_char = next_line_start + target_col;
         self.adjust_cursor_outside_extmarks();

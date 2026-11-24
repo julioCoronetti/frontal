@@ -123,6 +123,7 @@ impl RenderCache {
             .find(|block| matches!(block.kind, BlockKind::Assistant) && block.consolidated)
         {
             block.turn_meta = Some(meta);
+            block.revision += 1;
         }
     }
 

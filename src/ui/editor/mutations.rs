@@ -284,6 +284,8 @@ impl PromptEditor {
         let safe_end = end_char.min(self.rope.len_chars());
         let safe_start = start_char.min(safe_end);
         let removed_len = safe_end - safe_start;
+        self.extmarks
+            .retain(|ext| ext.end_char <= safe_start || ext.start_char >= safe_end);
         self.rope.remove(safe_start..safe_end);
         self.shift_extmarks_after(safe_start, -(removed_len as isize));
 

@@ -39,13 +39,14 @@ pub fn normalize_streaming_markdown(input: &str, consolidated: bool) -> Normaliz
                 }
             }
         } else {
-            let marker_str = std::iter::repeat_n(fence_char, fence_len).collect::<String>();
-            if trimmed.starts_with(&marker_str) {
-                let rest = trimmed[fence_len..].trim();
-                if rest.is_empty() {
-                    in_fence = false;
-                    current_lang = None;
-                }
+            let closing_count = trimmed.chars().take_while(|&c| c == fence_char).count();
+            if closing_count >= fence_len
+                && trimmed[closing_count * fence_char.len_utf8()..]
+                    .trim()
+                    .is_empty()
+            {
+                in_fence = false;
+                current_lang = None;
             }
         }
     }
