@@ -9,7 +9,7 @@
 - Atomic commit (`.git/FRONTAL_COMMIT_EDITMSG` or flags): `.agents/skills/frontal-card-lifecycle/scripts/card_lifecycle.sh commit`
 - Quality gate (`--fast`, `--domain <name>`, `--full`): `.agents/skills/frontal-quality-gate/scripts/quality_gate.sh`
 - Full suite (`tests/suite.rs`): `cargo test --quiet`
-- Architecture (`tests/domains/architecture.rs`): `cargo test --test suite domains::architecture`
+- Architecture (`tests/domains/architecture/`): `cargo test --test suite domains::architecture`
 - Protocol & CLI (`tests/domains/protocol_and_cli.rs`): `cargo test --test suite domains::protocol_and_cli`
 - Engine & session (`tests/domains/engine_and_session/`): `cargo test --test suite domains::engine_and_session`
 - Cache & markdown (`tests/domains/cache_and_markdown/`): `cargo test --test suite domains::cache_and_markdown`
