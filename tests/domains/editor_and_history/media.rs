@@ -332,4 +332,23 @@ fn editor_extmark_overlap_move_down_and_sanitize_osc_st() {
 
     let sanitized = frontal::ui::editor::sanitize_paste_text("a\x1b]0;title\x1b\\b");
     assert_eq!(sanitized, "ab");
+
+    let mut ed3 = PromptEditor::new();
+    ed3.insert_paste("1\n2\n3\n4\n5\n6");
+    assert_eq!(ed3.extmarks().len(), 1);
+    let len = ed3.text().chars().count();
+    ed3.replace_range_with_extmark(
+        0,
+        len,
+        ExtmarkKind::FileMention {
+            path: "x".to_string(),
+        },
+        "@x",
+    );
+    assert_eq!(ed3.extmarks().len(), 1);
+    assert!(ed3.undo());
+    assert_eq!(
+        ed3.take_submitted_expanded().as_deref(),
+        Some("1\n2\n3\n4\n5\n6")
+    );
 }

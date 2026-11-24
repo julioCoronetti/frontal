@@ -20,6 +20,7 @@ impl App {
         {
             tab.waiting_for_response = false;
             tab.turn_started_at = None;
+            tab.in_flight_usage = None;
             tab.queued_prompts.clear();
             tab.cache.consolidate_active_turn_with_meta(None, None);
             tab.cache.push_error(message);
@@ -189,6 +190,7 @@ impl App {
             }
             EngineEvent::ProcessExited { code, .. } => {
                 self.tabs[tab_idx].waiting_for_response = false;
+                self.tabs[tab_idx].turn_started_at = None;
                 self.tabs[tab_idx].pending_danger = None;
                 self.tabs[tab_idx].suspended_events.clear();
                 self.tabs[tab_idx].queued_prompts.clear();

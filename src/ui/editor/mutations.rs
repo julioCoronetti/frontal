@@ -284,8 +284,19 @@ impl PromptEditor {
         let safe_end = end_char.min(self.rope.len_chars());
         let safe_start = start_char.min(safe_end);
         let removed_len = safe_end - safe_start;
-        self.extmarks
-            .retain(|ext| ext.end_char <= safe_start || ext.start_char >= safe_end);
+        let mut removed_pill_ids = Vec::new();
+        self.extmarks.retain(|ext| {
+            let keep = ext.end_char <= safe_start || ext.start_char >= safe_end;
+            if !keep {
+                if let ExtmarkKind::PastePill { id, .. } = ext.kind {
+                    removed_pill_ids.push(id);
+                }
+            }
+            keep
+        });
+        for id in removed_pill_ids {
+            self.paste_registry.remove(&id);
+        }
         self.rope.remove(safe_start..safe_end);
         self.shift_extmarks_after(safe_start, -(removed_len as isize));
 

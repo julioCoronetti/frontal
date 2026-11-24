@@ -263,12 +263,6 @@ impl App {
         }
         self.apply_hydrated_session(tab_idx, hydrated_session, is_different_conv, model_changed);
 
-        self.tabs[tab_idx].persisted_block_id = self.tabs[tab_idx]
-            .cache
-            .blocks()
-            .last()
-            .map(|block| block.id)
-            .unwrap_or(0);
         self.sync_session_to_history(&new_id);
         self.tabs[tab_idx].status_text = format!("Respawned session: {}", new_id);
         self.dirty = true;
@@ -285,9 +279,16 @@ impl App {
         if let Some(hydrated_data) = hydrated_session {
             if hydrated_data.hydrated {
                 self.tabs[tab_idx].cache = hydrated_data.cache;
+                self.tabs[tab_idx].persisted_block_id = self.tabs[tab_idx]
+                    .cache
+                    .blocks()
+                    .last()
+                    .map(|block| block.id)
+                    .unwrap_or(0);
                 self.tabs[tab_idx].viewport.scroll_to_bottom();
             } else if is_different_conv {
                 self.tabs[tab_idx].cache.clear();
+                self.tabs[tab_idx].persisted_block_id = 0;
             }
             if let Some(title) = hydrated_data.title {
                 self.tabs[tab_idx].title = title;
@@ -340,6 +341,7 @@ impl App {
             }
         } else if is_different_conv {
             self.tabs[tab_idx].cache.clear();
+            self.tabs[tab_idx].persisted_block_id = 0;
         }
     }
 }
