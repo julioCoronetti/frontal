@@ -268,6 +268,9 @@ pub fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
             buf[count] = 0;
             count += 1;
             pad += 1;
+            if pad > 2 {
+                return Err("invalid base64 padding".to_string());
+            }
         } else {
             if pad > 0 {
                 return Err("invalid base64 padding".to_string());

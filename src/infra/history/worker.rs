@@ -143,7 +143,10 @@ pub(super) fn spawn_history_worker(
                 }
                 HistoryCommand::RenameSession { id, title, source } => {
                     let norm = id.strip_prefix("ext-").unwrap_or(&id);
-                    if norm.is_empty() || is_deleted_key(&deleted_ids, &id) {
+                    if norm.is_empty()
+                        || is_deleted_key(&deleted_ids, &id)
+                        || is_deleted_key(&deleted_ids, norm)
+                    {
                         continue;
                     }
                     let conv_id: Option<String> = bg_conn
@@ -192,8 +195,8 @@ pub(super) fn spawn_history_worker(
                 HistoryCommand::RenameAgentTitle { conv_id, title } => {
                     let cid = conv_id.strip_prefix("ext-").unwrap_or(&conv_id).to_string();
                     if cid.is_empty()
-                        || deleted_ids.contains(&conv_id)
-                        || deleted_ids.contains(&cid)
+                        || is_deleted_key(&deleted_ids, &conv_id)
+                        || is_deleted_key(&deleted_ids, &cid)
                     {
                         continue;
                     }

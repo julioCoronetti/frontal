@@ -92,7 +92,7 @@ pub(crate) fn insert_messages(
     conv_id: &str,
     messages: &[StoredMessage],
 ) -> Result<(), rusqlite::Error> {
-    if messages.is_empty() {
+    if conv_id.trim().is_empty() || messages.is_empty() {
         return Ok(());
     }
     let now = SystemTime::now()

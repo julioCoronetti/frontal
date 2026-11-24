@@ -269,15 +269,19 @@ impl PromptHistory {
         let guard = self.agent_cache.read().ok()?;
         guard
             .iter()
-            .find(|s| s.conversation_id.as_deref() == Some(conv_id))
+            .find(|s| {
+                !is_deleted_record(s, &self.deleted_ids)
+                    && s.conversation_id.as_deref() == Some(conv_id)
+            })
             .and_then(|s| s.title.clone())
     }
 
     pub fn cached_agent_entry(&self, conv_id: &str) -> Option<(String, TitleSource)> {
         let guard = self.agent_cache.read().ok()?;
-        let item = guard
-            .iter()
-            .find(|s| s.conversation_id.as_deref() == Some(conv_id))?;
+        let item = guard.iter().find(|s| {
+            !is_deleted_record(s, &self.deleted_ids)
+                && s.conversation_id.as_deref() == Some(conv_id)
+        })?;
         let title = item.title.clone()?;
         Some((title, item.title_source))
     }
@@ -286,7 +290,10 @@ impl PromptHistory {
         let guard = self.agent_cache.read().ok()?;
         guard
             .iter()
-            .find(|s| s.conversation_id.as_deref() == Some(conv_id))
+            .find(|s| {
+                !is_deleted_record(s, &self.deleted_ids)
+                    && s.conversation_id.as_deref() == Some(conv_id)
+            })
             .map(|s| s.created_at)
             .filter(|ts| *ts > 0)
     }

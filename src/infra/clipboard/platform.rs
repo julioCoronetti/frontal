@@ -10,13 +10,24 @@ use super::{save_encoded_media_dedup, save_rgba_png_dedup, SavedMediaImage};
 use crate::core::media::{extract_pasted_image_path, image_mime_for_path};
 
 fn run_command_bounded(program: &str, args: &[&str], max_bytes: usize) -> Option<Vec<u8>> {
-    let mut child = Command::new(program)
-        .args(args)
+    let mut cmd = Command::new(program);
+    cmd.args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
+        .stderr(Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setpgid(0, 0);
+                Ok(())
+            });
+        }
+    }
+    let mut child = cmd.spawn().ok()?;
+    #[cfg(unix)]
+    let pid = child.id() as libc::pid_t;
     let stdout = child.stdout.take()?;
     let reader = std::thread::spawn(move || {
         let mut buf = Vec::new();
@@ -26,27 +37,40 @@ fn run_command_bounded(program: &str, args: &[&str], max_bytes: usize) -> Option
     let deadline = Instant::now() + Duration::from_secs(4);
     let status = loop {
         match child.try_wait() {
-            Ok(Some(status)) => break status,
+            Ok(Some(status)) => {
+                #[cfg(unix)]
+                unsafe {
+                    libc::killpg(pid, libc::SIGKILL);
+                }
+                break status;
+            }
             Ok(None) => {
                 if Instant::now() >= deadline {
+                    #[cfg(unix)]
+                    unsafe {
+                        libc::killpg(pid, libc::SIGKILL);
+                    }
                     let _ = child.kill();
                     let _ = child.wait();
+                    let _ = reader.join();
                     return None;
                 }
                 std::thread::sleep(Duration::from_millis(15));
             }
             Err(_) => {
+                #[cfg(unix)]
+                unsafe {
+                    libc::killpg(pid, libc::SIGKILL);
+                }
                 let _ = child.kill();
                 let _ = child.wait();
+                let _ = reader.join();
                 return None;
             }
         }
     };
-    if !status.success() {
-        return None;
-    }
     let buf = reader.join().ok()?;
-    if buf.is_empty() || buf.len() > max_bytes {
+    if !status.success() || buf.is_empty() || buf.len() > max_bytes {
         return None;
     }
     Some(buf)
