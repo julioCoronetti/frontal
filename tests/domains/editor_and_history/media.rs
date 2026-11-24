@@ -293,3 +293,43 @@ fn test_crc32_update_and_background_clipboard_prepare() {
     assert_eq!(writer1("stale".to_string()), None);
     assert_eq!(isolated.get_text().as_deref(), Some("latest"));
 }
+
+#[test]
+fn decode_base64_rejects_excess_padding() {
+    assert!(decode_base64("====").is_err());
+    assert!(decode_base64("A===").is_err());
+    assert_eq!(decode_base64("Zg==").unwrap(), b"f");
+}
+
+#[test]
+fn editor_extmark_overlap_move_down_and_sanitize_osc_st() {
+    let mut ed = PromptEditor::new();
+    ed.insert_str("hello world");
+    ed.replace_range_with_extmark(
+        0,
+        5,
+        ExtmarkKind::FileMention {
+            path: "a".to_string(),
+        },
+        "@one",
+    );
+    ed.replace_range_with_extmark(
+        0,
+        4,
+        ExtmarkKind::FileMention {
+            path: "b".to_string(),
+        },
+        "@two",
+    );
+    assert_eq!(ed.extmarks().len(), 1);
+    assert!(ed.text().starts_with("@two"));
+
+    let mut ed2 = PromptEditor::new();
+    ed2.insert_str("abc\ndefg");
+    ed2.set_cursor_char(3);
+    assert!(ed2.move_down());
+    assert_eq!(ed2.cursor_char(), 7);
+
+    let sanitized = frontal::ui::editor::sanitize_paste_text("a\x1b]0;title\x1b\\b");
+    assert_eq!(sanitized, "ab");
+}

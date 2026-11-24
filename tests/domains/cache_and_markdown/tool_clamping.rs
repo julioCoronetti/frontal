@@ -89,3 +89,30 @@ fn test_render_cache_upsert_and_historical_tool_call_apply_clamping() {
     assert!(!cache.blocks()[1].content.contains("out 150"));
     assert!(cache.blocks()[1].content.contains("out 300"));
 }
+
+#[test]
+fn set_last_assistant_turn_meta_bumps_revision_and_invalidates_l2() {
+    use frontal::ui::cache::TurnMeta;
+    let mut cache = RenderCache::new();
+    cache.push_historical_assistant_message("hello");
+    let initial_rev = cache.blocks()[0].revision;
+    let _ = cache.ensure_visual_lines(80);
+    let misses_before = cache.cache_misses();
+    cache.set_last_assistant_turn_meta(TurnMeta {
+        model: "claude-opus".to_string(),
+        mode: "auto".to_string(),
+        duration_seconds: Some(1.2),
+        output_tokens: Some(20),
+    });
+    assert_eq!(cache.blocks()[0].revision, initial_rev + 1);
+    let _ = cache.ensure_visual_lines(80);
+    assert!(cache.cache_misses() > misses_before);
+}
+
+#[test]
+fn normalize_streaming_markdown_handles_longer_closing_fence() {
+    let input = "```rust\nlet x = 1;\n````\n";
+    let norm = frontal::ui::markdown::normalize_streaming_markdown(input, false);
+    assert!(!norm.has_unclosed_fence);
+    assert!(norm.text.ends_with("````\n"));
+}
