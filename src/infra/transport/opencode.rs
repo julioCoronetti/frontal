@@ -227,13 +227,28 @@ pub fn run_opencode_command_with_bin(
     }
 
     let status = match exited {
-        Some(res) => {
+        Some(Ok(status)) => {
             #[cfg(unix)]
             unsafe {
                 libc::killpg(pid, libc::SIGKILL);
             }
             crate::engine::unregister_child_pgid(pid);
-            res.map_err(|e| e.to_string())?
+            status
+        }
+        Some(Err(err)) => {
+            #[cfg(unix)]
+            unsafe {
+                libc::killpg(pid, libc::SIGKILL);
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = child.kill();
+            }
+            let _ = child.wait();
+            crate::engine::unregister_child_pgid(pid);
+            let _ = stdout_handle.join();
+            let _ = stderr_handle.join();
+            return Err(err.to_string());
         }
         None => {
             #[cfg(unix)]
@@ -249,10 +264,14 @@ pub fn run_opencode_command_with_bin(
                 }
                 std::thread::sleep(Duration::from_millis(5));
             }
+            #[cfg(unix)]
+            unsafe {
+                libc::killpg(pid, libc::SIGKILL);
+            }
             if !terminated {
-                #[cfg(unix)]
-                unsafe {
-                    libc::killpg(pid, libc::SIGKILL);
+                #[cfg(not(unix))]
+                {
+                    let _ = child.kill();
                 }
                 let _ = child.wait();
             }

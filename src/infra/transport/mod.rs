@@ -9,7 +9,8 @@ mod replay;
 pub use opencode::{
     build_opencode_args, build_opencode_payload_args, delete_opencode_session,
     fetch_opencode_models, is_valid_opencode_session_id, model_with_variant, opencode_variant,
-    parse_opencode_models_output, resolve_opencode_binary, run_opencode_command, strip_ansi,
+    parse_opencode_models_output, resolve_opencode_binary, run_opencode_command,
+    run_opencode_command_with_bin, strip_ansi,
 };
 pub use replay::{FixtureReplayEngine, ReplayMode};
 

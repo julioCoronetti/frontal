@@ -1,9 +1,9 @@
 use std::fs;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use tokio::time::sleep;
 
 use super::EngineError;
@@ -24,7 +24,9 @@ pub struct FixtureReplayEngine {
     cursor: Arc<AtomicUsize>,
     mode: ReplayMode,
     sender: mpsc::Sender<SessionEnvelope>,
-    interrupted: Arc<AtomicBool>,
+    turn_gen: u64,
+    cancelled_up_to: Arc<AtomicU64>,
+    turn_lock: Arc<Mutex<()>>,
 }
 
 impl FixtureReplayEngine {
@@ -40,14 +42,7 @@ impl FixtureReplayEngine {
             .map(|l| l.trim().to_string())
             .filter(|l| !l.is_empty())
             .collect();
-        Ok(Self {
-            session_id,
-            lines: Arc::new(lines),
-            cursor: Arc::new(AtomicUsize::new(0)),
-            mode,
-            sender,
-            interrupted: Arc::new(AtomicBool::new(false)),
-        })
+        Ok(Self::from_lines(session_id, lines, mode, sender))
     }
 
     pub fn from_lines(
@@ -62,21 +57,25 @@ impl FixtureReplayEngine {
             cursor: Arc::new(AtomicUsize::new(0)),
             mode,
             sender,
-            interrupted: Arc::new(AtomicBool::new(false)),
+            turn_gen: 0,
+            cancelled_up_to: Arc::new(AtomicU64::new(0)),
+            turn_lock: Arc::new(Mutex::new(())),
         }
     }
 
     pub async fn start(&mut self) -> Result<(), EngineError> {
         match self.mode {
             ReplayMode::Immediate => {
+                self.turn_gen += 1;
+                let my_gen = self.turn_gen;
                 let lines = self.lines.clone();
                 let cursor = self.cursor.clone();
-                let interrupted = self.interrupted.clone();
+                let cancelled_up_to = self.cancelled_up_to.clone();
                 let sender = self.sender.clone();
                 let session_id = self.session_id.clone();
                 tokio::spawn(async move {
                     while cursor.load(Ordering::Relaxed) < lines.len() {
-                        if interrupted.load(Ordering::Relaxed) {
+                        if cancelled_up_to.load(Ordering::Acquire) >= my_gen {
                             break;
                         }
                         let idx = cursor.fetch_add(1, Ordering::Relaxed);
@@ -89,7 +88,9 @@ impl FixtureReplayEngine {
                                 session_id: session_id.clone(),
                                 event: EngineEvent::Stream(Box::new(stream_ev)),
                             };
-                            let _ = sender.send(envelope).await;
+                            if sender.send(envelope).await.is_err() {
+                                break;
+                            }
                         }
                         sleep(Duration::from_millis(1)).await;
                     }
@@ -120,15 +121,18 @@ impl FixtureReplayEngine {
     ) -> Result<(), EngineError> {
         let payload = prompt.into();
         let _ = format_user_payload(&payload)?;
-        self.interrupted.store(false, Ordering::Relaxed);
+        self.turn_gen += 1;
+        let my_gen = self.turn_gen;
+        let cancelled_up_to = self.cancelled_up_to.clone();
         let lines = self.lines.clone();
         let cursor = self.cursor.clone();
-        let interrupted = self.interrupted.clone();
+        let turn_lock = self.turn_lock.clone();
         let sender = self.sender.clone();
         let session_id = self.session_id.clone();
         tokio::spawn(async move {
+            let _guard = turn_lock.lock().await;
             while cursor.load(Ordering::Relaxed) < lines.len() {
-                if interrupted.load(Ordering::Relaxed) {
+                if cancelled_up_to.load(Ordering::Acquire) >= my_gen {
                     let _ = sender
                         .send(SessionEnvelope {
                             session_id,
@@ -148,7 +152,9 @@ impl FixtureReplayEngine {
                         session_id: session_id.clone(),
                         event: EngineEvent::Stream(Box::new(stream_ev)),
                     };
-                    let _ = sender.send(envelope).await;
+                    if sender.send(envelope).await.is_err() {
+                        break;
+                    }
                     if is_result {
                         break;
                     }
@@ -160,12 +166,14 @@ impl FixtureReplayEngine {
     }
 
     pub fn interrupt(&mut self) -> Result<(), EngineError> {
-        self.interrupted.store(true, Ordering::Relaxed);
+        self.cancelled_up_to
+            .fetch_max(self.turn_gen, Ordering::AcqRel);
         Ok(())
     }
 
     pub fn shutdown(&mut self) -> Result<Option<i32>, EngineError> {
-        self.interrupted.store(true, Ordering::Relaxed);
+        self.cancelled_up_to
+            .fetch_max(self.turn_gen, Ordering::AcqRel);
         Ok(Some(0))
     }
 }
