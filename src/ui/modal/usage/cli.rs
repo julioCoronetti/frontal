@@ -49,19 +49,22 @@ pub(super) fn run_bounded_command(
                 #[cfg(not(unix))]
                 let _ = child.kill();
                 let _ = child.wait();
+                crate::engine::unregister_child_pgid(pid);
                 let _ = tx.send(Err(err));
                 return;
             }
         }
-        let _ = tx.send(child.wait_with_output());
+        let out = child.wait_with_output();
+        crate::engine::unregister_child_pgid(pid);
+        let _ = tx.send(out);
     });
 
     match rx.recv_timeout(timeout) {
-        Ok(res) => {
-            crate::engine::unregister_child_pgid(pid);
-            res.map_err(|e| e.to_string())
-        }
-        Err(_) => {
+        Ok(res) => res.map_err(|e| e.to_string()),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            if let Ok(res) = rx.try_recv() {
+                return res.map_err(|e| e.to_string());
+            }
             #[cfg(unix)]
             unsafe {
                 libc::killpg(pid, libc::SIGTERM);
@@ -70,8 +73,11 @@ pub(super) fn run_bounded_command(
                     let _ = rx.recv_timeout(Duration::from_millis(100));
                 }
             }
-            crate::engine::unregister_child_pgid(pid);
             Err("command timed out".to_string())
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            crate::engine::unregister_child_pgid(pid);
+            Err("command wait thread disconnected".to_string())
         }
     }
 }

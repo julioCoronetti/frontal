@@ -175,7 +175,7 @@ impl super::ModelEffortModal {
             .unwrap_or(0);
     }
 
-    pub(crate) fn scope_models_to_provider(&mut self) {
+    fn refresh_scoped_models(&mut self) {
         self.models = match (self.backend, &self.provider) {
             (BackendKind::Agy, _) => self.agy_models.clone(),
             (BackendKind::OpenCode, Some(provider)) => self
@@ -191,6 +191,10 @@ impl super::ModelEffortModal {
                 .collect(),
             (BackendKind::OpenCode, None) => self.opencode_models.clone(),
         };
+    }
+
+    pub(crate) fn scope_models_to_provider(&mut self) {
+        self.refresh_scoped_models();
         self.selected_model_idx = 0;
         let idx = Self::default_effort_for_model(self.current_supported_efforts()).0;
         self.selected_effort_idx = idx;
@@ -205,6 +209,25 @@ impl super::ModelEffortModal {
     }
 
     pub fn set_opencode_models(&mut self, raw: Vec<(String, String)>) {
+        let prev_provider_id = if self.showing_providers() {
+            self.providers
+                .get(self.selected_model_idx)
+                .map(|p| p.id.clone())
+        } else {
+            None
+        };
+        let prev_model = self.selected_entry().and_then(|entry| match entry {
+            ListEntry::Model { backend, index } => self
+                .model_pool(backend)
+                .get(index)
+                .map(|m| (backend, m.id.clone())),
+            ListEntry::Provider(_) => None,
+        });
+        let prev_effort = self
+            .current_supported_efforts()
+            .get(self.selected_effort_idx)
+            .cloned();
+
         let efforts: Vec<String> = ["low", "medium", "high", "xhigh", "max"]
             .iter()
             .map(|effort| effort.to_string())
@@ -218,6 +241,48 @@ impl super::ModelEffortModal {
             })
             .collect();
         self.rebuild_providers();
-        self.scope_models_to_provider();
+        self.refresh_scoped_models();
+
+        let mut preserved_model = false;
+        if self.showing_providers() {
+            self.selected_model_idx = prev_provider_id
+                .and_then(|pid| self.providers.iter().position(|p| p.id == pid))
+                .unwrap_or_else(|| {
+                    self.selected_model_idx
+                        .min(self.providers.len().saturating_sub(1))
+                });
+        } else {
+            let visible = self.visible_entries();
+            let preserved_idx = prev_model.and_then(|(b, id)| {
+                visible.iter().position(|entry| match entry {
+                    ListEntry::Model { backend, index } => {
+                        *backend == b
+                            && self.model_pool(*backend).get(*index).map(|m| m.id.as_str())
+                                == Some(id.as_str())
+                    }
+                    ListEntry::Provider(_) => false,
+                })
+            });
+            preserved_model = preserved_idx.is_some();
+            self.selected_model_idx = preserved_idx
+                .unwrap_or_else(|| self.selected_model_idx.min(visible.len().saturating_sub(1)));
+            if self.step == ModelEffortStep::SelectEffort && !preserved_model {
+                if visible.is_empty() {
+                    self.query.clear();
+                    self.step = ModelEffortStep::SelectProvider;
+                } else {
+                    self.step = ModelEffortStep::SelectModel;
+                }
+            }
+        }
+
+        let efforts = self.current_supported_efforts();
+        self.selected_effort_idx = if preserved_model {
+            prev_effort
+                .and_then(|eff| efforts.iter().position(|e| e == &eff))
+                .unwrap_or_else(|| Self::default_effort_for_model(efforts).0)
+        } else {
+            Self::default_effort_for_model(efforts).0
+        };
     }
 }

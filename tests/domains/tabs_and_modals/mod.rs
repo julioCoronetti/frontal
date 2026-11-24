@@ -1,6 +1,7 @@
 mod history_resume;
 mod modals;
 mod model_effort;
+mod respawn_regression;
 mod resume;
 mod resume_delete;
 mod select;
