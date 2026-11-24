@@ -38,6 +38,7 @@ impl App {
                         d.command
                     ));
                 }
+                self.cache.consolidate_active_turn_with_meta(None, None);
                 self.waiting_for_response = false;
                 self.in_flight_usage = None;
                 self.turn_started_at = None;

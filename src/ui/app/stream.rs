@@ -168,6 +168,8 @@ impl App {
             }
             EngineEvent::ProtocolError { message, .. } => {
                 self.tabs[tab_idx].waiting_for_response = false;
+                self.tabs[tab_idx].turn_started_at = None;
+                self.tabs[tab_idx].in_flight_usage = None;
                 self.tabs[tab_idx].pending_danger = None;
                 self.tabs[tab_idx].suspended_events.clear();
                 self.tabs[tab_idx].queued_prompts.clear();
@@ -176,6 +178,9 @@ impl App {
                 } else {
                     self.tabs[tab_idx].has_unread = true;
                 }
+                self.tabs[tab_idx]
+                    .cache
+                    .consolidate_active_turn_with_meta(None, None);
                 self.tabs[tab_idx]
                     .cache
                     .push_error(&format!("Protocol Error: {}", message));

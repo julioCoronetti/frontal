@@ -40,8 +40,15 @@ impl App {
                 .and_then(|s| s.backend)
                 .unwrap_or_else(|| crate::infra::history::infer_backend(Some(id), None))
         });
-        let is_explicit_config_change = conversation_id.is_none();
-        let target_backend = requested_backend.unwrap_or(self.user_config.backend);
+        let is_explicit_config_change =
+            conversation_id.is_none() && (model.is_some() || effort.is_some() || mode.is_some());
+        let target_backend = requested_backend.unwrap_or_else(|| {
+            if model.is_some() {
+                self.user_config.backend
+            } else {
+                prev_backend
+            }
+        });
         let backend_changed = target_backend != prev_backend;
         let final_conv_id = match conversation_id {
             Some(id) => Some(id),

@@ -98,6 +98,9 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                                     match app.respawn_active_session(None, None, None, None).await {
                                         Ok(new_id) => {
                                             session_id = new_id;
+                                            app.waiting_for_response = true;
+                                            app.status_text = String::from("Thinking...");
+                                            app.dirty = true;
                                             true
                                         }
                                         Err(err) => {

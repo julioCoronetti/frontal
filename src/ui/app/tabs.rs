@@ -108,6 +108,7 @@ impl App {
         if self.tabs[0].cache.blocks_count() == 0 && !self.tabs[0].waiting_for_response {
             self.tabs[0].title = String::from("New session");
             self.tabs[0].custom_title = false;
+            self.tabs[0].title_source = crate::infra::history::TitleSource::Default;
             self.tabs[0].has_unread = false;
             self.tabs[0].queued_prompts.clear();
             self.tabs[0].pending_danger = None;
