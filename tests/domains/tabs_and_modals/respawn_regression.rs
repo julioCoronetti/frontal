@@ -44,10 +44,11 @@ fn reject_danger_consolidates_active_turn_blocks() {
     let sid = SessionId::new();
     manager.register_mock_session(sid.clone());
     let mut app = App::new_isolated(manager, sid);
-    app.cache
+    app.active_tab_mut()
+        .cache
         .append_streaming_delta(BlockKind::Assistant, "partial response");
-    assert!(app.cache.has_unconsolidated_blocks());
-    app.pending_danger = Some(DangerAssessment {
+    assert!(app.active_tab().cache.has_unconsolidated_blocks());
+    app.active_tab_mut().pending_danger = Some(DangerAssessment {
         step_index: Some(1),
         tool_name: "bash".to_string(),
         command: "rm -rf /tmp/x".to_string(),
@@ -56,8 +57,8 @@ fn reject_danger_consolidates_active_turn_blocks() {
         warning: "destructive".to_string(),
     });
     app.dispatch_modal_action(ModalAction::RejectDanger);
-    assert!(!app.cache.has_unconsolidated_blocks());
-    assert!(!app.waiting_for_response);
+    assert!(!app.active_tab().cache.has_unconsolidated_blocks());
+    assert!(!app.active_tab().waiting_for_response);
 }
 
 #[test]
@@ -66,10 +67,11 @@ fn protocol_error_consolidates_active_turn_and_clears_telemetry() {
     let sid = SessionId::new();
     manager.register_mock_session(sid.clone());
     let mut app = App::new_isolated(manager, sid.clone());
-    app.cache
+    app.active_tab_mut()
+        .cache
         .append_streaming_delta(BlockKind::Assistant, "partial");
-    app.waiting_for_response = true;
-    app.turn_started_at = Some(std::time::Instant::now());
+    app.active_tab_mut().waiting_for_response = true;
+    app.active_tab_mut().turn_started_at = Some(std::time::Instant::now());
 
     app.handle_engine_envelope(SessionEnvelope {
         session_id: sid,
@@ -78,10 +80,10 @@ fn protocol_error_consolidates_active_turn_and_clears_telemetry() {
             raw_preview: None,
         },
     });
-    assert!(!app.cache.has_unconsolidated_blocks());
-    assert!(app.turn_started_at.is_none());
-    assert!(app.in_flight_usage.is_none());
-    assert!(!app.waiting_for_response);
+    assert!(!app.active_tab().cache.has_unconsolidated_blocks());
+    assert!(app.active_tab().turn_started_at.is_none());
+    assert!(app.active_tab().in_flight_usage.is_none());
+    assert!(!app.active_tab().waiting_for_response);
 }
 
 #[tokio::test]
@@ -178,11 +180,16 @@ async fn dormant_respawn_preserves_unpersisted_user_prompt_block() {
     let mut app = App::new_isolated(manager, sid.clone());
     app.history = PromptHistory::open_with_external_dbs(&db_path, None, None).unwrap();
 
-    let prev_id = app.cache.push_user_message("earlier");
-    app.cache.push_historical_assistant_message("earlier reply");
+    let prev_id = app.active_tab_mut().cache.push_user_message("earlier");
+    app.active_tab_mut()
+        .cache
+        .push_historical_assistant_message("earlier reply");
     app.tabs[0].persisted_block_id = prev_id + 1;
 
-    let new_user_id = app.cache.push_user_message("new dormant prompt");
+    let new_user_id = app
+        .active_tab_mut()
+        .cache
+        .push_user_message("new dormant prompt");
     let new_sid = app
         .respawn_active_session(None, None, None, None)
         .await

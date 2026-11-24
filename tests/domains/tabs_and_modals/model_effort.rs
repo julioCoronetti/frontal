@@ -234,7 +234,7 @@ fn test_model_effort_modal_restores_last_selected_effort_and_model() {
         Some("medium".to_string()),
         None,
     );
-    app.editor.insert_str("/model");
+    app.active_tab_mut().editor.insert_str("/model");
     let enter = press_key(KeyCode::Enter, KeyModifiers::NONE);
     app.handle_terminal_event(enter);
 

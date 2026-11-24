@@ -6,37 +6,40 @@ use crate::ui::modal::{Modal, ModelEffortModal};
 
 impl App {
     pub fn is_turn_active(&self) -> bool {
-        self.waiting_for_response
-            || self.cache.has_unconsolidated_blocks()
+        let tab = self.active_tab();
+        tab.waiting_for_response
+            || tab.cache.has_unconsolidated_blocks()
             || self
                 .session_manager
-                .get_metadata(&self.active_session)
+                .get_metadata(self.active_session_id())
                 .map(|m| m.status == crate::session::SessionStatus::RunningTurn)
                 .unwrap_or(false)
     }
 
     pub(crate) fn clear_active_tab(&mut self) {
-        self.cache.clear();
-        self.viewport.clear_selection();
-        self.viewport.scroll_to_bottom();
-        self.last_turn_usage = None;
-        self.in_flight_usage = None;
-        self.accumulated_usage = crate::protocol::TokenUsage::default();
-        self.served_model = None;
-        self.context_window_hint = None;
-        self.steps_seen = 0;
-        self.last_step_index = None;
-        self.turns_completed = 0;
-        self.last_turn_duration_seconds = None;
-        self.queued_prompts.clear();
-        self.esc_armed_at = None;
-        self.status_text = String::from("Cleared");
+        let tab = self.active_tab_mut();
+        tab.cache.clear();
+        tab.viewport.clear_selection();
+        tab.viewport.scroll_to_bottom();
+        tab.last_turn_usage = None;
+        tab.in_flight_usage = None;
+        tab.accumulated_usage = crate::protocol::TokenUsage::default();
+        tab.served_model = None;
+        tab.context_window_hint = None;
+        tab.steps_seen = 0;
+        tab.last_step_index = None;
+        tab.turns_completed = 0;
+        tab.last_turn_duration_seconds = None;
+        tab.queued_prompts.clear();
+        tab.esc_armed_at = None;
+        tab.status_text = String::from("Cleared");
         self.dirty = true;
     }
 
     pub(crate) fn request_new_tab(&mut self) -> Option<Option<AppAction>> {
-        self.sync_session_to_history(&self.active_session.clone());
-        self.status_text = String::from("New tab");
+        let sid = self.active_session_id().clone();
+        self.sync_session_to_history(&sid);
+        self.active_tab_mut().status_text = String::from("New tab");
         self.dirty = true;
         Some(Some(AppAction::NewTab))
     }
@@ -51,11 +54,12 @@ impl App {
         } else if trimmed == "/new" {
             self.request_new_tab()
         } else if trimmed == "/quota" {
-            let modal = if self.backend == crate::config::BackendKind::OpenCode {
+            let tab = self.active_tab();
+            let modal = if tab.backend == crate::config::BackendKind::OpenCode {
                 crate::ui::modal::UsageModal::load_opencode(
                     &self.active_model_name(),
-                    self.last_turn_usage,
-                    self.accumulated_usage,
+                    tab.last_turn_usage,
+                    tab.accumulated_usage,
                 )
                 .with_stats_cli(
                     !self.history.is_in_memory()
@@ -86,10 +90,12 @@ impl App {
                 self.open_mode_modal(None);
                 return Some(None);
             }
+            let backend = self.active_tab().backend;
             if let Some(canonical) = crate::config::BackendKind::normalize_mode(arg)
-                .filter(|mode| self.backend.supports_mode(mode))
+                .filter(|mode| backend.supports_mode(mode))
             {
-                self.status_text = format!("Mode: {} · {}", canonical, self.backend.as_str());
+                self.active_tab_mut().status_text =
+                    format!("Mode: {} · {}", canonical, backend.as_str());
                 self.dirty = true;
                 Some(Some(AppAction::RespawnSession {
                     conversation_id: None,
@@ -98,8 +104,7 @@ impl App {
                     mode: Some(canonical.to_string()),
                 }))
             } else {
-                let supported: Vec<&str> = self
-                    .backend
+                let supported: Vec<&str> = backend
                     .supported_modes()
                     .iter()
                     .map(|(id, _)| *id)
@@ -107,12 +112,13 @@ impl App {
                 let msg = format!(
                     "Unsupported mode '{}' for {} (supported: {})",
                     arg,
-                    self.backend.as_str(),
+                    backend.as_str(),
                     supported.join(", ")
                 );
-                self.cache.push_user_message(trimmed);
-                self.cache.push_error(&msg);
-                self.status_text = msg;
+                let tab = self.active_tab_mut();
+                tab.cache.push_user_message(trimmed);
+                tab.cache.push_error(&msg);
+                tab.status_text = msg;
                 self.dirty = true;
                 Some(None)
             }
@@ -123,22 +129,26 @@ impl App {
         } else if trimmed == "/rename" || trimmed.starts_with("/rename ") {
             let new_title = trimmed.strip_prefix("/rename").unwrap_or("").trim();
             if new_title.is_empty() {
-                self.status_text = String::from("Usage: /rename <title>");
+                self.active_tab_mut().status_text = String::from("Usage: /rename <title>");
                 self.dirty = true;
                 return Some(None);
             }
-            self.title = new_title.to_string();
-            self.custom_title = true;
-            self.title_source = crate::infra::history::TitleSource::Custom;
-            self.sync_session_to_history(&self.active_session.clone());
+            let sid = self.active_session_id().clone();
+            {
+                let tab = self.active_tab_mut();
+                tab.title = new_title.to_string();
+                tab.custom_title = true;
+                tab.title_source = crate::infra::history::TitleSource::Custom;
+            }
+            self.sync_session_to_history(&sid);
             self.history.rename_session_with_source(
-                self.active_session.as_str(),
+                sid.as_str(),
                 new_title,
                 crate::infra::history::TitleSource::Custom,
             );
             if let Some(conv_id) = self
                 .session_manager
-                .get_metadata(&self.active_session)
+                .get_metadata(&sid)
                 .and_then(|m| m.conversation_id.clone())
             {
                 self.history.rename_session_with_source(
@@ -148,24 +158,26 @@ impl App {
                 );
                 self.history.rename_agent_title(&conv_id, new_title);
             }
-            self.status_text = format!("Session renamed to: {}", new_title);
+            self.active_tab_mut().status_text = format!("Session renamed to: {}", new_title);
             self.dirty = true;
             Some(None)
         } else if trimmed == "/help" {
-            self.cache.push_user_message("/help");
-            self.cache.push_error(&format!(
+            let tab = self.active_tab_mut();
+            tab.cache.push_user_message("/help");
+            tab.cache.push_error(&format!(
                 "Frontal v{} - Available local commands: /clear, /new, /quota, /quit, /exit, /help, /model, /mode, /resume, /rename",
                 env!("CARGO_PKG_VERSION")
             ));
-            self.status_text = String::from("Ready");
+            tab.status_text = String::from("Ready");
             self.dirty = true;
             Some(None)
         } else if trimmed.starts_with('/') {
             let cmd_name = trimmed.split_whitespace().next().unwrap_or(trimmed);
-            self.cache.push_user_message(trimmed);
-            self.cache
+            let tab = self.active_tab_mut();
+            tab.cache.push_user_message(trimmed);
+            tab.cache
                 .push_error(&format!("Unknown command: {}", cmd_name));
-            self.status_text = format!("Unknown command: {}", cmd_name);
+            tab.status_text = format!("Unknown command: {}", cmd_name);
             self.dirty = true;
             Some(None)
         } else {
@@ -175,7 +187,7 @@ impl App {
 
     pub(crate) fn open_mode_modal(&mut self, query: Option<&str>) {
         let current_mode = self.active_mode_name();
-        let supported = self.backend.supported_modes();
+        let supported = self.active_tab().backend.supported_modes();
         let items = supported
             .iter()
             .map(|(mode_id, desc)| {

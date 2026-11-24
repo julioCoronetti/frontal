@@ -22,10 +22,10 @@ fn test_ctrl_v_isolated_clipboard_image_attaches_and_renders_accent_ruby() {
 
     let act = app.handle_terminal_event(press_key(KeyCode::Char('v'), KeyModifiers::CONTROL));
     assert_eq!(act, None);
-    assert_eq!(app.editor.extmarks().len(), 1);
-    assert!(app.editor.text().contains("[Image #1]"));
+    assert_eq!(app.active_tab().editor.extmarks().len(), 1);
+    assert!(app.active_tab().editor.text().contains("[Image #1]"));
     assert!(matches!(
-        app.editor.extmarks()[0].kind,
+        app.active_tab().editor.extmarks()[0].kind,
         ExtmarkKind::Media { .. }
     ));
 
@@ -37,7 +37,7 @@ fn test_ctrl_v_isolated_clipboard_image_attaches_and_renders_accent_ruby() {
         .any(|c| c.symbol() == "I" && c.fg == ACCENT_RUBY && c.modifier.contains(Modifier::BOLD));
     assert!(has_ruby_image_pill);
 
-    app.editor.insert_str(" explain");
+    app.active_tab_mut().editor.insert_str(" explain");
     let submit = app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE));
     let Some(AppAction::SubmitPrompt(payload)) = submit else {
         panic!("expected AppAction::SubmitPrompt");
@@ -61,12 +61,12 @@ fn test_bracketed_paste_drag_and_drop_image_and_non_image_fallback() {
     let (mut app, _) = test_app();
     let file_uri = format!("file://{}", img_path.to_string_lossy().replace(' ', "%20"));
     app.handle_terminal_event(Event::Paste(file_uri));
-    assert_eq!(app.editor.extmarks().len(), 1);
-    assert!(app.editor.text().contains("[Image #1]"));
+    assert_eq!(app.active_tab().editor.extmarks().len(), 1);
+    assert!(app.active_tab().editor.text().contains("[Image #1]"));
 
     app.handle_terminal_event(Event::Paste(txt_path.to_string_lossy().into_owned()));
-    assert_eq!(app.editor.extmarks().len(), 1);
-    assert!(app.editor.text().contains("readme.md"));
+    assert_eq!(app.active_tab().editor.extmarks().len(), 1);
+    assert!(app.active_tab().editor.text().contains("readme.md"));
 }
 
 #[test]
@@ -77,11 +77,11 @@ fn test_ctrl_v_image_backspace_drops_attachment_before_submit() {
     app.clipboard.set_isolated_image(1, 1, vec![0, 0, 0, 255]);
 
     app.handle_terminal_event(press_key(KeyCode::Char('v'), KeyModifiers::CONTROL));
-    assert_eq!(app.editor.extmarks().len(), 1);
+    assert_eq!(app.active_tab().editor.extmarks().len(), 1);
 
     app.handle_terminal_event(press_key(KeyCode::Backspace, KeyModifiers::NONE));
-    assert_eq!(app.editor.extmarks().len(), 0);
-    assert!(app.editor.is_empty());
+    assert_eq!(app.active_tab().editor.extmarks().len(), 0);
+    assert!(app.active_tab().editor.is_empty());
 
     let submit = app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(submit, None);
@@ -95,18 +95,18 @@ fn test_alt_v_and_empty_bracketed_paste_trigger_image_attachment() {
 
     let empty_alt = app.handle_terminal_event(press_key(KeyCode::Char('v'), KeyModifiers::ALT));
     assert_eq!(empty_alt, None);
-    assert!(app.editor.is_empty());
+    assert!(app.active_tab().editor.is_empty());
 
     app.clipboard
         .set_isolated_image(1, 1, vec![12, 34, 56, 255]);
     app.handle_terminal_event(press_key(KeyCode::Char('v'), KeyModifiers::ALT));
-    assert_eq!(app.editor.extmarks().len(), 1);
-    assert!(app.editor.text().contains("[Image #1]"));
+    assert_eq!(app.active_tab().editor.extmarks().len(), 1);
+    assert!(app.active_tab().editor.text().contains("[Image #1]"));
 
-    app.editor.clear();
+    app.active_tab_mut().editor.clear();
     app.handle_terminal_event(Event::Paste(String::new()));
-    assert_eq!(app.editor.extmarks().len(), 1);
-    assert!(app.editor.text().contains("[Image #1]"));
+    assert_eq!(app.active_tab().editor.extmarks().len(), 1);
+    assert!(app.active_tab().editor.text().contains("[Image #1]"));
 
     app.clipboard = frontal::ui::clipboard::SystemClipboard::new();
     let live_alt = app.handle_terminal_event(press_key(KeyCode::Char('v'), KeyModifiers::ALT));

@@ -28,8 +28,8 @@ fn find_dot_color_on_row(buf: &ratatui::buffer::Buffer, y: u16) -> Option<Color>
 #[test]
 fn test_footer_context_gauge_visibility_and_sidebar_coupling() {
     let (mut app, _) = test_app();
-    app.cache.push_user_message("hello");
-    app.last_turn_usage = Some(TokenUsage {
+    app.active_tab_mut().cache.push_user_message("hello");
+    app.active_tab_mut().last_turn_usage = Some(TokenUsage {
         input_tokens: 300_000,
         output_tokens: 100_000,
         thinking_tokens: 0,
@@ -70,7 +70,7 @@ fn test_footer_context_gauge_semaphore_green_yellow_red() {
     assert_eq!(spec.semaphore(760_000), Some(ContextSemaphore::Red));
 
     let (mut app, _) = test_app();
-    app.cache.push_user_message("hello");
+    app.active_tab_mut().cache.push_user_message("hello");
 
     let cases = [
         (200_000, Color::Green, "20%"),
@@ -79,7 +79,7 @@ fn test_footer_context_gauge_semaphore_green_yellow_red() {
     ];
 
     for (tokens, expected_color, expected_pct) in cases {
-        app.last_turn_usage = Some(TokenUsage {
+        app.active_tab_mut().last_turn_usage = Some(TokenUsage {
             input_tokens: tokens,
             output_tokens: 0,
             thinking_tokens: 0,
@@ -131,7 +131,7 @@ fn test_input_title_mode_badge_visibility_and_backend_suppression() {
     assert!(!auto_text.contains("[auto]"));
     assert!(!auto_text.contains("[plan]"));
 
-    app.backend = BackendKind::OpenCode;
+    app.active_tab_mut().backend = BackendKind::OpenCode;
     app.session_manager
         .set_session_metadata(&sid, None, None, None, Some("plan".to_string()));
     terminal.draw(|f| app.render(f)).unwrap();
@@ -167,7 +167,7 @@ fn test_input_title_mode_badge_visibility_and_backend_suppression() {
         .join("\n");
     assert!(!oc_unsupported.contains("[accept-edits]"));
 
-    app.backend = BackendKind::Agy;
+    app.active_tab_mut().backend = BackendKind::Agy;
     terminal.draw(|f| app.render(f)).unwrap();
     let agy_supported: String = (0..terminal.backend().buffer().area.height)
         .map(|y| row_text(terminal.backend().buffer(), y))

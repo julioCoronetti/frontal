@@ -221,11 +221,14 @@ fn test_streaming_usage_snapshot_retention_and_consolidation() {
         }),
     });
     app.handle_engine_envelope(SessionEnvelope {
-        session_id: app.active_session.clone(),
+        session_id: app.active_session_id().clone(),
         event: EngineEvent::Stream(Box::new(streaming)),
     });
-    assert_eq!(app.last_turn_usage.map(|u| u.total_tokens), Some(300));
-    assert_eq!(app.steps_seen, 1);
+    assert_eq!(
+        app.active_tab().last_turn_usage.map(|u| u.total_tokens),
+        Some(300)
+    );
+    assert_eq!(app.active_tab().steps_seen, 1);
 
     let second = TokenUsage {
         input_tokens: 50,
@@ -242,26 +245,35 @@ fn test_streaming_usage_snapshot_retention_and_consolidation() {
         }),
     });
     app.handle_engine_envelope(SessionEnvelope {
-        session_id: app.active_session.clone(),
+        session_id: app.active_session_id().clone(),
         event: EngineEvent::Stream(Box::new(next_step)),
     });
-    assert_eq!(app.last_turn_usage.map(|u| u.total_tokens), Some(400));
-    assert_eq!(app.steps_seen, 2);
+    assert_eq!(
+        app.active_tab().last_turn_usage.map(|u| u.total_tokens),
+        Some(400)
+    );
+    assert_eq!(app.active_tab().steps_seen, 2);
 
-    app.editor.insert_str("next prompt");
+    app.active_tab_mut().editor.insert_str("next prompt");
     app.handle_terminal_event(crate::common::press_key(KeyCode::Enter, KeyModifiers::NONE));
-    assert_eq!(app.last_turn_usage.map(|u| u.total_tokens), Some(400));
+    assert_eq!(
+        app.active_tab().last_turn_usage.map(|u| u.total_tokens),
+        Some(400)
+    );
 
     let failure = StreamEvent::Error(ErrorEvent {
         error: Some("engine failure".to_string()),
         message: None,
     });
     app.handle_engine_envelope(SessionEnvelope {
-        session_id: app.active_session.clone(),
+        session_id: app.active_session_id().clone(),
         event: EngineEvent::Stream(Box::new(failure)),
     });
-    assert_eq!(app.last_turn_usage.map(|u| u.total_tokens), Some(400));
-    assert_eq!(app.turns_completed, 0);
+    assert_eq!(
+        app.active_tab().last_turn_usage.map(|u| u.total_tokens),
+        Some(400)
+    );
+    assert_eq!(app.active_tab().turns_completed, 0);
 
     let next_turn = StreamEvent::StepUpdate(StepUpdateEvent {
         conversation_id: None,
@@ -272,10 +284,10 @@ fn test_streaming_usage_snapshot_retention_and_consolidation() {
         }),
     });
     app.handle_engine_envelope(SessionEnvelope {
-        session_id: app.active_session.clone(),
+        session_id: app.active_session_id().clone(),
         event: EngineEvent::Stream(Box::new(next_turn)),
     });
-    assert_eq!(app.steps_seen, 3);
+    assert_eq!(app.active_tab().steps_seen, 3);
 
     let closing = StreamEvent::Result(frontal::protocol::ResultEvent {
         conversation_id: None,
@@ -286,11 +298,14 @@ fn test_streaming_usage_snapshot_retention_and_consolidation() {
         }),
     });
     app.handle_engine_envelope(SessionEnvelope {
-        session_id: app.active_session.clone(),
+        session_id: app.active_session_id().clone(),
         event: EngineEvent::Stream(Box::new(closing)),
     });
-    assert_eq!(app.turns_completed, 1);
-    assert_eq!(app.last_turn_usage.map(|u| u.total_tokens), Some(300));
+    assert_eq!(app.active_tab().turns_completed, 1);
+    assert_eq!(
+        app.active_tab().last_turn_usage.map(|u| u.total_tokens),
+        Some(300)
+    );
 
     use frontal::ui::cache::{BlockKind, RenderCache, TurnMeta};
     let mut cache = RenderCache::new();
@@ -318,23 +333,25 @@ fn test_streaming_usage_snapshot_retention_and_consolidation() {
 #[test]
 fn test_sidebar_context_telemetry_rendering_resolved_window() {
     let (mut app, _) = crate::common::test_app();
-    app.cache.push_user_message("prompt for sidebar telemetry");
-    app.last_turn_usage = Some(TokenUsage {
+    app.active_tab_mut()
+        .cache
+        .push_user_message("prompt for sidebar telemetry");
+    app.active_tab_mut().last_turn_usage = Some(TokenUsage {
         input_tokens: 400_000,
         output_tokens: 60_000,
         cache_read_tokens: 40_000,
         total_tokens: 500_000,
         ..Default::default()
     });
-    app.accumulated_usage = TokenUsage {
+    app.active_tab_mut().accumulated_usage = TokenUsage {
         input_tokens: 100_000,
         cache_read_tokens: 50_000,
         total_tokens: 150_000,
         ..Default::default()
     };
-    app.steps_seen = 3;
-    app.turns_completed = 2;
-    app.last_turn_duration_seconds = Some(1.5);
+    app.active_tab_mut().steps_seen = 3;
+    app.active_tab_mut().turns_completed = 2;
+    app.active_tab_mut().last_turn_duration_seconds = Some(1.5);
 
     let (terminal, text) = crate::common::render_app(&mut app, 120, 30);
     assert!(text.contains("Context"));
@@ -386,7 +403,7 @@ fn test_sidebar_context_telemetry_rendering_resolved_window() {
     )
     .unwrap();
     app.set_model_catalog(catalog);
-    let session_id = app.active_session.clone();
+    let session_id = app.active_session_id().clone();
     app.session_manager.set_session_metadata(
         &session_id,
         None,
@@ -394,7 +411,7 @@ fn test_sidebar_context_telemetry_rendering_resolved_window() {
         None,
         None,
     );
-    app.last_turn_usage = Some(TokenUsage {
+    app.active_tab_mut().last_turn_usage = Some(TokenUsage {
         input_tokens: 250_000,
         total_tokens: 250_000,
         ..Default::default()
@@ -408,9 +425,11 @@ fn test_sidebar_context_telemetry_rendering_resolved_window() {
 #[test]
 fn test_sidebar_unknown_window_fallback() {
     let (mut app, _) = crate::common::test_app();
-    app.cache.push_user_message("prompt for sidebar telemetry");
+    app.active_tab_mut()
+        .cache
+        .push_user_message("prompt for sidebar telemetry");
     app.user_config.model = "opencode-go/unknown-model".to_string();
-    let session_id = app.active_session.clone();
+    let session_id = app.active_session_id().clone();
     app.session_manager.set_session_metadata(
         &session_id,
         None,
@@ -418,7 +437,7 @@ fn test_sidebar_unknown_window_fallback() {
         None,
         None,
     );
-    app.last_turn_usage = Some(TokenUsage {
+    app.active_tab_mut().last_turn_usage = Some(TokenUsage {
         input_tokens: 120_000,
         total_tokens: 120_000,
         ..Default::default()
@@ -430,7 +449,7 @@ fn test_sidebar_unknown_window_fallback() {
     assert!(!text.contains("% used"));
 
     app.user_config.model = "gemini-3.8-flash-high".to_string();
-    let session_id = app.active_session.clone();
+    let session_id = app.active_session_id().clone();
     app.session_manager.set_session_metadata(
         &session_id,
         None,
@@ -438,7 +457,7 @@ fn test_sidebar_unknown_window_fallback() {
         None,
         None,
     );
-    app.last_turn_usage = Some(TokenUsage {
+    app.active_tab_mut().last_turn_usage = Some(TokenUsage {
         input_tokens: 800_000,
         total_tokens: 800_000,
         ..Default::default()
@@ -447,51 +466,4 @@ fn test_sidebar_unknown_window_fallback() {
     let (_, text) = crate::common::render_app(&mut app, 120, 30);
     assert!(text.contains("800,000 tokens"));
     assert!(text.contains("80% used"));
-}
-
-#[test]
-fn test_sidebar_toggle_via_command_and_commands_modal() {
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use frontal::ui::modal::{CommandsModal, ModalAction};
-
-    let (mut app, _) = crate::common::test_app();
-    app.cache.push_user_message("prompt for sidebar telemetry");
-    let (_, text) = crate::common::render_app(&mut app, 120, 30);
-    assert!(text.contains("Context"));
-
-    app.editor.insert_str("/sidebar");
-    app.handle_terminal_event(crate::common::press_key(KeyCode::Enter, KeyModifiers::NONE));
-    assert_eq!(app.status_text, "Unknown command: /sidebar");
-    assert!(app.sidebar_visible);
-
-    let ctrl_b = crate::common::press_key(KeyCode::Char('b'), KeyModifiers::CONTROL);
-    app.handle_terminal_event(ctrl_b.clone());
-    assert!(!app.sidebar_visible);
-    let (_, text) = crate::common::render_app(&mut app, 120, 30);
-    assert!(!text.contains("tokens"));
-    assert_eq!(app.viewport_bounds.2, 116);
-
-    let mut commands = CommandsModal::new();
-    for ch in ['s', 'i', 'd', 'e', 'b', 'a', 'r'] {
-        commands.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
-    }
-    let filtered = commands.filtered_indices();
-    assert_eq!(commands.items[filtered[0]].id, "toggle_sidebar");
-    assert_eq!(
-        commands.items[filtered[0]].shortcut.as_deref(),
-        Some("Ctrl+B")
-    );
-    let action = commands.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert_eq!(
-        action,
-        ModalAction::ExecuteCommand("toggle_sidebar".to_string())
-    );
-    app.dispatch_modal_action(action);
-    assert!(app.sidebar_visible);
-    let (_, text) = crate::common::render_app(&mut app, 120, 30);
-    assert!(text.contains("tokens"));
-    assert_eq!(app.viewport_bounds.2, 76);
-
-    app.handle_terminal_event(ctrl_b);
-    assert!(!app.sidebar_visible);
 }

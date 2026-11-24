@@ -135,8 +135,9 @@ fn build_logo_lines() -> Vec<Line<'static>> {
 
 impl App {
     pub(crate) fn is_hero_welcome_active(&self, area: Rect) -> bool {
-        self.cache.blocks_count() == 0
-            && !self.waiting_for_response
+        let tab = self.active_tab();
+        tab.cache.blocks_count() == 0
+            && !tab.waiting_for_response
             && area.width >= 50
             && area.height >= 16
     }
@@ -154,8 +155,9 @@ impl App {
         let max_input_lines = body_area.height.saturating_sub(overhead_h + 2).clamp(1, 8);
         let input_w = body_area.width.min(HERO_INPUT_MAX_WIDTH);
         let inner_w = input_w.saturating_sub(4) as usize;
-        let input_lines = (super::input::visual_line_count(&self.editor.text(), inner_w) as u16)
-            .clamp(1, max_input_lines);
+        let input_lines =
+            (super::input::visual_line_count(&self.active_tab().editor.text(), inner_w) as u16)
+                .clamp(1, max_input_lines);
         let input_h = (input_lines + 2).min(body_area.height.saturating_sub(overhead_h).max(3));
         let total_stack_h = (overhead_h + input_h).min(body_area.height);
 

@@ -178,7 +178,9 @@ fn test_custom_tab_title_survives_result_and_agent_updates() {
     app.history = PromptHistory::open_with_agent_db(&history_db, Some(agent_db)).unwrap();
     app.history.flush();
 
-    app.editor.insert_str("/rename My Pinned Tab");
+    app.active_tab_mut()
+        .editor
+        .insert_str("/rename My Pinned Tab");
     app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(app.tabs[0].title, "My Pinned Tab");
     assert!(app.tabs[0].custom_title);
@@ -248,7 +250,7 @@ async fn test_custom_title_persists_across_restart_and_resume() {
     assert_eq!(app.tabs[0].title, "User Custom Resume");
     assert!(app.tabs[0].custom_title);
 
-    let active_sid = app.active_session.clone();
+    let active_sid = app.active_session_id().clone();
     app.handle_engine_envelope(frontal::protocol::SessionEnvelope {
         session_id: active_sid,
         event: EngineEvent::Stream(Box::new(StreamEvent::Result(ResultEvent {
@@ -267,7 +269,9 @@ async fn test_custom_title_persists_across_restart_and_resume() {
 
     let (mut app2, sid2) = test_app();
     app2.history = PromptHistory::open_with_agent_db(&history_db, None).unwrap();
-    app2.editor.insert_str("/rename Pre-Init Custom");
+    app2.active_tab_mut()
+        .editor
+        .insert_str("/rename Pre-Init Custom");
     app2.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE));
     app2.handle_engine_envelope(frontal::protocol::SessionEnvelope {
         session_id: sid2,
@@ -294,7 +298,7 @@ fn test_interrupt_persists_streaming_usage_for_resume() {
         None,
         None,
     );
-    app.waiting_for_response = true;
+    app.active_tab_mut().waiting_for_response = true;
     app.handle_engine_envelope(frontal::protocol::SessionEnvelope {
         session_id: sid,
         event: EngineEvent::Stream(Box::new(StreamEvent::StepUpdate(StepUpdateEvent {
@@ -312,7 +316,7 @@ fn test_interrupt_persists_streaming_usage_for_resume() {
             }),
         }))),
     });
-    app.waiting_for_response = true;
+    app.active_tab_mut().waiting_for_response = true;
     app.handle_terminal_event(press_key(KeyCode::Esc, KeyModifiers::NONE));
     app.handle_terminal_event(press_key(KeyCode::Esc, KeyModifiers::NONE));
     app.history.flush();

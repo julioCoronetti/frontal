@@ -16,11 +16,11 @@ impl App {
             self.last_ctrl_c_at = None;
         }
         if key.code != KeyCode::Esc {
-            self.esc_armed_at = None;
+            self.active_tab_mut().esc_armed_at = None;
         }
 
         if !self.modals.is_empty() {
-            self.esc_armed_at = None;
+            self.active_tab_mut().esc_armed_at = None;
             if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('t') {
                 self.modals.pop();
                 return Some(AppAction::NewTab);
@@ -39,7 +39,6 @@ impl App {
                     if (1..=9).contains(&digit) {
                         let idx = (digit - 1) as usize;
                         if idx < self.tabs.len() {
-                            self.switch_tab(idx);
                             return Some(AppAction::SwitchTab(idx));
                         }
                     }
@@ -49,7 +48,7 @@ impl App {
 
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('b') {
             self.sidebar_visible = !self.sidebar_visible;
-            self.status_text = if self.sidebar_visible {
+            self.active_tab_mut().status_text = if self.sidebar_visible {
                 String::from("Context sidebar shown")
             } else {
                 String::from("Context sidebar hidden")
@@ -69,16 +68,19 @@ impl App {
         }
 
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-            let sel = self
-                .viewport
-                .selected_text(&self.cache)
-                .or_else(|| self.editor.selected_text());
+            let sel = {
+                let tab = self.active_tab();
+                tab.viewport
+                    .selected_text(&tab.cache)
+                    .or_else(|| tab.editor.selected_text())
+            };
             if let Some(selected) = sel {
                 if !selected.is_empty() {
-                    self.viewport.clear_selection();
-                    self.editor.clear_selection();
+                    let tab = self.active_tab_mut();
+                    tab.viewport.clear_selection();
+                    tab.editor.clear_selection();
+                    tab.status_text = String::from("Selection copied to clipboard");
                     self.last_ctrl_c_at = None;
-                    self.status_text = String::from("Selection copied to clipboard");
                     self.dirty = true;
                     if self.clipboard.is_isolated() {
                         let _ = self.clipboard.set_text(&selected);
@@ -88,13 +90,14 @@ impl App {
                 }
             }
 
-            if !self.editor.is_empty() {
-                self.editor.record_undo_snapshot();
-                self.editor.clear();
+            if !self.active_tab().editor.is_empty() {
+                let tab = self.active_tab_mut();
+                tab.editor.record_undo_snapshot();
+                tab.editor.clear();
+                tab.draft_snapshot = None;
+                tab.status_text = String::from("Input cleared");
                 self.popover.close();
-                self.draft_snapshot = None;
                 self.last_ctrl_c_at = None;
-                self.status_text = String::from("Input cleared");
                 self.dirty = true;
                 return None;
             }
@@ -107,7 +110,8 @@ impl App {
             }
 
             self.last_ctrl_c_at = Some(std::time::Instant::now());
-            self.status_text = String::from("Press Ctrl+C again or Ctrl+Q to quit");
+            self.active_tab_mut().status_text =
+                String::from("Press Ctrl+C again or Ctrl+Q to quit");
             self.dirty = true;
             return None;
         }
@@ -125,16 +129,25 @@ impl App {
         }
 
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('a') {
-            self.viewport.clear_selection();
-            self.editor.select_all();
+            let tab = self.active_tab_mut();
+            tab.viewport.clear_selection();
+            tab.editor.select_all();
             self.popover.close();
             self.dirty = true;
             return None;
         }
 
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('z') {
-            if self.editor.undo() {
-                self.draft_snapshot = None;
+            let undone = {
+                let tab = self.active_tab_mut();
+                if tab.editor.undo() {
+                    tab.draft_snapshot = None;
+                    true
+                } else {
+                    false
+                }
+            };
+            if undone {
                 self.dirty = true;
                 self.update_autocomplete();
             }
@@ -142,8 +155,16 @@ impl App {
         }
 
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('u') {
-            if self.editor.delete_to_line_start() {
-                self.draft_snapshot = None;
+            let deleted = {
+                let tab = self.active_tab_mut();
+                if tab.editor.delete_to_line_start() {
+                    tab.draft_snapshot = None;
+                    true
+                } else {
+                    false
+                }
+            };
+            if deleted {
                 self.dirty = true;
                 self.update_autocomplete();
             }
@@ -164,14 +185,14 @@ impl App {
                 }
                 KeyCode::Esc => {
                     self.popover.close();
-                    self.esc_armed_at = None;
+                    self.active_tab_mut().esc_armed_at = None;
                     self.dirty = true;
                     return None;
                 }
                 KeyCode::Tab | KeyCode::Enter => {
                     if let Some(item) = self.popover.selected_item().cloned() {
                         let start = self.popover.trigger_start_char;
-                        let end = self.editor.cursor_char();
+                        let end = self.active_tab().editor.cursor_char();
                         let kind = match item.kind {
                             TriggerKind::File => ExtmarkKind::FileMention {
                                 path: item.label.clone(),
@@ -180,9 +201,10 @@ impl App {
                                 cmd: item.insert_text.trim().to_string(),
                             },
                         };
-                        self.editor
+                        let tab = self.active_tab_mut();
+                        tab.editor
                             .replace_range_with_extmark(start, end, kind, &item.insert_text);
-                        self.draft_snapshot = None;
+                        tab.draft_snapshot = None;
                     }
                     self.popover.close();
                     self.dirty = true;
@@ -193,44 +215,41 @@ impl App {
         }
 
         if key.code == KeyCode::Esc {
-            if self.editor.has_selection() {
-                self.editor.clear_selection();
-                self.esc_armed_at = None;
+            if self.active_tab().editor.has_selection() {
+                let tab = self.active_tab_mut();
+                tab.editor.clear_selection();
+                tab.esc_armed_at = None;
                 self.dirty = true;
                 return None;
             }
-            if self.viewport.selection.is_some() {
-                self.viewport.clear_selection();
-                self.esc_armed_at = None;
+            if self.active_tab().viewport.selection.is_some() {
+                let tab = self.active_tab_mut();
+                tab.viewport.clear_selection();
+                tab.esc_armed_at = None;
                 self.dirty = true;
                 return None;
             }
             if self.is_turn_active() {
-                if self.is_interrupt_armed() {
-                    let _ = self.session_manager.interrupt_active();
-                    self.queued_prompts.clear();
-                    self.cache.consolidate_active_turn_with_meta(None, None);
-                    self.cache.push_interrupted();
-                    self.waiting_for_response = false;
-                    if self.last_turn_usage.is_none() {
-                        self.last_turn_usage = self.in_flight_usage;
+                if self.active_tab().is_interrupt_armed() {
+                    {
+                        let tab = self.active_tab_mut();
+                        tab.cache.consolidate_active_turn_with_meta(None, None);
+                        tab.cache.push_interrupted();
+                        tab.transition_turn(crate::ui::tab::TurnEvent::InterruptRequested);
+                        tab.status_text = String::from("Interrupted by user");
                     }
-                    self.in_flight_usage = None;
-                    self.last_step_index = None;
-                    self.turn_started_at = None;
-                    self.esc_armed_at = None;
                     let active_idx = self.active_tab_index;
                     self.persist_completed_turn(active_idx);
-                    self.status_text = String::from("Interrupted by user");
                     self.dirty = true;
                     return Some(AppAction::Interrupt);
                 }
-                self.esc_armed_at = Some(std::time::Instant::now());
+                self.active_tab_mut().esc_armed_at = Some(std::time::Instant::now());
                 self.dirty = true;
                 return None;
             }
-            if !self.status_text.is_empty() && self.status_text != "Ready" {
-                self.status_text = String::from("Ready");
+            if !self.active_tab().status_text.is_empty() && self.active_tab().status_text != "Ready"
+            {
+                self.active_tab_mut().status_text = String::from("Ready");
                 self.dirty = true;
                 return None;
             }
@@ -242,7 +261,7 @@ impl App {
         }
 
         if key.code == KeyCode::Tab {
-            self.cache.toggle_latest_thought();
+            self.active_tab_mut().cache.toggle_latest_thought();
             self.dirty = true;
             return None;
         }
@@ -250,7 +269,7 @@ impl App {
         if key.code == KeyCode::BackTab
             || (key.code == KeyCode::Char('o') && key.modifiers.contains(KeyModifiers::CONTROL))
         {
-            self.cache.toggle_latest_tool();
+            self.active_tab_mut().cache.toggle_latest_tool();
             self.dirty = true;
             return None;
         }
@@ -261,8 +280,9 @@ impl App {
             || (key.code == KeyCode::Char('j') && key.modifiers.contains(KeyModifiers::CONTROL));
 
         if is_multiline_newline {
-            self.editor.insert_newline();
-            self.draft_snapshot = None;
+            let tab = self.active_tab_mut();
+            tab.editor.insert_newline();
+            tab.draft_snapshot = None;
             self.dirty = true;
             self.update_autocomplete();
             return None;
@@ -270,9 +290,9 @@ impl App {
 
         match key.code {
             KeyCode::Enter => {
-                let payload = self.editor.take_submitted_payload();
+                let payload = self.active_tab_mut().editor.take_submitted_payload();
                 if let Some(p) = payload {
-                    self.draft_snapshot = None;
+                    self.active_tab_mut().draft_snapshot = None;
                     if p.media.is_empty() {
                         let trimmed = p.text.trim();
                         if let Some(cmd_action) = self.execute_local_command(trimmed) {
@@ -288,112 +308,124 @@ impl App {
                     };
                     self.history.record_prompt(history_entry);
                     if self.is_turn_active() {
-                        self.queued_prompts.push_back(p);
-                        self.status_text =
-                            format!("Queued ({} pending)", self.queued_prompts.len());
+                        let tab = self.active_tab_mut();
+                        tab.queued_prompts.push_back(p);
+                        tab.status_text = format!("Queued ({} pending)", tab.queued_prompts.len());
                         self.dirty = true;
                         return None;
                     }
-                    let active_id = self.active_session.clone();
+                    let active_id = self.active_session_id().clone();
                     self.session_manager
                         .set_session_prompt(&active_id, &p.summary_text());
                     self.sync_session_to_history(&active_id);
                     self.history.touch_session_timestamp(active_id.as_str());
-                    self.cache.push_user_message(&chat_display);
-                    self.viewport.scroll_to_bottom();
-                    self.waiting_for_response = true;
-                    self.turn_started_at = Some(std::time::Instant::now());
+                    let tab = self.active_tab_mut();
+                    tab.cache.push_user_message(&chat_display);
+                    tab.viewport.scroll_to_bottom();
+                    tab.transition_turn(crate::ui::tab::TurnEvent::Submit);
+                    tab.status_text = String::from("Waiting for response...");
                     self.dirty = true;
-                    self.status_text = String::from("Waiting for response...");
                     return Some(AppAction::SubmitPrompt(p));
                 }
             }
             KeyCode::Backspace => {
-                self.editor.backspace();
-                self.draft_snapshot = None;
+                let tab = self.active_tab_mut();
+                tab.editor.backspace();
+                tab.draft_snapshot = None;
                 self.dirty = true;
                 self.update_autocomplete();
             }
             KeyCode::Delete => {
-                self.editor.delete_forward();
-                self.draft_snapshot = None;
+                let tab = self.active_tab_mut();
+                tab.editor.delete_forward();
+                tab.draft_snapshot = None;
                 self.dirty = true;
                 self.update_autocomplete();
             }
             KeyCode::Left => {
-                self.editor.move_left();
+                self.active_tab_mut().editor.move_left();
                 self.dirty = true;
                 self.update_autocomplete();
             }
             KeyCode::Right => {
-                self.editor.move_right();
+                self.active_tab_mut().editor.move_right();
                 self.dirty = true;
                 self.update_autocomplete();
             }
             KeyCode::Home => {
-                self.editor.move_home();
+                self.active_tab_mut().editor.move_home();
                 self.dirty = true;
             }
             KeyCode::End => {
-                self.editor.move_end();
+                self.active_tab_mut().editor.move_end();
                 self.dirty = true;
             }
             KeyCode::Up => {
-                if self.editor.move_up() {
+                if self.active_tab_mut().editor.move_up() {
                     self.dirty = true;
                 } else {
-                    if self.draft_snapshot.is_none() {
-                        self.draft_snapshot = Some(self.editor.snapshot());
-                    }
-                    let draft = self.editor.text();
+                    let draft = {
+                        let tab = self.active_tab_mut();
+                        if tab.draft_snapshot.is_none() {
+                            tab.draft_snapshot = Some(tab.editor.snapshot());
+                        }
+                        tab.editor.text()
+                    };
                     if let Some(prev) = self.history.prev_history(&draft) {
-                        self.editor.clear();
-                        self.editor.insert_str(&prev);
+                        let tab = self.active_tab_mut();
+                        tab.editor.clear();
+                        tab.editor.insert_str(&prev);
                         self.dirty = true;
                     } else {
-                        self.viewport.scroll_up(1);
+                        self.active_tab_mut().viewport.scroll_up(1);
                         self.dirty = true;
                     }
                 }
             }
             KeyCode::Down => {
-                if self.editor.move_down() {
+                if self.active_tab_mut().editor.move_down() {
                     self.dirty = true;
                 } else if let Some(next) = self.history.next_history() {
-                    if self.history.is_navigating() {
-                        self.editor.clear();
-                        self.editor.insert_str(&next);
+                    let is_nav = self.history.is_navigating();
+                    let tab = self.active_tab_mut();
+                    if is_nav {
+                        tab.editor.clear();
+                        tab.editor.insert_str(&next);
                         self.dirty = true;
-                    } else if let Some(draft) = self.draft_snapshot.take() {
-                        self.editor.restore_snapshot(draft);
+                    } else if let Some(draft) = tab.draft_snapshot.take() {
+                        tab.editor.restore_snapshot(draft);
                         self.dirty = true;
                     } else {
-                        self.editor.clear();
-                        self.editor.insert_str(&next);
+                        tab.editor.clear();
+                        tab.editor.insert_str(&next);
                         self.dirty = true;
                     }
-                } else if let Some(draft) = self.draft_snapshot.take() {
-                    self.editor.restore_snapshot(draft);
-                    self.dirty = true;
                 } else {
-                    self.viewport.scroll_down(1);
-                    self.dirty = true;
+                    let tab = self.active_tab_mut();
+                    if let Some(draft) = tab.draft_snapshot.take() {
+                        tab.editor.restore_snapshot(draft);
+                        self.dirty = true;
+                    } else {
+                        tab.viewport.scroll_down(1);
+                        self.dirty = true;
+                    }
                 }
             }
             KeyCode::PageUp => {
-                self.viewport.scroll_up(10);
+                self.active_tab_mut().viewport.scroll_up(10);
                 self.dirty = true;
             }
             KeyCode::PageDown => {
-                self.viewport.scroll_down(10);
+                self.active_tab_mut().viewport.scroll_down(10);
                 self.dirty = true;
             }
             KeyCode::Char(c) => {
-                if self.viewport.selection.is_some() {
-                    self.viewport.clear_selection();
+                let tab = self.active_tab_mut();
+                if tab.viewport.selection.is_some() {
+                    tab.viewport.clear_selection();
                 }
-                self.editor.insert_char(c);
-                self.draft_snapshot = None;
+                tab.editor.insert_char(c);
+                tab.draft_snapshot = None;
                 self.dirty = true;
                 self.update_autocomplete();
             }

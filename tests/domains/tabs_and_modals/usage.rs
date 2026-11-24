@@ -273,7 +273,7 @@ fn test_slash_quota_command_dispatch() {
     let (mut app, _) = test_app();
     let enter = press_key(KeyCode::Enter, KeyModifiers::NONE);
 
-    app.editor.insert_str("/quota");
+    app.active_tab_mut().editor.insert_str("/quota");
     let act = app.handle_terminal_event(enter);
     assert_eq!(act, None);
     assert_eq!(app.modals.stack.len(), 1);
@@ -289,14 +289,14 @@ fn test_slash_quota_command_dispatch() {
 fn test_accumulated_usage_preserved_across_multisession_tab_swap() {
     let (mut app, _) = test_app();
 
-    app.accumulated_usage = TokenUsage {
+    app.active_tab_mut().accumulated_usage = TokenUsage {
         input_tokens: 1500,
         output_tokens: 800,
         thinking_tokens: 200,
         cache_read_tokens: 500,
         total_tokens: 3000,
     };
-    app.last_turn_usage = Some(TokenUsage {
+    app.active_tab_mut().last_turn_usage = Some(TokenUsage {
         input_tokens: 500,
         output_tokens: 200,
         thinking_tokens: 50,
@@ -307,28 +307,28 @@ fn test_accumulated_usage_preserved_across_multisession_tab_swap() {
     let tab2_id = SessionId("tab-2-sess".to_string());
     app.add_tab(tab2_id, None);
     assert_eq!(app.active_tab_index, 1);
-    assert_eq!(app.accumulated_usage, TokenUsage::default());
-    assert_eq!(app.last_turn_usage, None);
+    assert_eq!(app.active_tab().accumulated_usage, TokenUsage::default());
+    assert_eq!(app.active_tab().last_turn_usage, None);
 
     app.switch_tab(0);
     assert_eq!(app.active_tab_index, 0);
-    assert_eq!(app.accumulated_usage.total_tokens, 3000);
-    assert_eq!(app.last_turn_usage.unwrap().total_tokens, 850);
+    assert_eq!(app.active_tab().accumulated_usage.total_tokens, 3000);
+    assert_eq!(app.active_tab().last_turn_usage.unwrap().total_tokens, 850);
 
-    app.context_window_hint = Some(500_000);
-    app.steps_seen = 4;
-    app.turns_completed = 2;
-    app.last_turn_duration_seconds = Some(0.9);
+    app.active_tab_mut().context_window_hint = Some(500_000);
+    app.active_tab_mut().steps_seen = 4;
+    app.active_tab_mut().turns_completed = 2;
+    app.active_tab_mut().last_turn_duration_seconds = Some(0.9);
 
     let enter = press_key(KeyCode::Enter, KeyModifiers::NONE);
-    app.editor.insert_str("/clear");
+    app.active_tab_mut().editor.insert_str("/clear");
     app.handle_terminal_event(enter);
-    assert_eq!(app.accumulated_usage, TokenUsage::default());
-    assert_eq!(app.last_turn_usage, None);
-    assert_eq!(app.context_window_hint, None);
-    assert_eq!(app.steps_seen, 0);
-    assert_eq!(app.turns_completed, 0);
-    assert_eq!(app.last_turn_duration_seconds, None);
+    assert_eq!(app.active_tab().accumulated_usage, TokenUsage::default());
+    assert_eq!(app.active_tab().last_turn_usage, None);
+    assert_eq!(app.active_tab().context_window_hint, None);
+    assert_eq!(app.active_tab().steps_seen, 0);
+    assert_eq!(app.active_tab().turns_completed, 0);
+    assert_eq!(app.active_tab().last_turn_duration_seconds, None);
 }
 
 #[test]

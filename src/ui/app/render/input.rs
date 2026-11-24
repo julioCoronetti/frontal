@@ -172,8 +172,9 @@ impl App {
         } else {
             format!(" {} ({}) ", model_name, effort_name)
         };
-        let display_content = self.editor.text();
-        let (cur_line, cur_col) = self.editor.cursor_coordinates();
+        let tab = self.active_tab();
+        let display_content = tab.editor.text();
+        let (cur_line, cur_col) = tab.editor.cursor_coordinates();
         let inner_width = input_area.width.saturating_sub(4) as usize;
         let (vis_row, vis_col) =
             visual_cursor_position(&display_content, cur_line, cur_col, inner_width);
@@ -185,10 +186,10 @@ impl App {
             0
         };
 
-        let selection = self.editor.selection_range();
+        let selection = tab.editor.selection_range();
         let input_text = build_input_text(
             &display_content,
-            self.editor.extmarks(),
+            tab.editor.extmarks(),
             selection,
             inner_width,
         );
@@ -200,7 +201,7 @@ impl App {
         let mode_name = self.active_mode_name();
         if let Some(canonical_mode) = crate::config::BackendKind::normalize_mode(&mode_name) {
             if canonical_mode != crate::config::DEFAULT_MODE
-                && self.backend.supports_mode(canonical_mode)
+                && tab.backend.supports_mode(canonical_mode)
             {
                 title_spans.push(Span::styled(
                     format!("[{}] ", canonical_mode),

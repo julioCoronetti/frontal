@@ -1,7 +1,9 @@
 mod context_gauge;
 mod input_and_events;
+mod input_tail;
 mod interrupt;
 mod media;
 mod rendering;
+mod rendering_tail;
 mod tab_bar_rendering;
 mod welcome;

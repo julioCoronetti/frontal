@@ -167,13 +167,15 @@ fn test_tab_bar_wide_unicode_truncation_and_divider_render() {
 #[test]
 fn test_render_input_wraps_multibyte_media_and_selection_cleanly() {
     let (mut app, _) = test_app();
-    app.cache.push_user_message("init");
-    app.editor.insert_str("olá 🦀 ");
-    app.editor
+    app.active_tab_mut().cache.push_user_message("init");
+    app.active_tab_mut().editor.insert_str("olá 🦀 ");
+    app.active_tab_mut()
+        .editor
         .insert_media_attachment("/tmp/test.png", "image/png");
-    app.editor
+    app.active_tab_mut()
+        .editor
         .insert_str(" continuação longa para quebrar linha");
-    app.editor.select_all();
+    app.active_tab_mut().editor.select_all();
     let (term, _) = render_app(&mut app, 32, 16);
     let full: String = (0..16)
         .map(|y| {

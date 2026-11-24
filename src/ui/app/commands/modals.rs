@@ -7,13 +7,17 @@ impl App {
             ModalAction::Close => Some(None),
             ModalAction::ApproveDanger => {
                 self.modals.pop();
-                self.pending_danger = None;
-                self.status_text = String::from("Command approved");
+                let session_id = self.active_session_id().clone();
+                let queued = {
+                    let tab = self.active_tab_mut();
+                    tab.pending_danger = None;
+                    tab.status_text = String::from("Command approved");
+                    std::mem::take(&mut tab.suspended_events)
+                };
                 self.dirty = true;
-                let queued = std::mem::take(&mut self.suspended_events);
                 for ev in queued {
                     let envelope = crate::protocol::SessionEnvelope {
-                        session_id: self.active_session.clone(),
+                        session_id: session_id.clone(),
                         event: crate::protocol::EngineEvent::Stream(Box::new(ev)),
                     };
                     self.handle_engine_envelope(envelope);
@@ -22,28 +26,24 @@ impl App {
             }
             ModalAction::RejectDanger => {
                 self.modals.pop();
-                let danger = self.pending_danger.take();
-                self.suspended_events.clear();
-                let _ = self.session_manager.interrupt(&self.active_session);
+                let tab = self.active_tab_mut();
+                let danger = tab.pending_danger.take();
                 if let Some(d) = danger {
-                    self.cache.upsert_tool_call(
+                    tab.cache.upsert_tool_call(
                         d.step_index,
                         &d.tool_name,
                         crate::protocol::StepState::Error,
                         None,
                         Some("Execution rejected by operator"),
                     );
-                    self.cache.push_error(&format!(
+                    tab.cache.push_error(&format!(
                         "Security Guardian blocked destructive command: {}",
                         d.command
                     ));
                 }
-                self.cache.consolidate_active_turn_with_meta(None, None);
-                self.waiting_for_response = false;
-                self.in_flight_usage = None;
-                self.turn_started_at = None;
-                self.queued_prompts.clear();
-                self.status_text = String::from("Blocked destructive command");
+                tab.cache.consolidate_active_turn_with_meta(None, None);
+                tab.transition_turn(crate::ui::tab::TurnEvent::InterruptRequested);
+                tab.status_text = String::from("Blocked destructive command");
                 self.dirty = true;
                 Some(Some(AppAction::Interrupt))
             }
@@ -53,7 +53,7 @@ impl App {
                     _ => self.user_config.backend,
                 };
                 self.modals.pop();
-                self.status_text = format!(
+                self.active_tab_mut().status_text = format!(
                     "Model: {} ({}) · {}",
                     crate::ui::labels::model_display_name(&model),
                     effort,
@@ -78,7 +78,8 @@ impl App {
                 self.modals.pop();
                 if conversation_id.is_none() {
                     if let Some(ref m) = mode {
-                        self.status_text = format!("Mode: {} · {}", m, self.backend.as_str());
+                        let tab = self.active_tab_mut();
+                        tab.status_text = format!("Mode: {} · {}", m, tab.backend.as_str());
                         self.dirty = true;
                     }
                 }
@@ -91,15 +92,13 @@ impl App {
             }
             ModalAction::SwitchTab(idx) => {
                 self.modals.pop();
-                if self.active_tab_index != idx {
-                    self.switch_tab(idx);
-                }
                 Some(Some(AppAction::SwitchTab(idx)))
             }
             ModalAction::DeleteSession { conversation_id } => {
                 if !self.open_tab_conversation_ids().contains(&conversation_id) {
                     self.history.delete_session(&conversation_id);
-                    self.status_text = format!("Deleted session {}", conversation_id);
+                    self.active_tab_mut().status_text =
+                        format!("Deleted session {}", conversation_id);
                 } else {
                     let preserved_query = match self.modals.top() {
                         Some(Modal::Select(select)) => {
@@ -112,7 +111,8 @@ impl App {
                     if let Some(q) = preserved_query {
                         self.open_resume_modal(if q.is_empty() { None } else { Some(q.as_str()) });
                     }
-                    self.status_text = format!("Cannot delete open session {}", conversation_id);
+                    self.active_tab_mut().status_text =
+                        format!("Cannot delete open session {}", conversation_id);
                 }
                 self.dirty = true;
                 Some(None)
@@ -142,16 +142,17 @@ impl App {
                         Some(None)
                     }
                     "rename_session" => {
-                        self.editor.insert_str("/rename ");
+                        self.active_tab_mut().editor.insert_str("/rename ");
                         self.dirty = true;
                         Some(None)
                     }
                     "view_usage" => {
-                        let modal = if self.backend == crate::config::BackendKind::OpenCode {
+                        let tab = self.active_tab();
+                        let modal = if tab.backend == crate::config::BackendKind::OpenCode {
                             crate::ui::modal::UsageModal::load_opencode(
                                 &self.active_model_name(),
-                                self.last_turn_usage,
-                                self.accumulated_usage,
+                                tab.last_turn_usage,
+                                tab.accumulated_usage,
                             )
                             .with_stats_cli(
                                 !self.history.is_in_memory()

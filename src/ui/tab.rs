@@ -6,6 +6,25 @@ use crate::ui::viewport::ConversationViewport;
 
 pub const INTERRUPT_ARM_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1500);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TurnState {
+    Idle,
+    Submitting,
+    Streaming { started_at: std::time::Instant },
+    Interrupting,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TurnEvent {
+    Submit,
+    StreamActivity,
+    TurnCompleted,
+    InterruptRequested,
+    ProcessExited,
+    StreamError,
+    RespawnReset,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StreamOutcome {
     DangerRequired(crate::security::DangerAssessment),
@@ -22,6 +41,7 @@ pub struct TabState {
     pub viewport: ConversationViewport,
     pub editor: PromptEditor,
     pub draft_snapshot: Option<EditorSnapshot>,
+    pub turn_state: TurnState,
     pub waiting_for_response: bool,
     pub status_text: String,
     pub has_unread: bool,
@@ -54,6 +74,7 @@ impl TabState {
             viewport: ConversationViewport::new(),
             editor: PromptEditor::new(),
             draft_snapshot: None,
+            turn_state: TurnState::Idle,
             waiting_for_response: false,
             status_text: String::from("Ready"),
             has_unread: false,
@@ -89,6 +110,81 @@ impl TabState {
             }
         }
         false
+    }
+
+    pub fn transition_turn(&mut self, event: TurnEvent) {
+        match event {
+            TurnEvent::Submit => {
+                self.turn_state = TurnState::Submitting;
+                self.waiting_for_response = true;
+                self.turn_started_at = Some(std::time::Instant::now());
+            }
+            TurnEvent::StreamActivity => {
+                self.waiting_for_response = false;
+                if matches!(self.turn_state, TurnState::Idle | TurnState::Submitting) {
+                    let started_at = self.turn_started_at.unwrap_or_else(std::time::Instant::now);
+                    self.turn_state = TurnState::Streaming { started_at };
+                }
+            }
+            TurnEvent::TurnCompleted => {
+                self.turn_state = TurnState::Idle;
+                self.waiting_for_response = false;
+                self.turn_started_at = None;
+                self.esc_armed_at = None;
+                self.last_step_index = None;
+            }
+            TurnEvent::StreamError => {
+                self.turn_state = TurnState::Idle;
+                self.waiting_for_response = false;
+                self.esc_armed_at = None;
+                self.turn_started_at = None;
+                self.in_flight_usage = None;
+                self.last_step_index = None;
+                self.pending_danger = None;
+                self.suspended_events.clear();
+                self.queued_prompts.clear();
+            }
+            TurnEvent::InterruptRequested => {
+                self.turn_state = TurnState::Interrupting;
+                self.waiting_for_response = false;
+                if self.last_turn_usage.is_none() {
+                    self.last_turn_usage = self.in_flight_usage;
+                }
+                self.in_flight_usage = None;
+                self.last_step_index = None;
+                self.turn_started_at = None;
+                self.esc_armed_at = None;
+                self.pending_danger = None;
+                self.suspended_events.clear();
+                self.queued_prompts.clear();
+            }
+            TurnEvent::ProcessExited => {
+                self.turn_state = TurnState::Idle;
+                self.waiting_for_response = false;
+                self.turn_started_at = None;
+                self.pending_danger = None;
+                self.suspended_events.clear();
+                self.queued_prompts.clear();
+                if self.last_turn_usage.is_none() {
+                    self.last_turn_usage = self.in_flight_usage.take();
+                } else {
+                    self.in_flight_usage = None;
+                }
+                self.last_step_index = None;
+                self.esc_armed_at = None;
+            }
+            TurnEvent::RespawnReset => {
+                self.turn_state = TurnState::Idle;
+                self.waiting_for_response = false;
+                self.pending_danger = None;
+                self.suspended_events.clear();
+                self.queued_prompts.clear();
+                self.in_flight_usage = None;
+                self.last_step_index = None;
+                self.turn_started_at = None;
+                self.esc_armed_at = None;
+            }
+        }
     }
 
     pub fn apply_stream_event(
@@ -139,7 +235,7 @@ impl TabState {
                         self.last_turn_usage = self.in_flight_usage;
                     }
                     if let Some(delta) = &data.text_delta {
-                        self.waiting_for_response = false;
+                        self.transition_turn(TurnEvent::StreamActivity);
                         self.cache
                             .append_streaming_delta(BlockKind::Assistant, delta);
                         self.status_text = String::from("Streaming...");
@@ -148,7 +244,7 @@ impl TabState {
                         }
                     }
                     if let Some(thought) = &data.thought {
-                        self.waiting_for_response = false;
+                        self.transition_turn(TurnEvent::StreamActivity);
                         self.cache
                             .append_streaming_delta(BlockKind::Thought, thought);
                         self.status_text = String::from("Thinking...");
@@ -157,7 +253,7 @@ impl TabState {
                         }
                     }
                     if let Some(tool_name) = data.resolved_tool_name() {
-                        self.waiting_for_response = false;
+                        self.transition_turn(TurnEvent::StreamActivity);
                         let state = data.state.unwrap_or(StepState::Active);
                         let args = data
                             .tool_info
@@ -196,8 +292,6 @@ impl TabState {
                 }
             }
             StreamEvent::Result(res) => {
-                self.waiting_for_response = false;
-                self.esc_armed_at = None;
                 let fallback = res.result.as_ref().and_then(|r| r.response.as_deref());
                 let duration = res
                     .result
@@ -215,13 +309,14 @@ impl TabState {
                     }
                 }
                 let turn_usage = res.result.as_ref().and_then(|r| r.usage);
-                let consolidated = turn_usage.or(self.in_flight_usage.take());
+                let in_flight = self.in_flight_usage.take();
+                let consolidated = turn_usage.or(in_flight);
                 if let Some(usage) = consolidated {
                     self.accumulated_usage.accumulate(&usage);
                     self.last_turn_usage = Some(usage);
                 }
                 let tokens = self.last_turn_usage.map(|u| u.output_tokens);
-                self.last_step_index = None;
+                self.transition_turn(TurnEvent::TurnCompleted);
                 self.turns_completed = self.turns_completed.saturating_add(1);
                 if let Some(elapsed) = duration {
                     self.last_turn_duration_seconds = Some(elapsed);
@@ -249,10 +344,7 @@ impl TabState {
                 outcome = Some(StreamOutcome::TurnCompleted { is_result: true });
             }
             StreamEvent::Error(err) => {
-                self.waiting_for_response = false;
-                self.esc_armed_at = None;
-                self.in_flight_usage = None;
-                self.last_step_index = None;
+                self.transition_turn(TurnEvent::StreamError);
                 let msg = err
                     .error
                     .as_deref()

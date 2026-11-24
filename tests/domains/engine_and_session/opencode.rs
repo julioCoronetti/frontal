@@ -453,7 +453,7 @@ async fn test_model_switch_ignores_persisted_window_hint() {
     let mut app = App::new(manager, session_id);
 
     let conv_id = "conv-switch-1";
-    let active = app.active_session.clone();
+    let active = app.active_session_id().clone();
     app.session_manager
         .set_session_metadata(&active, Some(conv_id.to_string()), None, None, None);
     app.history.record_telemetry(
@@ -479,8 +479,8 @@ async fn test_model_switch_ignores_persisted_window_hint() {
         )
         .await;
     assert!(result.is_ok());
-    assert_eq!(app.context_window_hint, None);
-    assert_eq!(app.served_model, None);
+    assert_eq!(app.active_tab().context_window_hint, None);
+    assert_eq!(app.active_tab().served_model, None);
     assert_eq!(app.active_model_name(), "anthropic/claude-sonnet-5-5");
 
     if let Some(home) = old_home {

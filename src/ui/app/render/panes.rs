@@ -20,16 +20,17 @@ impl App {
         if is_welcome {
             self.render_welcome_compact(frame, chat_area);
         } else {
-            let total_lines = self.cache.ensure_visual_lines(chat_area.width);
-            let queued_count = self.queued_prompts.len();
-            let armed_interrupt = self.is_interrupt_armed();
-            let show_turn_indicator = self.waiting_for_response || armed_interrupt;
+            let tab = self.active_tab_mut();
+            let total_lines = tab.cache.ensure_visual_lines(chat_area.width);
+            let queued_count = tab.queued_prompts.len();
+            let armed_interrupt = tab.is_interrupt_armed();
+            let show_turn_indicator = tab.waiting_for_response || armed_interrupt;
             let total_with_spinner = total_lines
                 + if show_turn_indicator { 1 } else { 0 }
                 + if queued_count > 0 { 1 } else { 0 };
-            self.viewport
+            tab.viewport
                 .sync_dimensions(total_with_spinner, chat_area.height as usize);
-            let mut visible_lines = self.viewport.visible_slice(&self.cache);
+            let mut visible_lines = tab.viewport.visible_slice(&tab.cache);
 
             let status_margin = if chat_area.width > 4 { "  " } else { "" };
             if show_turn_indicator {
@@ -104,8 +105,9 @@ impl App {
             let viewport_widget = Paragraph::new(visible_lines);
             frame.render_widget(viewport_widget, chat_area);
 
-            if !self.viewport.is_anchored()
-                && self.viewport.total_lines() > self.viewport.viewport_height()
+            if !self.active_tab().viewport.is_anchored()
+                && self.active_tab().viewport.total_lines()
+                    > self.active_tab().viewport.viewport_height()
             {
                 let indicator_w = 20u16.min(chat_area.width);
                 let indicator_rect = Rect {
@@ -140,6 +142,7 @@ impl App {
             sb_area,
         );
         let used_tokens = self
+            .active_tab()
             .last_turn_usage
             .as_ref()
             .map(|usage| usage.effective_total())

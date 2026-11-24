@@ -26,19 +26,22 @@ fn test_tab_creation_and_switching_alt_keys() {
     let alt1 = press_key(KeyCode::Char('1'), KeyModifiers::ALT);
     let act = app.handle_terminal_event(alt1);
     assert_eq!(act, Some(AppAction::SwitchTab(0)));
+    app.apply_sync_action(&AppAction::SwitchTab(0));
     assert_eq!(app.active_tab_index, 0);
 
     let alt2 = press_key(KeyCode::Char('2'), KeyModifiers::ALT);
     let act = app.handle_terminal_event(alt2);
     assert_eq!(act, Some(AppAction::SwitchTab(1)));
+    app.apply_sync_action(&AppAction::SwitchTab(1));
     assert_eq!(app.active_tab_index, 1);
-    assert_eq!(app.active_session, id2);
+    assert_eq!(app.active_session_id(), &id2);
 
     let alt3 = press_key(KeyCode::Char('3'), KeyModifiers::ALT);
     let act = app.handle_terminal_event(alt3);
     assert_eq!(act, Some(AppAction::SwitchTab(2)));
+    app.apply_sync_action(&AppAction::SwitchTab(2));
     assert_eq!(app.active_tab_index, 2);
-    assert_eq!(app.active_session, id3);
+    assert_eq!(app.active_session_id(), &id3);
 
     let alt9 = press_key(KeyCode::Char('9'), KeyModifiers::ALT);
     let act = app.handle_terminal_event(alt9);
@@ -55,7 +58,7 @@ fn test_background_tab_streaming_isolation_and_unread() {
 
     app.switch_tab(0);
     assert_eq!(app.active_tab_index, 0);
-    assert_eq!(app.active_session, id1);
+    assert_eq!(app.active_session_id(), &id1);
 
     let bg_update = StreamEvent::StepUpdate(StepUpdateEvent {
         conversation_id: None,
@@ -72,14 +75,14 @@ fn test_background_tab_streaming_isolation_and_unread() {
     };
     app.handle_engine_envelope(env);
 
-    assert_eq!(app.cache.blocks_count(), 0);
+    assert_eq!(app.active_tab().cache.blocks_count(), 0);
     assert!(app.tabs[1].has_unread);
     assert_eq!(app.tabs[1].cache.blocks_count(), 1);
 
     app.switch_tab(1);
     assert_eq!(app.active_tab_index, 1);
     assert!(!app.tabs[1].has_unread);
-    assert_eq!(app.cache.blocks_count(), 1);
+    assert_eq!(app.active_tab().cache.blocks_count(), 1);
 }
 
 #[test]
@@ -90,7 +93,7 @@ fn test_background_tab_token_usage_swap_and_isolation() {
 
     app.switch_tab(0);
     assert_eq!(app.active_tab_index, 0);
-    assert_eq!(app.active_session, id1);
+    assert_eq!(app.active_session_id(), &id1);
 
     let usage = TokenUsage {
         input_tokens: 10,
@@ -129,19 +132,19 @@ fn test_background_tab_token_usage_swap_and_isolation() {
     };
     app.handle_engine_envelope(env_res);
 
-    assert_eq!(app.last_turn_usage, None);
+    assert_eq!(app.active_tab().last_turn_usage, None);
     assert_eq!(app.tabs[1].last_turn_usage, Some(usage));
 
     app.switch_tab(1);
     assert_eq!(app.active_tab_index, 1);
-    assert_eq!(app.last_turn_usage, Some(usage));
+    assert_eq!(app.active_tab().last_turn_usage, Some(usage));
     assert_eq!(app.tabs[1].steps_seen, 1);
     assert_eq!(app.tabs[1].turns_completed, 1);
 
     let enter = press_key(KeyCode::Enter, KeyModifiers::NONE);
-    app.editor.insert_str("new prompt");
+    app.active_tab_mut().editor.insert_str("new prompt");
     app.handle_terminal_event(enter);
-    assert_eq!(app.last_turn_usage, Some(usage));
+    assert_eq!(app.active_tab().last_turn_usage, Some(usage));
     assert_eq!(app.tabs[0].last_turn_usage, None);
 }
 
@@ -167,7 +170,7 @@ fn test_close_tab_and_tab_lifecycle() {
 
     assert_eq!(app.tab_count(), 2);
     assert_eq!(app.active_tab_index, 1);
-    assert_eq!(app.active_session, id2);
+    assert_eq!(app.active_session_id(), &id2);
 
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let closed = app.close_tab(0).await;
@@ -218,43 +221,47 @@ fn test_tab_switching_under_rapid_background_events() {
         });
     }
 
-    assert_eq!(app.cache.blocks_count(), 0);
+    assert_eq!(app.active_tab().cache.blocks_count(), 0);
     assert!(app.tabs[1].has_unread);
     assert!(app.tabs[2].has_unread);
     assert!(!app.tabs[3].has_unread);
 
     app.switch_tab(1);
-    assert_eq!(app.active_session, id2);
+    assert_eq!(app.active_session_id(), &id2);
     assert!(!app.tabs[1].has_unread);
-    assert_eq!(app.cache.blocks_count(), 1);
+    assert_eq!(app.active_tab().cache.blocks_count(), 1);
 
     app.switch_tab(2);
-    assert_eq!(app.active_session, id3);
+    assert_eq!(app.active_session_id(), &id3);
     assert!(!app.tabs[2].has_unread);
-    assert_eq!(app.cache.blocks_count(), 1);
+    assert_eq!(app.active_tab().cache.blocks_count(), 1);
 
     app.switch_tab(3);
-    assert_eq!(app.active_session, id4);
-    assert_eq!(app.cache.blocks_count(), 0);
+    assert_eq!(app.active_session_id(), &id4);
+    assert_eq!(app.active_tab().cache.blocks_count(), 0);
 }
 
 #[test]
 fn test_close_active_tab_state_isolation_and_no_contamination() {
     let (mut app, _) = test_app();
 
-    app.cache.push_user_message("msg from tab 1");
-    app.editor.insert_str("editor tab 1");
+    app.active_tab_mut()
+        .cache
+        .push_user_message("msg from tab 1");
+    app.active_tab_mut().editor.insert_str("editor tab 1");
 
     let id2 = SessionId::new();
     app.add_tab(id2, Some("Tab 2".to_string()));
     assert_eq!(app.active_tab_index, 1);
-    assert_eq!(app.cache.blocks_count(), 0);
-    assert_eq!(app.editor.text(), "");
+    assert_eq!(app.active_tab().cache.blocks_count(), 0);
+    assert_eq!(app.active_tab().editor.text(), "");
 
-    app.cache.push_user_message("msg from tab 2");
-    app.editor.insert_str("editor tab 2");
-    assert_eq!(app.cache.blocks_count(), 1);
-    assert_eq!(app.editor.text(), "editor tab 2");
+    app.active_tab_mut()
+        .cache
+        .push_user_message("msg from tab 2");
+    app.active_tab_mut().editor.insert_str("editor tab 2");
+    assert_eq!(app.active_tab().cache.blocks_count(), 1);
+    assert_eq!(app.active_tab().editor.text(), "editor tab 2");
 
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let closed = app.close_tab(1).await;
@@ -262,14 +269,14 @@ fn test_close_active_tab_state_isolation_and_no_contamination() {
     });
 
     assert_eq!(app.active_tab_index, 0);
-    assert_eq!(app.cache.blocks_count(), 1);
-    assert_eq!(app.editor.text(), "editor tab 1");
+    assert_eq!(app.active_tab().cache.blocks_count(), 1);
+    assert_eq!(app.active_tab().editor.text(), "editor tab 1");
 
     let id3 = SessionId::new();
     app.add_tab(id3, Some("Tab 3".to_string()));
     assert_eq!(app.active_tab_index, 1);
-    assert_eq!(app.cache.blocks_count(), 0);
-    assert_eq!(app.editor.text(), "");
+    assert_eq!(app.active_tab().cache.blocks_count(), 0);
+    assert_eq!(app.active_tab().editor.text(), "");
 }
 
 #[test]
@@ -413,7 +420,7 @@ fn test_close_tab_before_active_index_adjusts_active_tab() {
     app.add_tab(id2.clone(), Some("Tab 2".to_string()));
     app.add_tab(id3.clone(), Some("Tab 3".to_string()));
     assert_eq!(app.active_tab_index, 2);
-    assert_eq!(app.active_session, id3);
+    assert_eq!(app.active_session_id(), &id3);
 
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let closed = app.close_tab(0).await;
@@ -422,7 +429,7 @@ fn test_close_tab_before_active_index_adjusts_active_tab() {
 
     assert_eq!(app.tab_count(), 2);
     assert_eq!(app.active_tab_index, 1);
-    assert_eq!(app.active_session, id3);
+    assert_eq!(app.active_session_id(), &id3);
 }
 
 #[test]
@@ -453,41 +460,7 @@ fn test_resume_modal_current_sessions_and_tab_switching() {
 
     let dispatched = app.dispatch_modal_action(modal_action);
     assert_eq!(dispatched, Some(Some(AppAction::SwitchTab(0))));
+    app.apply_sync_action(&AppAction::SwitchTab(0));
     assert_eq!(app.active_tab_index, 0);
     assert!(app.modals.is_empty());
-}
-
-#[test]
-fn test_rename_command_and_title_synchronization() {
-    let (mut app, _id1) = test_app();
-    app.editor.insert_str("/rename Architectural Refactoring");
-    let enter = press_key(KeyCode::Enter, KeyModifiers::NONE);
-    let action = app.handle_terminal_event(enter);
-    assert_eq!(action, None);
-    assert_eq!(app.tabs[0].title, "Architectural Refactoring");
-    assert_eq!(
-        app.status_text,
-        "Session renamed to: Architectural Refactoring"
-    );
-
-    let sessions = app.history.sessions();
-    assert!(!sessions.is_empty());
-    assert_eq!(
-        sessions[0].title.as_deref(),
-        Some("Architectural Refactoring")
-    );
-
-    app.editor.insert_str("/rename   ");
-    let enter2 = press_key(KeyCode::Enter, KeyModifiers::NONE);
-    let _ = app.handle_terminal_event(enter2);
-    assert_eq!(app.status_text, "Usage: /rename <title>");
-    assert_eq!(app.tabs[0].title, "Architectural Refactoring");
-
-    let clean = frontal::ui::history::clean_session_title(
-        "cara seguinte estamos com problema na trc fiserv",
-    );
-    assert_eq!(clean, "Estamos com problema na trc fiserv");
-
-    let clean_empty = frontal::ui::history::clean_session_title("seguinte:");
-    assert_eq!(clean_empty, "New Session");
 }

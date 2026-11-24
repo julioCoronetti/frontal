@@ -8,7 +8,7 @@ use frontal::ui::app::{App, AppAction};
 use frontal::ui::cache::{BlockKind, RenderCache, TurnMeta};
 use frontal::ui::modal::{CommandsModal, Modal, ModelEffortModal, UsageModal};
 use frontal::ui::theme::{
-    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BG_SIDEBAR, BG_USER_CONTAINER, BORDER_SUBTLE,
+    ACCENT_HIGHLIGHT, ACCENT_PRIMARY, ACCENT_RUBY, BG_USER_CONTAINER, BORDER_SUBTLE,
     TAB_ACTIVE_DOT, TEXT_MUTED, TEXT_PRIMARY,
 };
 use ratatui::style::Color;
@@ -35,7 +35,7 @@ async fn test_app_ui_rendering_and_fixture_flow_with_test_backend() {
 
     terminal.draw(|f| app.render(f)).unwrap();
 
-    app.editor.insert_str("ola");
+    app.active_tab_mut().editor.insert_str("ola");
     let enter_event = Event::Key(KeyEvent {
         code: KeyCode::Enter,
         modifiers: KeyModifiers::NONE,
@@ -45,10 +45,8 @@ async fn test_app_ui_rendering_and_fixture_flow_with_test_backend() {
     let action = app.handle_terminal_event(enter_event);
     assert_eq!(action, Some(AppAction::SubmitPrompt("ola".into())));
 
-    app.session_manager
-        .send_prompt(&app.active_session, "ola")
-        .await
-        .unwrap();
+    let sid = app.active_session_id().clone();
+    app.session_manager.send_prompt(&sid, "ola").await.unwrap();
 
     while let Some(env) = app.session_manager.recv().await {
         let is_res = matches!(env.event, EngineEvent::Stream(ref s) if matches!(**s, StreamEvent::Result(_)));
@@ -73,10 +71,12 @@ fn test_spinner_visibility_when_total_lines_exceed_height() {
     let mut terminal = Terminal::new(backend).unwrap();
 
     for i in 0..20 {
-        app.cache.push_user_message(&format!("user line {}", i));
+        app.active_tab_mut()
+            .cache
+            .push_user_message(&format!("user line {}", i));
     }
-    app.cache.consolidate_active_turn(None);
-    app.waiting_for_response = true;
+    app.active_tab_mut().cache.consolidate_active_turn(None);
+    app.active_tab_mut().waiting_for_response = true;
 
     terminal.draw(|f| app.render(f)).unwrap();
     let buf = terminal.backend().buffer();
@@ -91,7 +91,7 @@ fn test_spinner_visibility_when_total_lines_exceed_height() {
     let contains_spinner = spinner_symbols.iter().any(|&s| rendered.contains(s));
     assert!(contains_spinner);
 
-    let initial_blocks = app.cache.blocks_count();
+    let initial_blocks = app.active_tab().cache.blocks_count();
     let slash_not_cmd = Event::Key(KeyEvent {
         code: KeyCode::Char('a'),
         modifiers: KeyModifiers::NONE,
@@ -100,7 +100,7 @@ fn test_spinner_visibility_when_total_lines_exceed_height() {
     });
     let act = app.handle_terminal_event(slash_not_cmd);
     assert_eq!(act, None);
-    assert_eq!(app.cache.blocks_count(), initial_blocks);
+    assert_eq!(app.active_tab().cache.blocks_count(), initial_blocks);
 }
 
 #[test]
@@ -182,8 +182,10 @@ fn test_footer_cwd_and_active_model_header() {
 fn test_opencode_visual_layout_and_symmetry() {
     let (mut app, _) = test_app();
 
-    app.cache.push_user_message("Hello from user prompt");
-    app.cache.append_streaming_delta(
+    app.active_tab_mut()
+        .cache
+        .push_user_message("Hello from user prompt");
+    app.active_tab_mut().cache.append_streaming_delta(
         BlockKind::Assistant,
         "Hello from assistant response\nSecond line",
     );
@@ -193,7 +195,8 @@ fn test_opencode_visual_layout_and_symmetry() {
         duration_seconds: Some(1.5),
         output_tokens: Some(300),
     };
-    app.cache
+    app.active_tab_mut()
+        .cache
         .consolidate_active_turn_with_meta(None, Some(meta));
 
     let backend = TestBackend::new(100, 30);
@@ -231,7 +234,7 @@ fn test_opencode_visual_layout_and_symmetry() {
     }
     assert!(found_user_bg);
 
-    let visual_lines = app.cache.visible_slice(0, 20);
+    let visual_lines = app.active_tab().cache.visible_slice(0, 20);
     assert!(visual_lines.len() >= 5);
     let assistant_first_line = &visual_lines[4];
     let assistant_text: String = assistant_first_line
@@ -246,17 +249,19 @@ fn test_opencode_visual_layout_and_symmetry() {
 fn test_adversarial_terminal_dimensions_no_panic() {
     let (mut app, _) = test_app();
 
-    app.cache
+    app.active_tab_mut()
+        .cache
         .push_user_message("Long user message to test wrapping in narrow dimensions");
-    app.cache.append_streaming_delta(
+    app.active_tab_mut().cache.append_streaming_delta(
         BlockKind::Assistant,
         "Assistant multi-line response\n```rust\nlet x = 10;\n```\n| col1 | col2 |\n|---|---|\n| a | b |",
     );
-    app.cache.consolidate_active_turn(None);
-    app.cache
+    app.active_tab_mut().cache.consolidate_active_turn(None);
+    app.active_tab_mut()
+        .cache
         .append_streaming_delta(BlockKind::Thought, "Thought text for extreme dimensions");
-    app.cache.consolidate_active_turn(None);
-    app.cache.upsert_tool_call(
+    app.active_tab_mut().cache.consolidate_active_turn(None);
+    app.active_tab_mut().cache.upsert_tool_call(
         Some(1),
         "write_file",
         StepState::Active,
@@ -300,7 +305,7 @@ async fn test_markdown_headings_and_ui_refinements_on_test_backend() {
         "# Titulo Primario\n## Subtitulo Secundario\nTexto normal aqui.",
     );
     cache.consolidate_active_turn(None);
-    app.cache = cache;
+    app.active_tab_mut().cache = cache;
 
     terminal.draw(|f| app.render(f)).unwrap();
     let buffer = terminal.backend().buffer();
@@ -316,8 +321,8 @@ async fn test_markdown_headings_and_ui_refinements_on_test_backend() {
     assert!(rendered_text.contains("Titulo Primario"));
     assert!(rendered_text.contains("Subtitulo Secundario"));
 
-    let initial_blocks = app.cache.blocks_count();
-    app.waiting_for_response = true;
+    let initial_blocks = app.active_tab().cache.blocks_count();
+    app.active_tab_mut().waiting_for_response = true;
     app.spinner_tick = 8;
     terminal.draw(|f| app.render(f)).unwrap();
     let buffer2 = terminal.backend().buffer();
@@ -328,11 +333,11 @@ async fn test_markdown_headings_and_ui_refinements_on_test_backend() {
         .collect::<Vec<_>>()
         .join("");
     assert!(text2.contains("Thinking..."));
-    assert_eq!(app.cache.blocks_count(), initial_blocks);
+    assert_eq!(app.active_tab().cache.blocks_count(), initial_blocks);
 
     let down_event = press_key(KeyCode::Down, KeyModifiers::NONE);
     app.handle_terminal_event(down_event);
-    assert_eq!(app.cache.blocks_count(), initial_blocks);
+    assert_eq!(app.active_tab().cache.blocks_count(), initial_blocks);
 }
 
 #[test]
@@ -353,9 +358,11 @@ fn test_welcome_state_sidebar_and_scroll_down_indicator() {
     assert!(text.contains(env!("CARGO_PKG_VERSION")));
 
     for i in 0..30 {
-        app.cache.push_user_message(&format!("user prompt {}", i));
+        app.active_tab_mut()
+            .cache
+            .push_user_message(&format!("user prompt {}", i));
     }
-    app.last_turn_usage = Some(frontal::protocol::TokenUsage {
+    app.active_tab_mut().last_turn_usage = Some(frontal::protocol::TokenUsage {
         input_tokens: 500,
         output_tokens: 200,
         thinking_tokens: 50,
@@ -374,7 +381,7 @@ fn test_welcome_state_sidebar_and_scroll_down_indicator() {
     assert!(text2.contains("700 tokens"));
     assert!(text2.contains("% used"));
 
-    app.viewport.scroll_up(10);
+    app.active_tab_mut().viewport.scroll_up(10);
     terminal.draw(|f| app.render(f)).unwrap();
     let buf3 = terminal.backend().buffer();
     let text3 = buf3
@@ -432,10 +439,12 @@ fn test_atlas_crimson_theme_constants_and_rendering() {
     assert!(found_input_accent);
 
     for i in 0..20 {
-        app.cache.push_user_message(&format!("message {}", i));
+        app.active_tab_mut()
+            .cache
+            .push_user_message(&format!("message {}", i));
     }
     terminal.draw(|f| app.render(f)).unwrap();
-    app.viewport.scroll_up(5);
+    app.active_tab_mut().viewport.scroll_up(5);
     terminal.draw(|f| app.render(f)).unwrap();
     let buf2 = terminal.backend().buffer();
 
@@ -454,7 +463,7 @@ fn test_atlas_crimson_theme_constants_and_rendering() {
     }
     assert!(found_indicator);
 
-    app.editor.insert_str("/");
+    app.active_tab_mut().editor.insert_str("/");
     app.update_autocomplete();
     terminal.draw(|f| app.render(f)).unwrap();
     let buf3 = terminal.backend().buffer();
@@ -472,25 +481,4 @@ fn test_atlas_crimson_theme_constants_and_rendering() {
         }
     }
     assert!(found_popover_sel_ruby);
-}
-
-#[test]
-fn test_markdown_output_rendering_no_backticks_and_nested_indent() {
-    let (mut app, _) = test_app();
-    app.cache.push_user_message("check output");
-    app.cache.append_streaming_delta(
-        BlockKind::Assistant,
-        "# Title\n\nRun `cargo test`\n\n- Outer\n  - Inner",
-    );
-    app.cache.consolidate_active_turn(None);
-    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
-    terminal.draw(|f| app.render(f)).unwrap();
-    let buf = terminal.backend().buffer();
-    let rendered: String = buf.content().iter().map(|c| c.symbol()).collect();
-    assert!(rendered.contains("cargo test") && !rendered.contains("`cargo test`"));
-    assert!(rendered.contains("• Outer") && rendered.contains("  ◦ Inner"));
-    assert!(buf
-        .content()
-        .iter()
-        .any(|c| c.bg == BG_SIDEBAR && c.fg == ACCENT_HIGHLIGHT));
 }

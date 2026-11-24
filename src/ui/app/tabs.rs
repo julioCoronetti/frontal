@@ -4,6 +4,26 @@ use crate::ui::app::App;
 use crate::ui::tab::TabState;
 
 impl App {
+    pub fn active_tab(&self) -> &TabState {
+        &self.tabs[self.active_tab_index]
+    }
+
+    pub fn active_tab_mut(&mut self) -> &mut TabState {
+        &mut self.tabs[self.active_tab_index]
+    }
+
+    pub fn tab(&self, id: &SessionId) -> Option<&TabState> {
+        self.tabs.iter().find(|t| &t.session_id == id)
+    }
+
+    pub fn tab_mut(&mut self, id: &SessionId) -> Option<&mut TabState> {
+        self.tabs.iter_mut().find(|t| &t.session_id == id)
+    }
+
+    pub fn active_session_id(&self) -> &SessionId {
+        &self.tabs[self.active_tab_index].session_id
+    }
+
     pub fn tab_count(&self) -> usize {
         self.tabs.len()
     }
@@ -15,7 +35,6 @@ impl App {
         self.popover.close();
         self.modals.remove_danger_modal();
         self.active_tab_index = index;
-        self.active_session = self.tabs[self.active_tab_index].session_id.clone();
         if let Some(danger) = &self.tabs[self.active_tab_index].pending_danger {
             self.modals
                 .push(crate::ui::modal::Modal::DangerConfirmation(
@@ -23,8 +42,8 @@ impl App {
                 ));
         }
         self.tabs[self.active_tab_index].has_unread = false;
-        self.session_manager
-            .set_active_session(self.active_session.clone());
+        let active_id = self.tabs[self.active_tab_index].session_id.clone();
+        self.session_manager.set_active_session(active_id);
         self.hovered_tab_index = None;
         self.hovered_new_tab = false;
         self.dirty = true;
@@ -43,10 +62,9 @@ impl App {
         new_tab.backend = backend;
         self.tabs.push(new_tab);
         self.active_tab_index = self.tabs.len() - 1;
-        self.active_session = self.tabs[self.active_tab_index].session_id.clone();
         self.tabs[self.active_tab_index].has_unread = false;
-        self.session_manager
-            .set_active_session(self.active_session.clone());
+        let active_id = self.tabs[self.active_tab_index].session_id.clone();
+        self.session_manager.set_active_session(active_id);
         self.hit_regions.clear();
         self.hovered_tab_index = None;
         self.hovered_new_tab = false;
@@ -75,7 +93,6 @@ impl App {
         } else if self.active_tab_index >= self.tabs.len() {
             self.active_tab_index = self.tabs.len() - 1;
         }
-        self.active_session = self.tabs[self.active_tab_index].session_id.clone();
         if let Some(danger) = &self.tabs[self.active_tab_index].pending_danger {
             self.modals
                 .push(crate::ui::modal::Modal::DangerConfirmation(
@@ -83,8 +100,8 @@ impl App {
                 ));
         }
         self.tabs[self.active_tab_index].has_unread = false;
-        self.session_manager
-            .set_active_session(self.active_session.clone());
+        let active_id = self.tabs[self.active_tab_index].session_id.clone();
+        self.session_manager.set_active_session(active_id);
         self.hit_regions.clear();
         self.hovered_tab_index = None;
         self.hovered_new_tab = false;
@@ -173,7 +190,6 @@ impl App {
         fresh_tab.backend = prev_backend;
         self.tabs[0] = fresh_tab;
         self.active_tab_index = 0;
-        self.active_session = new_id.clone();
         self.session_manager.set_active_session(new_id);
         self.dirty = true;
         Some(old_id)

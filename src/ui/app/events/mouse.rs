@@ -39,16 +39,16 @@ impl App {
                 }
             }
             MouseEventKind::ScrollUp => {
-                self.viewport.scroll_up(3);
+                self.active_tab_mut().viewport.scroll_up(3);
                 self.dirty = true;
             }
             MouseEventKind::ScrollDown => {
-                self.viewport.scroll_down(3);
+                self.active_tab_mut().viewport.scroll_down(3);
                 self.dirty = true;
             }
             MouseEventKind::Down(MouseButton::Left) => {
-                if self.editor.has_selection() {
-                    self.editor.clear_selection();
+                if self.active_tab().editor.has_selection() {
+                    self.active_tab_mut().editor.clear_selection();
                     self.dirty = true;
                 }
                 if let Some(action) = self
@@ -57,14 +57,13 @@ impl App {
                     .find(|region| region.contains(column, row))
                     .map(|region| region.action)
                 {
-                    if self.viewport.selection.is_some() {
-                        self.viewport.clear_selection();
+                    if self.active_tab().viewport.selection.is_some() {
+                        self.active_tab_mut().viewport.clear_selection();
                         self.dirty = true;
                     }
                     return match action {
                         HitAction::SwitchTab(idx) => {
                             if idx < self.tabs.len() && idx != self.active_tab_index {
-                                self.switch_tab(idx);
                                 Some(AppAction::SwitchTab(idx))
                             } else {
                                 None
@@ -82,35 +81,38 @@ impl App {
                 }
                 let (vx, vy, vw, vh) = self.viewport_bounds;
                 if column >= vx && column < vx + vw && row >= vy && row < vy + vh {
-                    let offset = self.viewport.effective_offset();
+                    let tab = self.active_tab_mut();
+                    let offset = tab.viewport.effective_offset();
                     let line = offset + (row.saturating_sub(vy) as usize);
                     let col = column.saturating_sub(vx) as usize;
-                    self.viewport.start_selection(line, col);
+                    tab.viewport.start_selection(line, col);
                     self.dirty = true;
-                } else if self.viewport.selection.is_some() {
-                    self.viewport.clear_selection();
+                } else if self.active_tab().viewport.selection.is_some() {
+                    self.active_tab_mut().viewport.clear_selection();
                     self.dirty = true;
                 }
             }
             MouseEventKind::Drag(MouseButton::Left) => {
                 let (vx, vy, vw, vh) = self.viewport_bounds;
                 if column >= vx && column < vx + vw && row >= vy && row < vy + vh {
-                    let offset = self.viewport.effective_offset();
+                    let tab = self.active_tab_mut();
+                    let offset = tab.viewport.effective_offset();
                     let line = offset + (row.saturating_sub(vy) as usize);
                     let col = column.saturating_sub(vx) as usize;
-                    self.viewport.update_selection(line, col);
+                    tab.viewport.update_selection(line, col);
                     self.dirty = true;
                 }
             }
             MouseEventKind::Up(MouseButton::Left) => {
-                if matches!(self.viewport.selection, Some((s, e)) if s == e) {
-                    self.viewport.clear_selection();
+                if matches!(self.active_tab().viewport.selection, Some((s, e)) if s == e) {
+                    self.active_tab_mut().viewport.clear_selection();
                     self.dirty = true;
                     let (vx, vy, vw, vh) = self.viewport_bounds;
                     if column >= vx && column < vx + vw && row >= vy && row < vy + vh {
-                        let offset = self.viewport.effective_offset();
+                        let tab = self.active_tab_mut();
+                        let offset = tab.viewport.effective_offset();
                         let line = offset + (row.saturating_sub(vy) as usize);
-                        let _ = self.cache.toggle_collapsible_at_line(line);
+                        let _ = tab.cache.toggle_collapsible_at_line(line);
                     }
                 }
             }

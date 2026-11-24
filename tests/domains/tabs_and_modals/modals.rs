@@ -19,13 +19,13 @@ fn test_modal_stack_push_pop_and_exclusive_focus() {
     assert!(!app.modals.is_empty());
 
     app.handle_terminal_event(press_key(KeyCode::Char('a'), KeyModifiers::NONE));
-    assert!(app.editor.is_empty());
+    assert!(app.active_tab().editor.is_empty());
 
     app.handle_terminal_event(press_key(KeyCode::Esc, KeyModifiers::NONE));
     assert!(app.modals.is_empty());
 
     app.handle_terminal_event(press_key(KeyCode::Char('b'), KeyModifiers::NONE));
-    assert_eq!(app.editor.text(), "b");
+    assert_eq!(app.active_tab().editor.text(), "b");
 }
 
 #[test]
@@ -98,9 +98,9 @@ fn test_respawn_active_session_metadata_inheritance() {
     );
     assert_eq!(app.active_model_name(), "gemini-4-argon-high");
     assert_eq!(app.active_mode_name(), "architect");
-    app.context_window_hint = Some(1_000_000);
-    app.served_model = Some("gemini-4-argon-high".to_string());
-    app.in_flight_usage = Some(TokenUsage::default());
+    app.active_tab_mut().context_window_hint = Some(1_000_000);
+    app.active_tab_mut().served_model = Some("gemini-4-argon-high".to_string());
+    app.active_tab_mut().in_flight_usage = Some(TokenUsage::default());
 
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let new_session_id = app
@@ -113,13 +113,13 @@ fn test_respawn_active_session_metadata_inheritance() {
             .await
             .unwrap();
 
-        assert_eq!(app.active_session, new_session_id);
+        assert_eq!(app.active_session_id(), &new_session_id);
         assert_eq!(app.tabs[0].session_id, new_session_id);
         assert_eq!(app.active_model_name(), "gemini-3.8-flash-high");
         assert_eq!(app.active_mode_name(), "architect");
-        assert_eq!(app.context_window_hint, None);
-        assert_eq!(app.served_model, None);
-        assert_eq!(app.in_flight_usage, None);
+        assert_eq!(app.active_tab().context_window_hint, None);
+        assert_eq!(app.active_tab().served_model, None);
+        assert_eq!(app.active_tab().in_flight_usage, None);
         let meta = app.session_manager.get_metadata(&new_session_id).unwrap();
         assert_eq!(meta.conversation_id.as_deref(), Some("conv-inherited"));
         assert_eq!(meta.effort.as_deref(), Some("low"));
@@ -137,8 +137,10 @@ fn test_modal_backdrop_dimming_overlay() {
     let backend = TestBackend::new(100, 30);
     let mut terminal = Terminal::new(backend).unwrap();
 
-    app.cache.push_user_message("Testing backdrop overlay text");
-    app.cache.consolidate_active_turn(None);
+    app.active_tab_mut()
+        .cache
+        .push_user_message("Testing backdrop overlay text");
+    app.active_tab_mut().cache.consolidate_active_turn(None);
     terminal.draw(|f| app.render(f)).unwrap();
 
     let ctrl_p = press_key(KeyCode::Char('p'), KeyModifiers::CONTROL);
@@ -314,13 +316,16 @@ fn test_danger_tool_call_interception_opens_modal_and_suspends_stream() {
     let (mut app, _) = test_app();
 
     app.handle_engine_envelope(SessionEnvelope {
-        session_id: app.active_session.clone(),
+        session_id: app.active_session_id().clone(),
         event: EngineEvent::Stream(Box::new(make_tool_event("rm -rf /tmp/dangerous"))),
     });
 
-    assert!(app.pending_danger.is_some());
+    assert!(app.active_tab().pending_danger.is_some());
     assert!(!app.modals.is_empty());
-    assert_eq!(app.status_text, "Security confirmation required");
+    assert_eq!(
+        app.active_tab().status_text,
+        "Security confirmation required"
+    );
 
     let text_ev = StreamEvent::StepUpdate(StepUpdateEvent {
         conversation_id: None,
@@ -331,19 +336,19 @@ fn test_danger_tool_call_interception_opens_modal_and_suspends_stream() {
         }),
     });
     app.handle_engine_envelope(SessionEnvelope {
-        session_id: app.active_session.clone(),
+        session_id: app.active_session_id().clone(),
         event: EngineEvent::Stream(Box::new(text_ev)),
     });
 
-    assert_eq!(app.suspended_events.len(), 1);
-    assert_eq!(app.cache.blocks_count(), 1);
+    assert_eq!(app.active_tab().suspended_events.len(), 1);
+    assert_eq!(app.active_tab().cache.blocks_count(), 1);
 
     app.add_tab(frontal::protocol::SessionId::new(), None);
     assert!(app.modals.is_empty());
-    assert!(app.pending_danger.is_none());
+    assert!(app.active_tab().pending_danger.is_none());
     app.switch_tab(0);
     assert!(!app.modals.is_empty());
-    assert!(app.pending_danger.is_some());
+    assert!(app.active_tab().pending_danger.is_some());
 }
 
 #[test]
@@ -354,7 +359,7 @@ fn test_danger_modal_approve_resumes_suspended_events() {
     let (mut app, _) = test_app();
 
     app.handle_engine_envelope(SessionEnvelope {
-        session_id: app.active_session.clone(),
+        session_id: app.active_session_id().clone(),
         event: EngineEvent::Stream(Box::new(make_tool_event("git reset --hard HEAD"))),
     });
 
@@ -367,16 +372,16 @@ fn test_danger_modal_approve_resumes_suspended_events() {
         }),
     });
     app.handle_engine_envelope(SessionEnvelope {
-        session_id: app.active_session.clone(),
+        session_id: app.active_session_id().clone(),
         event: EngineEvent::Stream(Box::new(next_ev)),
     });
-    assert_eq!(app.suspended_events.len(), 1);
+    assert_eq!(app.active_tab().suspended_events.len(), 1);
 
     app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE));
     assert!(app.modals.is_empty());
-    assert!(app.pending_danger.is_none());
-    assert!(app.suspended_events.is_empty());
-    assert_eq!(app.status_text, "Streaming...");
+    assert!(app.active_tab().pending_danger.is_none());
+    assert!(app.active_tab().suspended_events.is_empty());
+    assert_eq!(app.active_tab().status_text, "Streaming...");
 }
 
 #[test]
@@ -385,115 +390,13 @@ fn test_danger_modal_reject_aborts_command_and_records_security_block() {
     let (mut app, _) = test_app();
 
     app.handle_engine_envelope(SessionEnvelope {
-        session_id: app.active_session.clone(),
+        session_id: app.active_session_id().clone(),
         event: EngineEvent::Stream(Box::new(make_tool_event("DROP TABLE users;"))),
     });
 
     app.handle_terminal_event(press_key(KeyCode::Char('c'), KeyModifiers::CONTROL));
     assert!(app.modals.is_empty());
-    assert!(app.pending_danger.is_none());
-    assert_eq!(app.status_text, "Blocked destructive command");
-    assert!(!app.waiting_for_response);
-}
-
-#[tokio::test]
-async fn test_mode_command_discovery_modal_selection_and_backend_guards() {
-    use frontal::config::BackendKind;
-    use frontal::ui::app::AppAction;
-    use frontal::ui::autocomplete::AutocompletePopover;
-    use frontal::ui::modal::Modal;
-
-    let suggestions = AutocompletePopover::filter_commands("/mo");
-    assert!(suggestions.iter().any(|item| item.label == "/mode"));
-
-    let mut commands = CommandsModal::new();
-    for c in ['m', 'o', 'd', 'e'] {
-        commands.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
-    }
-    let filtered = commands.filtered_indices();
-    assert!(filtered
-        .iter()
-        .any(|&idx| commands.items[idx].id == "select_mode"));
-
-    let (mut app, _) = test_app();
-    app.editor.insert_str("/help");
-    assert_eq!(
-        app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE)),
-        None
-    );
-    assert!(app
-        .cache
-        .blocks()
-        .iter()
-        .any(|b| b.content.contains("/mode")));
-
-    app.backend = BackendKind::Agy;
-    app.user_config.mode = "plan".to_string();
-    app.session_manager.set_session_metadata(
-        &app.active_session,
-        None,
-        None,
-        None,
-        Some("plan".to_string()),
-    );
-    app.editor.insert_str("/mode");
-    assert_eq!(
-        app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE)),
-        None
-    );
-    match app.modals.top() {
-        Some(Modal::Select(select)) => {
-            let ids: Vec<&str> = select.items.iter().map(|it| it.id.as_str()).collect();
-            assert_eq!(ids, vec!["auto", "plan", "accept-edits"]);
-            assert_eq!(select.selected_idx, 1);
-        }
-        _ => panic!("expected mode select modal"),
-    }
-
-    app.handle_terminal_event(press_key(KeyCode::Down, KeyModifiers::NONE));
-    let action = app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE));
-    assert_eq!(
-        action,
-        Some(AppAction::RespawnSession {
-            conversation_id: None,
-            model: None,
-            effort: None,
-            mode: Some("accept-edits".to_string()),
-        })
-    );
-    assert!(app.modals.is_empty());
-    assert_eq!(app.user_config.mode, "plan");
-    app.respawn_active_session(None, None, None, Some("accept-edits".to_string()))
-        .await
-        .unwrap();
-    assert_eq!(app.user_config.mode, "accept-edits");
-
-    app.backend = BackendKind::OpenCode;
-    app.editor.insert_str("/mode");
-    app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE));
-    match app.modals.top() {
-        Some(Modal::Select(select)) => {
-            let ids: Vec<&str> = select.items.iter().map(|it| it.id.as_str()).collect();
-            assert_eq!(ids, vec!["auto", "plan"]);
-        }
-        _ => panic!("expected opencode mode select modal"),
-    }
-    app.handle_terminal_event(press_key(KeyCode::Esc, KeyModifiers::NONE));
-
-    app.editor.insert_str("/mode accept-edits");
-    let rejected = app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE));
-    assert_eq!(rejected, None);
-    assert!(app.status_text.contains("Unsupported mode 'accept-edits'"));
-
-    app.editor.insert_str("/mode plan");
-    let direct = app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE));
-    assert_eq!(
-        direct,
-        Some(AppAction::RespawnSession {
-            conversation_id: None,
-            model: None,
-            effort: None,
-            mode: Some("plan".to_string()),
-        })
-    );
+    assert!(app.active_tab().pending_danger.is_none());
+    assert_eq!(app.active_tab().status_text, "Blocked destructive command");
+    assert!(!app.active_tab().waiting_for_response);
 }

@@ -174,24 +174,23 @@ fn test_paste_pill_preservation_across_history_navigation() {
     app.history.record_prompt("historical command");
 
     let big_paste = "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8";
-    app.editor.insert_str("prefix: ");
-    app.editor.insert_paste(big_paste);
-    app.editor.insert_str(" :suffix");
-
-    assert_eq!(app.editor.extmarks().len(), 1);
-    let orig_text = app.editor.text();
+    let tab = app.active_tab_mut();
+    tab.editor.insert_str("prefix: ");
+    tab.editor.insert_paste(big_paste);
+    tab.editor.insert_str(" :suffix");
+    assert_eq!(tab.editor.extmarks().len(), 1);
+    let orig_text = tab.editor.text();
     assert!(orig_text.contains("[Pasted #1: ~8 lines]"));
-
-    let up = press_key(KeyCode::Up, KeyModifiers::NONE);
-    app.handle_terminal_event(up);
-    assert_eq!(app.editor.text(), "historical command");
-
-    let down = press_key(KeyCode::Down, KeyModifiers::NONE);
-    app.handle_terminal_event(down);
-    assert_eq!(app.editor.text(), orig_text);
-    assert_eq!(app.editor.extmarks().len(), 1);
-
-    let expanded = app.editor.take_submitted_expanded().unwrap();
+    app.handle_terminal_event(press_key(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(app.active_tab().editor.text(), "historical command");
+    app.handle_terminal_event(press_key(KeyCode::Down, KeyModifiers::NONE));
+    assert_eq!(app.active_tab().editor.text(), orig_text);
+    assert_eq!(app.active_tab().editor.extmarks().len(), 1);
+    let expanded = app
+        .active_tab_mut()
+        .editor
+        .take_submitted_expanded()
+        .unwrap();
     assert!(expanded.contains("line 1\nline 2\nline 3"));
 }
 

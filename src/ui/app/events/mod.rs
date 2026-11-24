@@ -73,7 +73,7 @@ impl App {
         if !self.clipboard.is_isolated() {
             return Some(AppAction::PasteClipboard);
         }
-        let sid = self.active_session.clone();
+        let sid = self.active_session_id().clone();
         match self.clipboard.get_image() {
             Ok(Some(saved)) => {
                 self.apply_paste_outcome(&sid, Ok((Some(saved), None)));
@@ -102,7 +102,7 @@ impl App {
                 if !self.clipboard.is_isolated() {
                     return Some(AppAction::InspectPastedText(text));
                 }
-                let sid = self.active_session.clone();
+                let sid = self.active_session_id().clone();
                 self.apply_paste_outcome(&sid, Ok(Self::resolve_pasted_text(text)));
                 None
             }
@@ -115,7 +115,7 @@ impl App {
     }
 
     pub fn update_autocomplete(&mut self) {
-        if let Some((kind, start_char, query)) = self.editor.active_trigger() {
+        if let Some((kind, start_char, query)) = self.active_tab().editor.active_trigger() {
             match kind {
                 TriggerKind::Command => {
                     let items = AutocompletePopover::filter_commands(&query);

@@ -12,16 +12,13 @@ impl App {
         session_id: &crate::protocol::SessionId,
         message: &str,
     ) {
-        let is_active = &self.active_session == session_id;
+        let is_active = self.active_session_id() == session_id;
         if let Some(tab) = self
             .tabs
             .iter_mut()
             .find(|tab| &tab.session_id == session_id)
         {
-            tab.waiting_for_response = false;
-            tab.turn_started_at = None;
-            tab.in_flight_usage = None;
-            tab.queued_prompts.clear();
+            tab.transition_turn(crate::ui::tab::TurnEvent::StreamError);
             tab.cache.consolidate_active_turn_with_meta(None, None);
             tab.cache.push_error(message);
             tab.status_text = String::from("Error received");
@@ -96,7 +93,7 @@ impl App {
                                     self.history.cached_agent_entry(&cid)
                                 {
                                     if source == crate::infra::history::TitleSource::Semantic
-                                        && source >= self.tabs[tab_idx].title_source
+                                        && source.can_override(self.tabs[tab_idx].title_source)
                                     {
                                         self.tabs[tab_idx].title = agent_title.clone();
                                         self.tabs[tab_idx].title_source = source;
@@ -168,12 +165,7 @@ impl App {
                 self.dirty = true;
             }
             EngineEvent::ProtocolError { message, .. } => {
-                self.tabs[tab_idx].waiting_for_response = false;
-                self.tabs[tab_idx].turn_started_at = None;
-                self.tabs[tab_idx].in_flight_usage = None;
-                self.tabs[tab_idx].pending_danger = None;
-                self.tabs[tab_idx].suspended_events.clear();
-                self.tabs[tab_idx].queued_prompts.clear();
+                self.tabs[tab_idx].transition_turn(crate::ui::tab::TurnEvent::StreamError);
                 if is_active {
                     self.modals.remove_danger_modal();
                 } else {
@@ -189,21 +181,12 @@ impl App {
                 self.dirty = true;
             }
             EngineEvent::ProcessExited { code, .. } => {
-                self.tabs[tab_idx].waiting_for_response = false;
-                self.tabs[tab_idx].turn_started_at = None;
-                self.tabs[tab_idx].pending_danger = None;
-                self.tabs[tab_idx].suspended_events.clear();
-                self.tabs[tab_idx].queued_prompts.clear();
                 let had_pending = self.tabs[tab_idx].cache.has_unconsolidated_blocks()
                     || self.tabs[tab_idx].in_flight_usage.is_some();
                 self.tabs[tab_idx]
                     .cache
                     .consolidate_active_turn_with_meta(None, None);
-                if self.tabs[tab_idx].last_turn_usage.is_none() {
-                    self.tabs[tab_idx].last_turn_usage = self.tabs[tab_idx].in_flight_usage.take();
-                } else {
-                    self.tabs[tab_idx].in_flight_usage = None;
-                }
+                self.tabs[tab_idx].transition_turn(crate::ui::tab::TurnEvent::ProcessExited);
                 if had_pending {
                     self.persist_completed_turn(tab_idx);
                 }

@@ -47,6 +47,7 @@ fn test_tab_bar_click_switch_and_new_tab() {
         tab0.rect.y,
     ));
     assert_eq!(act_switch, Some(AppAction::SwitchTab(0)));
+    app.apply_sync_action(&AppAction::SwitchTab(0));
     assert_eq!(app.active_tab_index, 0);
 
     let act_new = app.handle_terminal_event(mouse_event(
@@ -120,9 +121,9 @@ fn test_tab_bar_hover_reveals_close_and_click_closes_tab() {
 #[test]
 fn test_sole_tab_hover_close_resets_to_welcome() {
     let (mut app, old_id) = test_app();
-    app.cache.push_user_message("Hello");
-    app.cache.push_error("Done");
-    assert!(app.cache.blocks_count() > 0);
+    app.active_tab_mut().cache.push_user_message("Hello");
+    app.active_tab_mut().cache.push_error("Done");
+    assert!(app.active_tab().cache.blocks_count() > 0);
 
     let (term0, _) = render_app(&mut app, 100, 24);
     assert!(!row_zero_text(term0.backend().buffer()).contains('×'));
@@ -159,8 +160,8 @@ fn test_sole_tab_hover_close_resets_to_welcome() {
     });
 
     assert_eq!(app.tab_count(), 1);
-    assert_eq!(app.cache.blocks_count(), 0);
-    assert_ne!(app.active_session, old_id);
+    assert_eq!(app.active_tab().cache.blocks_count(), 0);
+    assert_ne!(app.active_session_id(), &old_id);
 
     let (_term2, welcome_text) = render_app(&mut app, 100, 24);
     assert!(welcome_text.contains("▄▀▀▀▀▄"));

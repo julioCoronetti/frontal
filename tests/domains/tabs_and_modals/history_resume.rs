@@ -128,10 +128,15 @@ async fn test_respawn_external_agy_transcript_restores_model_effort_and_tokens_w
     assert_eq!(meta.model.as_deref(), Some("gemini-4-hydrogen"));
     assert_eq!(meta.effort.as_deref(), Some("high"));
     assert_eq!(
-        app.last_turn_usage.map(|u| u.effective_total()),
+        app.active_tab()
+            .last_turn_usage
+            .map(|u| u.effective_total()),
         Some(366_042)
     );
-    assert_eq!(app.accumulated_usage.effective_total(), 366_042);
+    assert_eq!(
+        app.active_tab().accumulated_usage.effective_total(),
+        366_042
+    );
     assert_eq!(app.user_config.model, "opencode-go/deepseek-v4.1-flash");
     assert_eq!(app.user_config.effort, "max");
 
@@ -319,7 +324,7 @@ fn test_approve_danger_defers_init_and_result_side_effects_until_approved() {
         session_id: session_id.clone(),
         event: EngineEvent::Stream(Box::new(danger_ev)),
     });
-    assert!(app.pending_danger.is_some());
+    assert!(app.active_tab().pending_danger.is_some());
 
     app.handle_engine_envelope(SessionEnvelope {
         session_id: session_id.clone(),
@@ -347,13 +352,13 @@ fn test_approve_danger_defers_init_and_result_side_effects_until_approved() {
         None
     );
     assert!(app.history.sessions().is_empty());
-    assert_eq!(app.suspended_events.len(), 2);
-    assert_eq!(app.turns_completed, 0);
+    assert_eq!(app.active_tab().suspended_events.len(), 2);
+    assert_eq!(app.active_tab().turns_completed, 0);
 
     app.dispatch_modal_action(ModalAction::ApproveDanger);
 
-    assert!(app.pending_danger.is_none());
-    assert!(app.suspended_events.is_empty());
+    assert!(app.active_tab().pending_danger.is_none());
+    assert!(app.active_tab().suspended_events.is_empty());
     assert_eq!(
         app.session_manager
             .get_metadata(&session_id)
@@ -370,7 +375,7 @@ fn test_approve_danger_defers_init_and_result_side_effects_until_approved() {
             .count(),
         1
     );
-    assert_eq!(app.turns_completed, 1);
+    assert_eq!(app.active_tab().turns_completed, 1);
 }
 
 #[tokio::test]
@@ -411,14 +416,17 @@ async fn test_respawn_active_session_preserves_old_session_on_spawn_failure() {
         .respawn_active_session(None, Some("gemini-3.8-flash".to_string()), None, None)
         .await;
     assert!(res.is_err());
-    assert_eq!(app.active_session, old_id);
+    assert_eq!(app.active_session_id(), &old_id);
     assert_eq!(app.tabs[0].session_id, old_id);
     assert_ne!(
         app.session_manager.get_metadata(&old_id).unwrap().status,
         SessionStatus::Closed
     );
     assert_eq!(app.pending_engine_prompts.len(), 1);
-    assert!(app.status_text.starts_with("Failed to respawn session:"));
+    assert!(app
+        .active_tab()
+        .status_text
+        .starts_with("Failed to respawn session:"));
     assert!(app.dirty);
 
     let _ = app

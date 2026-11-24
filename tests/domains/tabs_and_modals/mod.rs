@@ -1,10 +1,13 @@
 mod history_resume;
 mod modals;
+mod mode_commands;
 mod model_effort;
 mod respawn_regression;
 mod resume;
 mod resume_delete;
+mod resume_telemetry;
 mod select;
+mod sidebar_toggle;
 mod tab_bar_mouse;
 mod tabs;
 mod unified_resume;

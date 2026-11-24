@@ -68,7 +68,9 @@ async fn test_tab_provisional_title_upgrades_to_semantic_on_tick_while_preservin
     assert_eq!(app.tabs[0].title, "Auth Flow Audit");
     assert_eq!(app.tabs[0].title_source, TitleSource::Semantic);
 
-    app.editor.insert_str("/rename Pinned Name");
+    app.active_tab_mut()
+        .editor
+        .insert_str("/rename Pinned Name");
     app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE));
     assert!(app.tabs[0].custom_title);
     assert_eq!(app.tabs[0].title_source, TitleSource::Custom);
@@ -235,11 +237,17 @@ async fn test_respawn_external_opencode_hydrates_viewport_model_effort_and_usage
         .unwrap();
     assert_eq!(app.tabs[0].backend, BackendKind::OpenCode);
     assert_eq!(app.tabs[0].title, "External OpenCode Chat");
-    assert_eq!(app.cache.blocks().len(), 3);
-    assert_eq!(app.cache.blocks()[0].kind, BlockKind::User);
-    assert_eq!(app.cache.blocks()[1].kind, BlockKind::Thought);
-    assert_eq!(app.cache.blocks()[2].kind, BlockKind::Assistant);
-    assert_eq!(app.last_turn_usage.map(|u| u.input_tokens), Some(5000));
+    assert_eq!(app.active_tab().cache.blocks().len(), 3);
+    assert_eq!(app.active_tab().cache.blocks()[0].kind, BlockKind::User);
+    assert_eq!(app.active_tab().cache.blocks()[1].kind, BlockKind::Thought);
+    assert_eq!(
+        app.active_tab().cache.blocks()[2].kind,
+        BlockKind::Assistant
+    );
+    assert_eq!(
+        app.active_tab().last_turn_usage.map(|u| u.input_tokens),
+        Some(5000)
+    );
     let meta = app.session_manager.get_metadata(&new_id).unwrap();
     assert_eq!(
         meta.model.as_deref(),
@@ -265,22 +273,29 @@ fn test_approve_danger_enqueues_pending_engine_prompts_and_reject_clears_state()
     let sid = frontal::protocol::SessionId::new();
     manager.register_mock_session(sid.clone());
     let mut app = App::new_isolated(manager, sid.clone());
-    app.queued_prompts
+    app.active_tab_mut()
+        .queued_prompts
         .push_back(frontal::protocol::PromptPayload::from_text("queued-1"));
-    app.suspended_events
+    app.active_tab_mut()
+        .suspended_events
         .push(frontal::protocol::StreamEvent::Result(Default::default()));
     app.dispatch_modal_action(frontal::ui::modal::ModalAction::ApproveDanger);
     assert_eq!(app.pending_engine_prompts.len(), 1);
     assert_eq!(app.pending_engine_prompts[0].0, sid);
 
-    app.in_flight_usage = Some(frontal::protocol::TokenUsage::default());
-    app.turn_started_at = Some(std::time::Instant::now());
-    app.queued_prompts
+    app.active_tab_mut().in_flight_usage = Some(frontal::protocol::TokenUsage::default());
+    app.active_tab_mut().turn_started_at = Some(std::time::Instant::now());
+    app.active_tab_mut()
+        .queued_prompts
         .push_back(frontal::protocol::PromptPayload::from_text("queued-2"));
-    app.dispatch_modal_action(frontal::ui::modal::ModalAction::RejectDanger);
-    assert!(app.in_flight_usage.is_none());
-    assert!(app.turn_started_at.is_none());
-    assert!(app.queued_prompts.is_empty());
+    if let Some(Some(act)) =
+        app.dispatch_modal_action(frontal::ui::modal::ModalAction::RejectDanger)
+    {
+        app.apply_sync_action(&act);
+    }
+    assert!(app.active_tab().in_flight_usage.is_none());
+    assert!(app.active_tab().turn_started_at.is_none());
+    assert!(app.active_tab().queued_prompts.is_empty());
     assert_eq!(
         app.session_manager.get_metadata(&sid).unwrap().status,
         frontal::session::SessionStatus::Interrupted

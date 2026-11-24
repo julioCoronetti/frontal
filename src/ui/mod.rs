@@ -30,7 +30,9 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     let (models_tx, mut models_rx) = tokio::sync::mpsc::channel(1);
-    let engine_config = app.session_manager.get_engine_config(&app.active_session);
+    let engine_config = app
+        .session_manager
+        .get_engine_config(app.active_session_id());
     let agy_bin = engine_config
         .as_ref()
         .map(|config| config.agy_bin.clone())
@@ -93,13 +95,14 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(action) = app.handle_terminal_event(event) {
                         match action {
                             AppAction::SubmitPrompt(prompt) => {
-                                let mut session_id = app.active_session.clone();
+                                let mut session_id = app.active_session_id().clone();
                                 let ready = if app.session_manager.is_dormant(&session_id) {
                                     match app.respawn_active_session(None, None, None, None).await {
                                         Ok(new_id) => {
                                             session_id = new_id;
-                                            app.waiting_for_response = true;
-                                            app.status_text = String::from("Thinking...");
+                                            let tab = app.active_tab_mut();
+                                            tab.transition_turn(crate::ui::tab::TurnEvent::Submit);
+                                            tab.status_text = String::from("Thinking...");
                                             app.dirty = true;
                                             true
                                         }
@@ -122,7 +125,7 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                             AppAction::PasteClipboard => {
-                                let sid = app.active_session.clone();
+                                let sid = app.active_session_id().clone();
                                 let cache_dir = app.clipboard.resolve_media_cache_dir();
                                 let tx = paste_tx.clone();
                                 tokio::task::spawn_blocking(move || {
@@ -133,7 +136,7 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                                 });
                             }
                             AppAction::InspectPastedText(text) => {
-                                let sid = app.active_session.clone();
+                                let sid = app.active_session_id().clone();
                                 let cache_dir = app.clipboard.resolve_media_cache_dir();
                                 let tx = paste_tx.clone();
                                 tokio::task::spawn_blocking(move || {
@@ -166,12 +169,12 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                             AppAction::Interrupt => {
-                                let _ = app.session_manager.interrupt_active();
+                                app.apply_sync_action(&AppAction::Interrupt);
                             }
                             AppAction::NewTab => {
                                 let mut config = app
                                     .session_manager
-                                    .get_engine_config(&app.active_session)
+                                    .get_engine_config(app.active_session_id())
                                     .unwrap_or_default();
                                 config.conversation_id = None;
                                 config.model = Some(app.active_model_name());
@@ -184,9 +187,7 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                             AppAction::SwitchTab(idx) => {
-                                if app.active_tab_index != idx {
-                                    app.switch_tab(idx);
-                                }
+                                app.apply_sync_action(&AppAction::SwitchTab(idx));
                             }
                             AppAction::CloseTab(idx) => {
                                 let _ = app.close_tab(idx).await;
@@ -204,7 +205,8 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                                     .respawn_active_session(conversation_id, model, effort, mode)
                                     .await
                                 {
-                                    app.status_text = format!("Failed to respawn session: {}", err);
+                                    app.active_tab_mut().status_text =
+                                        format!("Failed to respawn session: {}", err);
                                     app.dirty = true;
                                 }
                             }
@@ -237,7 +239,7 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                 if timers_expired || titles_updated {
                     app.dirty = true;
                 }
-                let spinner_active = app.waiting_for_response
+                let spinner_active = app.active_tab().waiting_for_response
                     || app.tabs.iter().any(|t| {
                         t.waiting_for_response || t.cache.has_unconsolidated_blocks()
                     });
@@ -255,7 +257,7 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     guard.restore();
-    app.history.flush();
+    let _ = app.history.flush_with_timeout(Duration::from_millis(500));
     let _ = app
         .session_manager
         .shutdown_all(Duration::from_millis(500))

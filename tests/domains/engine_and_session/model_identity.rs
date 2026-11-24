@@ -188,7 +188,7 @@ for line in sys.stdin:
     let tab_sid = SessionId::new();
     app_mgr.register_mock_session(tab_sid.clone());
     let mut app = frontal::ui::app::App::new_isolated(app_mgr, tab_sid.clone());
-    app.backend = BackendKind::OpenCode;
+    app.active_tab_mut().backend = BackendKind::OpenCode;
     app.user_config.backend = BackendKind::OpenCode;
     app.user_config.mode = "accept-edits".to_string();
     app.pending_engine_prompts
@@ -198,10 +198,13 @@ for line in sys.stdin:
         .unwrap();
     assert!(app.pending_engine_prompts.is_empty());
 
-    app.cache.push_user_message("trigger reset");
+    app.active_tab_mut()
+        .cache
+        .push_user_message("trigger reset");
     app.user_config.mode = "accept-edits".to_string();
+    let sid = app.active_session_id().clone();
     app.session_manager.set_session_metadata(
-        &app.active_session,
+        &sid,
         None,
         None,
         None,

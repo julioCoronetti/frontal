@@ -38,7 +38,10 @@ impl App {
             area
         };
 
-        let is_welcome = self.cache.blocks_count() == 0 && !self.waiting_for_response;
+        let is_welcome = {
+            let tab = self.active_tab();
+            tab.cache.blocks_count() == 0 && !tab.waiting_for_response
+        };
         let show_sidebar = !is_welcome && self.sidebar_visible && padded_area.width >= 100;
         let main_width = if show_sidebar {
             padded_area
@@ -85,8 +88,9 @@ impl App {
             self.render_popover(frame, input_area, area, true);
         } else {
             let inner_w = main_width.saturating_sub(4) as usize;
-            let input_lines =
-                (input::visual_line_count(&self.editor.text(), inner_w) as u16).clamp(1, 8);
+            let input_lines = (input::visual_line_count(&self.active_tab().editor.text(), inner_w)
+                as u16)
+                .clamp(1, 8);
             let bottom_height = input_lines + 3;
             let body_chunks = Layout::default()
                 .direction(Direction::Vertical)

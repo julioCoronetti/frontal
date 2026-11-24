@@ -70,7 +70,7 @@ fn test_hero_welcome_centered_layout_and_version_footer() {
 #[test]
 fn test_hero_welcome_popover_anchored_below_and_clamped() {
     let (mut app, _) = test_app();
-    app.editor.insert_str("/");
+    app.active_tab_mut().editor.insert_str("/");
     app.update_autocomplete();
     assert!(app.popover.is_visible());
 
@@ -102,14 +102,14 @@ fn test_hero_welcome_popover_anchored_below_and_clamped() {
 fn test_hero_welcome_transition_on_first_prompt_both_backends() {
     for backend_kind in [BackendKind::Agy, BackendKind::OpenCode] {
         let (mut app, _) = test_app();
-        app.backend = backend_kind;
+        app.active_tab_mut().backend = backend_kind;
 
         let (_term_before, text_before) = render_app(&mut app, 120, 30);
         assert!(text_before.contains("▄▀▀▀▀▄"));
         assert!(text_before.contains(&app.cwd_display));
 
-        app.cache.push_user_message("first prompt");
-        app.waiting_for_response = true;
+        app.active_tab_mut().cache.push_user_message("first prompt");
+        app.active_tab_mut().waiting_for_response = true;
 
         let (term_after, text_after) = render_app(&mut app, 120, 30);
         let buf_after = term_after.backend().buffer();
@@ -129,7 +129,7 @@ fn test_hero_welcome_small_terminal_fallback_and_adversarial_sizes() {
         let (_term_plain, text_plain) = render_app(&mut app, w, h);
         assert!(text_plain.contains("▄▀▀▀▀▄"));
 
-        app.editor.insert_str("/");
+        app.active_tab_mut().editor.insert_str("/");
         app.update_autocomplete();
 
         let (term, _) = render_app(&mut app, w, h);
@@ -144,7 +144,7 @@ fn test_hero_welcome_small_terminal_fallback_and_adversarial_sizes() {
 
     let (mut app, _) = test_app();
     for _ in 0..10 {
-        app.editor.insert_str("line\n");
+        app.active_tab_mut().editor.insert_str("line\n");
     }
     let version_badge = format!("v{}", env!("CARGO_PKG_VERSION"));
     let (tight_hero, tight_text) = render_app(&mut app, 80, 16);
@@ -170,15 +170,17 @@ fn test_welcome_hero_and_chat_input_visual_wrapping_and_cursor() {
     let backend = TestBackend::new(120, 30);
     let mut terminal = Terminal::new(backend).unwrap();
 
-    app.editor.insert_str(&"b".repeat(72));
+    app.active_tab_mut().editor.insert_str(&"b".repeat(72));
     terminal.draw(|f| app.render(f)).unwrap();
     let row_b = find_row_containing(terminal.backend().buffer(), &"b".repeat(72))
         .expect("first wrapped input row");
     let cursor_exact = terminal.get_cursor_position().unwrap();
     assert_eq!(cursor_exact.y, row_b + 1);
 
-    app.editor.clear();
-    app.editor.insert_str(&format!("{}XYZ", "a".repeat(72)));
+    app.active_tab_mut().editor.clear();
+    app.active_tab_mut()
+        .editor
+        .insert_str(&format!("{}XYZ", "a".repeat(72)));
     terminal.draw(|f| app.render(f)).unwrap();
     let row_1 = find_row_containing(terminal.backend().buffer(), &"a".repeat(72))
         .expect("first row with 72 chars");
@@ -189,9 +191,11 @@ fn test_welcome_hero_and_chat_input_visual_wrapping_and_cursor() {
     assert_eq!(cursor_pos.y, row_2);
     assert!(cursor_pos.x > 0 && cursor_pos.x < 120);
 
-    app.cache.push_user_message("hello");
-    app.editor.clear();
-    app.editor.insert_str(&format!("{}TAIL", "c".repeat(76)));
+    app.active_tab_mut().cache.push_user_message("hello");
+    app.active_tab_mut().editor.clear();
+    app.active_tab_mut()
+        .editor
+        .insert_str(&format!("{}TAIL", "c".repeat(76)));
     let chat_backend = TestBackend::new(80, 24);
     let mut chat_terminal = Terminal::new(chat_backend).unwrap();
     chat_terminal.draw(|f| app.render(f)).unwrap();
@@ -210,15 +214,17 @@ fn test_welcome_scroll_extmark_wrap_and_clear_parity() {
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend).unwrap();
 
-    app.editor.insert_str("line1 ");
-    app.editor.insert_extmark(
+    app.active_tab_mut().editor.insert_str("line1 ");
+    app.active_tab_mut().editor.insert_extmark(
         frontal::ui::editor::ExtmarkKind::Media {
             mime_type: "image/png".to_string(),
             uri: "file:///tmp/x.png".to_string(),
         },
         "[Image #1]",
     );
-    app.editor.insert_str(&format!(" {}", "w".repeat(600)));
+    app.active_tab_mut()
+        .editor
+        .insert_str(&format!(" {}", "w".repeat(600)));
     terminal.draw(|f| app.render(f)).unwrap();
 
     let cursor = terminal.get_cursor_position().unwrap();
@@ -226,14 +232,14 @@ fn test_welcome_scroll_extmark_wrap_and_clear_parity() {
     assert!(cursor.x < 80);
     assert!(find_row_containing(terminal.backend().buffer(), "line1 [Image #1]").is_none());
 
-    app.steps_seen = 4;
-    app.turns_completed = 2;
-    app.last_turn_duration_seconds = Some(3.5);
+    app.active_tab_mut().steps_seen = 4;
+    app.active_tab_mut().turns_completed = 2;
+    app.active_tab_mut().last_turn_duration_seconds = Some(3.5);
     app.dispatch_modal_action(frontal::ui::modal::ModalAction::ExecuteCommand(
         "clear".to_string(),
     ));
-    assert_eq!(app.steps_seen, 0);
-    assert_eq!(app.turns_completed, 0);
-    assert!(app.last_turn_duration_seconds.is_none());
-    assert!(app.in_flight_usage.is_none());
+    assert_eq!(app.active_tab().steps_seen, 0);
+    assert_eq!(app.active_tab().turns_completed, 0);
+    assert!(app.active_tab().last_turn_duration_seconds.is_none());
+    assert!(app.active_tab().in_flight_usage.is_none());
 }

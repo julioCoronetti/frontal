@@ -5,8 +5,6 @@ mod respawn;
 mod stream;
 mod tabs;
 
-use std::ops::{Deref, DerefMut};
-
 use ratatui::layout::Rect;
 
 use crate::protocol::SessionId;
@@ -61,7 +59,6 @@ pub enum AppAction {
 
 pub struct App {
     pub session_manager: SessionManager,
-    pub active_session: SessionId,
     pub popover: AutocompletePopover,
     pub search_worker: FileSearchWorker,
     pub history: PromptHistory,
@@ -85,20 +82,6 @@ pub struct App {
     pub last_ctrl_c_at: Option<std::time::Instant>,
     pub pending_engine_prompts:
         std::collections::VecDeque<(crate::protocol::SessionId, crate::protocol::PromptPayload)>,
-}
-
-impl Deref for App {
-    type Target = TabState;
-
-    fn deref(&self) -> &Self::Target {
-        &self.tabs[self.active_tab_index]
-    }
-}
-
-impl DerefMut for App {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.tabs[self.active_tab_index]
-    }
 }
 
 impl App {
@@ -138,7 +121,6 @@ impl App {
 
         Self {
             session_manager,
-            active_session,
             popover: AutocompletePopover::new(),
             search_worker,
             history,
@@ -178,7 +160,6 @@ impl App {
 
         Self {
             session_manager,
-            active_session,
             popover: AutocompletePopover::new(),
             search_worker,
             history,
@@ -228,7 +209,7 @@ impl App {
                     .get_metadata(&tab.session_id)
                     .and_then(|m| m.conversation_id.clone());
                 let can_upgrade = !tab.custom_title
-                    && tab.title_source <= crate::infra::history::TitleSource::Semantic;
+                    && crate::infra::history::TitleSource::Semantic.can_override(tab.title_source);
                 if tab_cid.as_deref() == Some(cid.as_str()) && can_upgrade {
                     if tab.title != title {
                         tab.title = title.clone();
@@ -246,11 +227,12 @@ impl App {
     }
 
     pub fn active_model_spec(&self) -> crate::model_spec::ModelSpec {
-        let served = self.served_model.as_deref().unwrap_or("");
+        let tab = self.active_tab();
+        let served = tab.served_model.as_deref().unwrap_or("");
         let active = self.active_model_name();
         crate::model_spec::ModelSpec::resolve_with_catalog(
             &[served, active.as_str()],
-            self.context_window_hint,
+            tab.context_window_hint,
             &self.user_config.context_windows,
             Some(&self.model_catalog),
         )
@@ -272,7 +254,7 @@ impl App {
     pub fn active_model_name(&self) -> String {
         let model = self
             .session_manager
-            .get_metadata(&self.active_session)
+            .get_metadata(self.active_session_id())
             .and_then(|m| m.model.clone())
             .filter(|model| !model.trim().is_empty())
             .unwrap_or_else(|| self.user_config.model.clone());
@@ -281,14 +263,26 @@ impl App {
 
     pub fn active_mode_name(&self) -> String {
         self.session_manager
-            .get_metadata(&self.active_session)
+            .get_metadata(self.active_session_id())
             .and_then(|m| m.mode.clone())
             .unwrap_or_else(|| self.user_config.mode.clone())
     }
 
+    pub fn apply_sync_action(&mut self, action: &AppAction) {
+        match action {
+            AppAction::Interrupt => {
+                let _ = self.session_manager.interrupt_active();
+            }
+            AppAction::SwitchTab(idx) if self.active_tab_index != *idx => {
+                self.switch_tab(*idx);
+            }
+            _ => {}
+        }
+    }
+
     pub fn active_effort_name(&self) -> String {
         self.session_manager
-            .get_metadata(&self.active_session)
+            .get_metadata(self.active_session_id())
             .and_then(|m| m.effort.clone())
             .unwrap_or_else(|| self.user_config.effort.clone())
     }

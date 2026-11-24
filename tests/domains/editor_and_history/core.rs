@@ -1,13 +1,11 @@
-use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::backend::TestBackend;
-use ratatui::style::Modifier;
 use ratatui::Terminal;
 
 use frontal::ui::autocomplete::{AutocompletePopover, FileSearchWorker};
 use frontal::ui::editor::{ExtmarkKind, PromptEditor, TriggerKind};
 use frontal::ui::history::PromptHistory;
 
-use crate::common::{press_key, render_app, test_app, TempDirGuard};
+use crate::common::{test_app, TempDirGuard};
 
 #[test]
 fn test_prompt_editor_multiline_and_navigation() {
@@ -278,7 +276,8 @@ fn test_prompt_editor_visual_containment_and_shrink_no_residual_leakage() {
     let mut terminal = Terminal::new(backend).unwrap();
 
     for i in 0..5 {
-        app.editor
+        app.active_tab_mut()
+            .editor
             .insert_str(&format!("multiline text row {}\n", i));
     }
     terminal.draw(|f| app.render(f)).unwrap();
@@ -298,8 +297,8 @@ fn test_prompt_editor_visual_containment_and_shrink_no_residual_leakage() {
     }
     assert!(found_multiline);
 
-    app.editor.clear();
-    app.editor.insert_str("single line prompt");
+    app.active_tab_mut().editor.clear();
+    app.active_tab_mut().editor.insert_str("single line prompt");
     terminal.draw(|f| app.render(f)).unwrap();
 
     let buf_after = terminal.backend().buffer().clone();
@@ -324,9 +323,11 @@ fn test_prompt_editor_dynamic_scroll_and_cursor_containment() {
     let mut terminal = Terminal::new(backend).unwrap();
 
     for i in 0..10 {
-        app.editor.insert_str(&format!("line {}\n", i));
+        app.active_tab_mut()
+            .editor
+            .insert_str(&format!("line {}\n", i));
     }
-    app.editor.insert_str("last line");
+    app.active_tab_mut().editor.insert_str("last line");
 
     terminal.draw(|f| app.render(f)).unwrap();
 
@@ -355,7 +356,7 @@ fn test_adversarial_paste_and_selection_sanitization() {
     let (mut app, _) = test_app();
     let backend = TestBackend::new(20, 6);
     let mut terminal = Terminal::new(backend).unwrap();
-    app.editor.insert_str(&resolved);
+    app.active_tab_mut().editor.insert_str(&resolved);
     terminal.draw(|f| app.render(f)).unwrap();
 
     let pos = terminal.get_cursor_position().unwrap();
@@ -438,58 +439,4 @@ fn test_prompt_editor_range_deletion_preserves_extmarks_and_paste_registry() {
         editor.take_submitted_expanded(),
         Some(format!("inicio {} fim", pill_data))
     );
-}
-
-#[test]
-fn test_app_shortcuts_ctrl_a_ctrl_c_backspace_undo_and_ctrl_u() {
-    let (mut app, _) = test_app();
-    app.editor.insert_str("primeira linha\nsegunda linha");
-
-    app.handle_terminal_event(press_key(KeyCode::Char('a'), KeyModifiers::CONTROL));
-    assert!(app.editor.has_selection());
-    assert_eq!(
-        app.editor.selected_text(),
-        Some("primeira linha\nsegunda linha".to_string())
-    );
-
-    let (terminal, _) = render_app(&mut app, 80, 24);
-    let buf = terminal.backend().buffer();
-    let has_reversed = buf
-        .content()
-        .iter()
-        .any(|c| c.symbol() == "p" && c.modifier.contains(Modifier::REVERSED));
-    assert!(has_reversed);
-
-    app.handle_terminal_event(press_key(KeyCode::Char('c'), KeyModifiers::CONTROL));
-    assert_eq!(
-        app.clipboard.get_text(),
-        Some("primeira linha\nsegunda linha".to_string())
-    );
-    assert!(!app.editor.has_selection());
-    assert_eq!(app.editor.text(), "primeira linha\nsegunda linha");
-
-    app.handle_terminal_event(press_key(KeyCode::Char('a'), KeyModifiers::CONTROL));
-    app.handle_terminal_event(press_key(KeyCode::Backspace, KeyModifiers::NONE));
-    assert_eq!(app.editor.text(), "");
-
-    app.handle_terminal_event(press_key(KeyCode::Char('z'), KeyModifiers::CONTROL));
-    assert_eq!(app.editor.text(), "primeira linha\nsegunda linha");
-
-    app.editor.move_end();
-    app.handle_terminal_event(press_key(KeyCode::Char('u'), KeyModifiers::CONTROL));
-    assert_eq!(app.editor.text(), "primeira linha\n");
-
-    app.handle_terminal_event(press_key(KeyCode::Char('z'), KeyModifiers::CONTROL));
-    assert_eq!(app.editor.text(), "primeira linha\nsegunda linha");
-
-    app.handle_terminal_event(press_key(KeyCode::Char('c'), KeyModifiers::CONTROL));
-    assert_eq!(app.editor.text(), "");
-
-    app.handle_terminal_event(press_key(KeyCode::Char('z'), KeyModifiers::CONTROL));
-    assert_eq!(app.editor.text(), "primeira linha\nsegunda linha");
-
-    app.handle_terminal_event(press_key(KeyCode::Char('a'), KeyModifiers::CONTROL));
-    assert!(app.editor.has_selection());
-    app.handle_terminal_event(press_key(KeyCode::Esc, KeyModifiers::NONE));
-    assert!(!app.editor.has_selection());
 }

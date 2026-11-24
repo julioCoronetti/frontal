@@ -11,7 +11,7 @@ impl App {
         mode: Option<String>,
     ) -> Result<SessionId, crate::transport::EngineError> {
         let tab_idx = self.active_tab_index;
-        let old_id = self.active_session.clone();
+        let old_id = self.active_session_id().clone();
         let was_replay = self.session_manager.is_replay_session(&old_id);
         let base_engine_config = self.session_manager.get_engine_config(&old_id);
         let model = model
@@ -67,9 +67,7 @@ impl App {
             if let Some(ref cid) = final_conv_id {
                 let cid_clone = cid.clone();
                 let db_path = self.history.path().map(|path| path.to_path_buf());
-                let history_tx = self.history.write_tx_clone();
                 tokio::task::spawn_blocking(move || {
-                    crate::infra::history::PromptHistory::flush_db_from_tx(history_tx.as_ref());
                     crate::ui::history::hydrate_session_blocking(&cid_clone, db_path.as_deref())
                 })
                 .await
@@ -205,7 +203,7 @@ impl App {
                         self.session_manager
                             .save_dormant_metadata(old_id.clone(), meta, cfg);
                     }
-                    self.tabs[tab_idx].waiting_for_response = false;
+                    self.tabs[tab_idx].transition_turn(crate::ui::tab::TurnEvent::RespawnReset);
                     self.tabs[tab_idx].status_text = format!("Failed to respawn session: {}", err);
                     self.dirty = true;
                     return Err(err);
@@ -238,14 +236,10 @@ impl App {
                 let _ = config_to_save.save();
             });
         }
-        self.active_session = new_id.clone();
         self.session_manager.set_active_session(new_id.clone());
         self.tabs[tab_idx].session_id = new_id.clone();
         self.tabs[tab_idx].backend = target_backend;
-        self.tabs[tab_idx].waiting_for_response = false;
-        self.tabs[tab_idx].pending_danger = None;
-        self.tabs[tab_idx].suspended_events.clear();
-        self.tabs[tab_idx].queued_prompts.clear();
+        self.tabs[tab_idx].transition_turn(crate::ui::tab::TurnEvent::RespawnReset);
         self.modals.remove_danger_modal();
 
         if is_different_conv {

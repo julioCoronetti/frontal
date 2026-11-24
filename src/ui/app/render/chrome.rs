@@ -295,6 +295,7 @@ impl App {
 
     fn compact_context_gauge_spans(&self, footer_width: u16) -> Vec<Span<'static>> {
         let used_tokens = self
+            .active_tab()
             .last_turn_usage
             .as_ref()
             .map(|usage| usage.effective_total())
