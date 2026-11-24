@@ -166,8 +166,8 @@ pub fn parse_acp_line(line: &str) -> Result<Option<AcpIncoming>, ProtocolError> 
         serde_json::from_str(trimmed).map_err(|e| ProtocolError::Deserialization(e.to_string()))?;
     if let Some(method) = val.get("method").and_then(Value::as_str) {
         let params = val.get("params").cloned().unwrap_or(Value::Null);
-        if let Some(id) = val.get("id").cloned() {
-            if !id.is_null() && method == "session/request_permission" {
+        if let Some(id) = val.get("id").filter(|v| !v.is_null()).cloned() {
+            if method == "session/request_permission" {
                 let session_id = params
                     .get("sessionId")
                     .and_then(Value::as_str)
@@ -208,14 +208,15 @@ pub fn parse_acp_line(line: &str) -> Result<Option<AcpIncoming>, ProtocolError> 
 
 pub fn select_permission_option_id(options: &[AcpPermissionOption]) -> Option<String> {
     for preferred_kind in ["allow_always", "allow_once", "allow"] {
-        if let Some(opt) = options
-            .iter()
-            .find(|o| o.kind.as_deref() == Some(preferred_kind))
-        {
+        if let Some(opt) = options.iter().find(|o| {
+            o.kind
+                .as_deref()
+                .is_some_and(|k| k.eq_ignore_ascii_case(preferred_kind))
+        }) {
             return Some(opt.option_id.clone());
         }
     }
-    options.first().map(|o| o.option_id.clone())
+    None
 }
 
 pub fn format_permission_response(

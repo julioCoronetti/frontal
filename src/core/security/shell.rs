@@ -1,7 +1,21 @@
 use super::sql::{check_sql_statement, is_likely_sql};
 use super::{danger_assessment, DangerAssessment, RiskCategory};
 
+const MAX_EVAL_DEPTH: usize = 8;
+
 pub fn evaluate_command(raw: &str) -> Option<DangerAssessment> {
+    evaluate_command_with_depth(raw, 0)
+}
+
+fn evaluate_command_with_depth(raw: &str, depth: usize) -> Option<DangerAssessment> {
+    if depth >= MAX_EVAL_DEPTH {
+        return Some(danger_assessment(
+            RiskCategory::RecursiveDeletion,
+            raw,
+            "nested subshell".to_string(),
+            "Nested subshell evaluation depth limit exceeded",
+        ));
+    }
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return None;
@@ -13,7 +27,7 @@ pub fn evaluate_command(raw: &str) -> Option<DangerAssessment> {
     }
     split_shell_segments(trimmed)
         .into_iter()
-        .find_map(|seg| evaluate_shell_segment(seg, trimmed))
+        .find_map(|seg| evaluate_shell_segment_with_depth(seg, trimmed, depth))
 }
 
 pub fn split_shell_segments(cmd: &str) -> Vec<&str> {
@@ -92,6 +106,51 @@ pub fn tokenize_words(segment: &str) -> Vec<String> {
 }
 
 pub fn evaluate_shell_segment(seg: &str, full_cmd: &str) -> Option<DangerAssessment> {
+    evaluate_shell_segment_with_depth(seg, full_cmd, 0)
+}
+
+fn extract_subshell_command(args: &[String]) -> Option<&str> {
+    let mut i = 0;
+    let mut saw_c = false;
+    while i < args.len() {
+        let arg = &args[i];
+        if arg == "--" {
+            return if saw_c {
+                args.get(i + 1).map(String::as_str)
+            } else {
+                None
+            };
+        }
+        if matches!(arg.as_str(), "--rcfile" | "--init-file") {
+            i += 2;
+            continue;
+        }
+        if arg.starts_with("--") {
+            i += 1;
+            continue;
+        }
+        if (arg.starts_with('-') || arg.starts_with('+')) && arg.len() > 1 {
+            let flags = &arg[1..];
+            if arg.starts_with('-') && flags.contains('c') {
+                saw_c = true;
+            }
+            if flags.contains('o') || flags.contains('O') {
+                i += 2;
+                continue;
+            }
+            i += 1;
+            continue;
+        }
+        return if saw_c { Some(arg.as_str()) } else { None };
+    }
+    None
+}
+
+fn evaluate_shell_segment_with_depth(
+    seg: &str,
+    full_cmd: &str,
+    depth: usize,
+) -> Option<DangerAssessment> {
     let raw_words = tokenize_words(seg);
     if raw_words.is_empty() {
         return None;
@@ -125,9 +184,10 @@ pub fn evaluate_shell_segment(seg: &str, full_cmd: &str) -> Option<DangerAssessm
     if is_safe_read_command(&exe) {
         return None;
     }
-    if matches!(exe.as_str(), "sh" | "bash" | "zsh" | "dash") && args.len() >= 2 && args[0] == "-c"
-    {
-        return evaluate_command(&args[1]);
+    if matches!(exe.as_str(), "sh" | "bash" | "zsh" | "dash") {
+        if let Some(inner) = extract_subshell_command(args) {
+            return evaluate_command_with_depth(inner, depth + 1);
+        }
     }
     if exe == "rm"
         && args.iter().any(|a| {

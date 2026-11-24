@@ -1,19 +1,12 @@
 use super::{danger_assessment, DangerAssessment, RiskCategory};
 
 pub fn is_likely_sql(raw: &str) -> bool {
-    let mut s = raw.trim();
-    while s.starts_with("--") || s.starts_with("/*") {
-        s = if s.starts_with("--") {
-            s.find('\n').map(|p| &s[p + 1..]).unwrap_or("").trim()
-        } else {
-            s.find("*/").map(|p| &s[p + 2..]).unwrap_or("").trim()
-        };
-    }
-    let first = s.split_whitespace().next().unwrap_or("");
-    matches!(
-        first.to_ascii_uppercase().as_str(),
-        "SELECT" | "INSERT" | "UPDATE" | "DELETE" | "DROP" | "TRUNCATE" | "ALTER" | "CREATE"
-    )
+    tokenize_sql(raw).first().is_some_and(|first| {
+        matches!(
+            first.to_ascii_uppercase().as_str(),
+            "SELECT" | "INSERT" | "UPDATE" | "DELETE" | "DROP" | "TRUNCATE" | "ALTER" | "CREATE"
+        )
+    })
 }
 
 pub fn check_sql_statement(raw: &str) -> Option<DangerAssessment> {
@@ -69,23 +62,43 @@ pub fn check_sql_statement(raw: &str) -> Option<DangerAssessment> {
 fn tokenize_sql(raw: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
-    let (mut in_single, mut in_comment) = (false, false);
+    let (mut in_single, mut in_line_comment, mut in_block_comment) = (false, false, false);
     let chars: Vec<char> = raw.chars().collect();
     let len = chars.len();
     let mut i = 0;
 
     while i < len {
         let ch = chars[i];
-        if in_comment {
+        if in_line_comment {
             if ch == '\n' {
-                in_comment = false;
+                in_line_comment = false;
             }
             i += 1;
             continue;
         }
+        if in_block_comment {
+            if ch == '*' && i + 1 < len && chars[i + 1] == '/' {
+                in_block_comment = false;
+                i += 2;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+        if !in_single && ch == '/' && i + 1 < len && chars[i + 1] == '*' {
+            if !current.is_empty() {
+                tokens.push(std::mem::take(&mut current));
+            }
+            in_block_comment = true;
+            i += 2;
+            continue;
+        }
         if !in_single && ((ch == '-' && i + 1 < len && chars[i + 1] == '-') || ch == '#') {
-            in_comment = true;
-            i += 1;
+            if !current.is_empty() {
+                tokens.push(std::mem::take(&mut current));
+            }
+            in_line_comment = true;
+            i += if ch == '-' { 2 } else { 1 };
             continue;
         }
         if ch == '\'' {
