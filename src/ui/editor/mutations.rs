@@ -336,3 +336,27 @@ impl PromptEditor {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replace_range_with_extmark_removes_overwritten_paste_id_before_undo() {
+        let mut ed = PromptEditor::new();
+        ed.insert_paste("1\n2\n3\n4\n5\n6");
+        assert_eq!(ed.paste_registry.len(), 1);
+        let len = ed.text().chars().count();
+        ed.replace_range_with_extmark(
+            0,
+            len,
+            ExtmarkKind::FileMention {
+                path: "x".to_string(),
+            },
+            "@x",
+        );
+        assert!(ed.paste_registry.is_empty());
+        assert!(ed.undo());
+        assert_eq!(ed.paste_registry.len(), 1);
+    }
+}

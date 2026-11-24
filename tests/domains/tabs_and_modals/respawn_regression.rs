@@ -203,14 +203,20 @@ async fn dormant_respawn_preserves_unpersisted_user_prompt_block() {
     app.history.flush();
 
     let conn = rusqlite::Connection::open(&db_path).unwrap();
-    let count: i64 = conn
+    let msgs_count: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM messages WHERE conversation_id = 'conv-dormant-persist' AND role = 'user' AND content = 'new dormant prompt'",
             [],
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(count, 1);
+    assert_eq!(msgs_count, 1);
+
+    let _ = app
+        .respawn_active_session(Some("conv-other".to_string()), None, None, None)
+        .await
+        .unwrap();
+    assert_eq!(app.tabs[0].persisted_block_id, 0);
 }
 
 #[test]
@@ -223,6 +229,10 @@ fn process_exited_and_prompt_failure_clear_turn_telemetry() {
 
     app.tabs[0].waiting_for_response = true;
     app.tabs[0].turn_started_at = Some(std::time::Instant::now());
+    app.tabs[0].in_flight_usage = Some(TokenUsage {
+        input_tokens: 5,
+        ..Default::default()
+    });
     app.handle_engine_envelope(SessionEnvelope {
         session_id: sid.clone(),
         event: EngineEvent::ProcessExited {
@@ -231,6 +241,7 @@ fn process_exited_and_prompt_failure_clear_turn_telemetry() {
         },
     });
     assert!(app.tabs[0].turn_started_at.is_none());
+    assert!(app.tabs[0].in_flight_usage.is_none());
     assert!(!app.tabs[0].waiting_for_response);
 
     app.tabs[0].waiting_for_response = true;
