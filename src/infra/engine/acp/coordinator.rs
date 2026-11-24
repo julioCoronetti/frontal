@@ -1,9 +1,12 @@
 use serde_json::json;
 use std::collections::{HashSet, VecDeque};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
-use tokio::process::ChildStdin;
-use tokio::sync::{mpsc, RwLock};
+use std::time::Duration;
+use tokio::process::{Child, ChildStdin};
+use tokio::sync::{mpsc, Mutex, RwLock};
 
+use super::super::process::shutdown_isolated_child;
 use super::setup::spawn_stdin_writer;
 use super::{AcpCommand, WireEvent};
 use crate::protocol::acp::{
@@ -30,7 +33,10 @@ pub(super) struct CoordinatorCtx {
     pub(super) conversation_id: Arc<RwLock<String>>,
     pub(super) config: EngineConfig,
     pub(super) cwd: String,
-    child_pid: Option<u32>,
+    child: Arc<Mutex<Option<Child>>>,
+    child_pid: Arc<AtomicU32>,
+    stderr_tail: Arc<Mutex<VecDeque<String>>>,
+    shutting_down: Arc<AtomicBool>,
     stdin_tx: Option<mpsc::UnboundedSender<String>>,
     pub(super) sender: mpsc::Sender<SessionEnvelope>,
     next_id: u64,
@@ -46,12 +52,16 @@ pub(super) struct CoordinatorCtx {
 }
 
 impl CoordinatorCtx {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         session_id: SessionId,
         conversation_id: Arc<RwLock<String>>,
         config: EngineConfig,
         cwd: String,
-        child_pid: Option<u32>,
+        child: Arc<Mutex<Option<Child>>>,
+        child_pid: Arc<AtomicU32>,
+        stderr_tail: Arc<Mutex<VecDeque<String>>>,
+        shutting_down: Arc<AtomicBool>,
         stdin: Option<ChildStdin>,
         sender: mpsc::Sender<SessionEnvelope>,
     ) -> Self {
@@ -63,7 +73,10 @@ impl CoordinatorCtx {
             conversation_id,
             config,
             cwd,
+            child,
             child_pid,
+            stderr_tail,
+            shutting_down,
             stdin_tx,
             sender,
             next_id: 1,
@@ -167,6 +180,81 @@ impl CoordinatorCtx {
             AcpIncoming::Unknown => {}
         }
     }
+
+    async fn emit_error_result(&self, message: &str) {
+        let err_result = StreamEvent::Result(ResultEvent {
+            conversation_id: self.acp_session_id.clone(),
+            result: Some(ResultData {
+                conversation_id: self.acp_session_id.clone(),
+                status: Some(ResultStatus::Error),
+                error: Some(message.to_string()),
+                model: self.served_model.clone(),
+                context_window: self.stream_state.context_window_hint,
+                ..Default::default()
+            }),
+        });
+        self.send_stream_event(err_result).await;
+    }
+
+    async fn handle_unexpected_eof(&mut self) {
+        if self.shutting_down.load(Ordering::Acquire) {
+            return;
+        }
+        if matches!(
+            self.phase,
+            HandshakePhase::InitSent(_)
+                | HandshakePhase::LoadSent(_)
+                | HandshakePhase::NewSent(_)
+                | HandshakePhase::SetupPending(_)
+        ) {
+            self.fail_handshake("ACP process exited before handshake completed".to_string())
+                .await;
+        } else {
+            if self.active_prompt_id.take().is_some() {
+                self.emit_error_result("ACP process exited mid-turn").await;
+            }
+            while self.queued_prompts.pop_front().is_some() {
+                self.emit_error_result("ACP process exited mid-turn").await;
+            }
+            self.phase = HandshakePhase::Failed;
+        }
+
+        if let Some(mut child) = self.child.lock().await.take() {
+            match tokio::time::timeout(Duration::from_secs(2), child.wait()).await {
+                Ok(Ok(status)) => {
+                    let pid = self.child_pid.swap(0, Ordering::AcqRel);
+                    #[cfg(unix)]
+                    if pid != 0 {
+                        unsafe {
+                            libc::killpg(pid as libc::pid_t, libc::SIGKILL);
+                        }
+                    }
+                    let tail = self.stderr_tail.lock().await.iter().cloned().collect();
+                    let _ = self
+                        .sender
+                        .send(SessionEnvelope {
+                            session_id: self.session_id.clone(),
+                            event: EngineEvent::ProcessExited {
+                                code: status.code(),
+                                stderr_tail: tail,
+                            },
+                        })
+                        .await;
+                }
+                _ => {
+                    let _ = shutdown_isolated_child(
+                        &mut child,
+                        Duration::from_millis(200),
+                        &self.stderr_tail,
+                        &self.session_id,
+                        &self.sender,
+                    )
+                    .await;
+                    self.child_pid.store(0, Ordering::Release);
+                }
+            }
+        }
+    }
 }
 
 pub(super) async fn run_coordinator(
@@ -192,6 +280,7 @@ pub(super) async fn run_coordinator(
         }),
     );
     if !ctx.write_request(&init_req) {
+        ctx.handle_unexpected_eof().await;
         return;
     }
 
@@ -226,8 +315,11 @@ pub(super) async fn run_coordinator(
                         if let Some(sid) = ctx.acp_session_id.clone() {
                             let notif = AcpNotification::new("session/cancel", json!({ "sessionId": sid }));
                             let _ = ctx.write_notification(&notif);
-                        } else if let Some(pid) = ctx.child_pid {
-                            unsafe { libc::killpg(pid as libc::pid_t, libc::SIGINT); }
+                        } else {
+                            let pid = ctx.child_pid.load(Ordering::Acquire);
+                            if pid != 0 {
+                                unsafe { libc::killpg(pid as libc::pid_t, libc::SIGINT); }
+                            }
                         }
                     }
                     AcpCommand::CloseStdin => {
@@ -247,7 +339,10 @@ pub(super) async fn run_coordinator(
                             event: EngineEvent::ProtocolError { message, raw_preview },
                         }).await;
                     }
-                    WireEvent::Eof => break,
+                    WireEvent::Eof => {
+                        ctx.handle_unexpected_eof().await;
+                        break;
+                    }
                 }
             }
             else => break,

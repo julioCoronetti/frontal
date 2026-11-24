@@ -145,12 +145,11 @@ impl SessionManager {
         Ok(session_id)
     }
 
-    pub async fn create_replay_session(
+    async fn insert_replay_engine(
         &mut self,
-        path: &Path,
-        mode: ReplayMode,
+        session_id: SessionId,
+        mut replay: FixtureReplayEngine,
     ) -> Result<SessionId, EngineError> {
-        let session_id = SessionId::new();
         let metadata = SessionMetadata {
             session_id: session_id.clone(),
             conversation_id: None,
@@ -161,8 +160,6 @@ impl SessionManager {
             last_prompt: None,
             status: SessionStatus::Ready,
         };
-        let mut replay =
-            FixtureReplayEngine::from_file(session_id.clone(), path, mode, self.tx.clone())?;
         replay.start().await?;
         self.sessions.insert(
             session_id.clone(),
@@ -177,36 +174,26 @@ impl SessionManager {
         Ok(session_id)
     }
 
+    pub async fn create_replay_session(
+        &mut self,
+        path: &Path,
+        mode: ReplayMode,
+    ) -> Result<SessionId, EngineError> {
+        let session_id = SessionId::new();
+        let replay =
+            FixtureReplayEngine::from_file(session_id.clone(), path, mode, self.tx.clone())?;
+        self.insert_replay_engine(session_id, replay).await
+    }
+
     pub async fn create_replay_session_from_lines(
         &mut self,
         lines: Vec<String>,
         mode: ReplayMode,
     ) -> Result<SessionId, EngineError> {
         let session_id = SessionId::new();
-        let metadata = SessionMetadata {
-            session_id: session_id.clone(),
-            conversation_id: None,
-            model: Some("replay-mock".to_string()),
-            mode: Some("replay".to_string()),
-            effort: None,
-            turns: 0,
-            last_prompt: None,
-            status: SessionStatus::Ready,
-        };
-        let mut replay =
+        let replay =
             FixtureReplayEngine::from_lines(session_id.clone(), lines, mode, self.tx.clone());
-        replay.start().await?;
-        self.sessions.insert(
-            session_id.clone(),
-            SessionHandle {
-                metadata,
-                engine: FrontalEngine::Replay(replay),
-            },
-        );
-        if self.active_session_id.is_none() {
-            self.active_session_id = Some(session_id.clone());
-        }
-        Ok(session_id)
+        self.insert_replay_engine(session_id, replay).await
     }
 
     pub fn active_session_id(&self) -> Option<&SessionId> {
@@ -268,9 +255,22 @@ impl SessionManager {
         self.dormant_metadata.contains_key(session_id)
     }
 
-    pub fn set_session_status(&mut self, session_id: &SessionId, status: SessionStatus) {
+    fn metadata_and_cfg_mut(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Option<(&mut SessionMetadata, Option<&mut EngineConfig>)> {
         if let Some(h) = self.sessions.get_mut(session_id) {
-            h.metadata.status = status;
+            Some((&mut h.metadata, None))
+        } else {
+            self.dormant_metadata
+                .get_mut(session_id)
+                .map(|(m, c)| (m, Some(c)))
+        }
+    }
+
+    pub fn set_session_status(&mut self, session_id: &SessionId, status: SessionStatus) {
+        if let Some((meta, _)) = self.metadata_and_cfg_mut(session_id) {
+            meta.status = status;
         }
     }
 
@@ -282,26 +282,33 @@ impl SessionManager {
         effort: Option<String>,
         mode: Option<String>,
     ) {
-        if let Some(h) = self.sessions.get_mut(session_id) {
-            if conv_id.is_some() {
-                h.metadata.conversation_id = conv_id;
-            }
-            if model.is_some() {
-                h.metadata.model = model;
-            }
-            if effort.is_some() {
-                h.metadata.effort = effort;
-            }
-            if mode.is_some() {
-                h.metadata.mode = mode;
+        if let Some((m, mut cfg)) = self.metadata_and_cfg_mut(session_id) {
+            let m_f = [
+                &mut m.conversation_id,
+                &mut m.model,
+                &mut m.effort,
+                &mut m.mode,
+            ];
+            for (i, val) in [conv_id, model, effort, mode].into_iter().enumerate() {
+                if let Some(v) = val {
+                    *m_f[i] = Some(v.clone());
+                    if let Some(ref mut c) = cfg {
+                        *[
+                            &mut c.conversation_id,
+                            &mut c.model,
+                            &mut c.effort,
+                            &mut c.mode,
+                        ][i] = Some(v);
+                    }
+                }
             }
         }
     }
 
     pub fn set_session_prompt(&mut self, session_id: &SessionId, prompt: &str) {
-        if let Some(h) = self.sessions.get_mut(session_id) {
-            if h.metadata.last_prompt.is_none() {
-                h.metadata.last_prompt = Some(prompt.to_string());
+        if let Some((meta, _)) = self.metadata_and_cfg_mut(session_id) {
+            if meta.last_prompt.is_none() {
+                meta.last_prompt = Some(prompt.to_string());
             }
         }
     }
@@ -340,15 +347,23 @@ impl SessionManager {
             .sessions
             .get_mut(session_id)
             .ok_or(EngineError::ProcessNotRunning)?;
+        if handle.metadata.status == SessionStatus::Closed {
+            return Err(EngineError::ProcessNotRunning);
+        }
         if handle.metadata.status == SessionStatus::Interrupted {
             return Ok(());
         }
+        let prev_status = handle.metadata.status;
         handle.metadata.status = SessionStatus::Interrupted;
-        match &mut handle.engine {
+        let res = match &mut handle.engine {
             FrontalEngine::Acp(engine) => engine.interrupt(),
             FrontalEngine::OpenCode(engine) => engine.interrupt(),
             FrontalEngine::Replay(engine) => engine.interrupt(),
+        };
+        if res.is_err() {
+            handle.metadata.status = prev_status;
         }
+        res
     }
 
     pub fn interrupt_active(&mut self) -> Result<(), EngineError> {
@@ -448,15 +463,14 @@ impl SessionManager {
                         handle.metadata.status = SessionStatus::Ready;
                     }
                     StreamEvent::StepUpdate(update_ev) => {
+                        let step_cid = update_ev
+                            .step_update
+                            .as_ref()
+                            .and_then(|u| u.conversation_id.as_deref());
                         if let Some(conv_id) = update_ev
                             .conversation_id
                             .as_deref()
-                            .or_else(|| {
-                                update_ev
-                                    .step_update
-                                    .as_ref()
-                                    .and_then(|u| u.conversation_id.as_deref())
-                            })
+                            .or(step_cid)
                             .filter(|id| !id.is_empty())
                         {
                             handle.metadata.conversation_id = Some(conv_id.to_string());

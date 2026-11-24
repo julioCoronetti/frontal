@@ -4,6 +4,7 @@ mod setup;
 
 use std::collections::VecDeque;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::process::{Child, ChildStdout};
@@ -43,7 +44,9 @@ pub struct AcpEngine {
     conversation_id: Arc<RwLock<String>>,
     config: EngineConfig,
     cmd_tx: mpsc::Sender<AcpCommand>,
-    child: Child,
+    child: Arc<Mutex<Option<Child>>>,
+    child_pid: Arc<AtomicU32>,
+    shutting_down: Arc<AtomicBool>,
     sender: mpsc::Sender<SessionEnvelope>,
     stderr_tail: Arc<Mutex<VecDeque<String>>>,
 }
@@ -63,11 +66,13 @@ impl AcpEngine {
 
         let args = config.build_acp_args();
         let mut child = spawn_piped_isolated(&config.agy_bin, &args, config.cwd.as_deref())?;
-        let child_pid = child.id();
+        let child_pid = Arc::new(AtomicU32::new(child.id().unwrap_or(0)));
+        let shutting_down = Arc::new(AtomicBool::new(false));
 
         let stdin = child.stdin.take();
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
+        let child = Arc::new(Mutex::new(Some(child)));
 
         let (cmd_tx, cmd_rx) = mpsc::channel(64);
         let (wire_tx, wire_rx) = mpsc::channel(256);
@@ -91,7 +96,10 @@ impl AcpEngine {
             Arc::clone(&conversation_id),
             config.clone(),
             cwd,
-            child_pid,
+            Arc::clone(&child),
+            Arc::clone(&child_pid),
+            Arc::clone(&stderr_tail),
+            Arc::clone(&shutting_down),
             stdin,
             sender.clone(),
         );
@@ -104,6 +112,8 @@ impl AcpEngine {
             config,
             cmd_tx,
             child,
+            child_pid,
+            shutting_down,
             sender,
             stderr_tail,
         })
@@ -152,7 +162,8 @@ impl AcpEngine {
         if self.cmd_tx.try_send(AcpCommand::CancelTurn).is_ok() {
             return Ok(());
         }
-        if let Some(pid) = self.child.id() {
+        let pid = self.child_pid.load(Ordering::Acquire);
+        if pid != 0 {
             unsafe {
                 libc::killpg(pid as libc::pid_t, libc::SIGINT);
             }
@@ -163,15 +174,32 @@ impl AcpEngine {
     }
 
     pub async fn shutdown(&mut self, grace: Duration) -> Result<Option<i32>, EngineError> {
+        self.shutdown_with_sender(grace, None).await
+    }
+
+    async fn shutdown_with_sender(
+        &mut self,
+        grace: Duration,
+        override_sender: Option<&mpsc::Sender<SessionEnvelope>>,
+    ) -> Result<Option<i32>, EngineError> {
+        self.shutting_down.store(true, Ordering::Release);
         let _ = self.cmd_tx.send(AcpCommand::CloseStdin).await;
-        shutdown_isolated_child(
-            &mut self.child,
-            grace,
-            &self.stderr_tail,
-            &self.session_id,
-            &self.sender,
-        )
-        .await
+        let maybe_child = self.child.lock().await.take();
+        if let Some(mut child) = maybe_child {
+            let target_sender = override_sender.unwrap_or(&self.sender);
+            let res = shutdown_isolated_child(
+                &mut child,
+                grace,
+                &self.stderr_tail,
+                &self.session_id,
+                target_sender,
+            )
+            .await;
+            self.child_pid.store(0, Ordering::Release);
+            res
+        } else {
+            Ok(None)
+        }
     }
 
     pub async fn reconfigure(&mut self, new_config: EngineConfig) -> Result<(), EngineError> {
@@ -180,17 +208,34 @@ impl AcpEngine {
         if final_config.conversation_id.is_none() {
             final_config.conversation_id = Some(current_conv_id);
         }
-        let _ = self.shutdown(Duration::from_millis(500)).await;
+        self.shutting_down.store(true, Ordering::Release);
         let new_engine =
-            Self::spawn(self.session_id.clone(), final_config, self.sender.clone()).await?;
-        *self = new_engine;
+            match Self::spawn(self.session_id.clone(), final_config, self.sender.clone()).await {
+                Ok(engine) => engine,
+                Err(err) => {
+                    self.shutting_down.store(false, Ordering::Release);
+                    if self.cmd_tx.is_closed() {
+                        let _ = self.shutdown(Duration::from_millis(200)).await;
+                    }
+                    return Err(err);
+                }
+            };
+        let mut old_engine = std::mem::replace(self, new_engine);
+        let (discard_tx, _discard_rx) = mpsc::channel(1);
+        let _ = old_engine
+            .shutdown_with_sender(Duration::from_millis(500), Some(&discard_tx))
+            .await;
         Ok(())
     }
 }
 
 impl Drop for AcpEngine {
     fn drop(&mut self) {
-        kill_pgid_sigterm(self.child.id());
+        self.shutting_down.store(true, Ordering::Release);
+        let pid = self.child_pid.load(Ordering::Acquire);
+        if pid != 0 {
+            kill_pgid_sigterm(Some(pid));
+        }
     }
 }
 

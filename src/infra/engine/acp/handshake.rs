@@ -69,11 +69,14 @@ impl CoordinatorCtx {
             }
             HandshakePhase::SetupPending(pending) if pending.contains(&id) => {
                 pending.remove(&id);
-                if error.is_some() {
-                    if let Some((mode_id, fallback)) = self.mode_setup_fallback.take() {
-                        if mode_id == id {
-                            self.served_mode = Some(fallback);
-                        }
+                if error.is_some()
+                    && self
+                        .mode_setup_fallback
+                        .as_ref()
+                        .is_some_and(|(mode_id, _)| *mode_id == id)
+                {
+                    if let Some((_, fallback)) = self.mode_setup_fallback.take() {
+                        self.served_mode = Some(fallback);
                     }
                 }
                 if pending.is_empty() {
@@ -103,7 +106,7 @@ impl CoordinatorCtx {
         }
     }
 
-    async fn fail_handshake(&mut self, message: String) {
+    pub(super) async fn fail_handshake(&mut self, message: String) {
         self.phase = HandshakePhase::Failed;
         self.buffered_updates.clear();
         let _ = self
