@@ -145,8 +145,6 @@ const LEGACY_ALLOWLIST: &[(&str, BoundaryRule)] = &[
     ("src/core/protocol/mod.rs", BoundaryRule::CoreStdFs),
     ("src/ui/app/respawn.rs", BoundaryRule::UiSesPrefixHeuristic),
     ("src/ui/autocomplete.rs", BoundaryRule::UiStdFs),
-    ("src/ui/history.rs", BoundaryRule::UiStdFs),
-    ("src/ui/history.rs", BoundaryRule::UiSesPrefixHeuristic),
     ("src/ui/modal/usage/cli.rs", BoundaryRule::UiStdProcess),
     ("src/ui/modal/usage/cli.rs", BoundaryRule::UiLibc),
     ("src/ui/modal/usage/cli.rs", BoundaryRule::UiStdFs),

@@ -93,7 +93,9 @@ impl PromptHistory {
             }
             let existing_source = normalize_title_source(&existing.title, existing.title_source);
             if existing.title.is_some()
-                && (existing_source >= record.title_source || record.title.is_none())
+                && (!record.title_source.can_override(existing_source)
+                    || existing_source == record.title_source
+                    || record.title.is_none())
             {
                 record.title = existing.title.clone();
                 record.title_source = existing_source;
@@ -109,7 +111,8 @@ impl PromptHistory {
                 if let Some((cached_title, cached_source)) = self.cached_agent_entry(cid) {
                     if cached_source == TitleSource::Custom
                         || (record.title_source != TitleSource::Custom
-                            && cached_source > record.title_source)
+                            && cached_source.can_override(record.title_source)
+                            && cached_source != record.title_source)
                     {
                         record.title = Some(cached_title);
                         record.title_source = cached_source;
@@ -137,6 +140,8 @@ impl PromptHistory {
         }
         if let Some(ref tx) = self.write_tx {
             let _ = tx.send(HistoryCommand::RecordSession(record));
+        } else {
+            self.publish_in_memory_snapshot();
         }
     }
 
@@ -157,6 +162,8 @@ impl PromptHistory {
                 id: id_or_conv.to_string(),
                 timestamp: now,
             });
+        } else {
+            self.publish_in_memory_snapshot();
         }
     }
 
@@ -189,7 +196,7 @@ impl PromptHistory {
                 if resolved_cid.is_none() {
                     resolved_cid = s.conversation_id.clone().filter(|c| !c.trim().is_empty());
                 }
-                if source == TitleSource::Custom || source >= s.title_source {
+                if source == TitleSource::Custom || source.can_override(s.title_source) {
                     s.title = Some(trimmed.to_string());
                     s.title_source = source;
                 }
@@ -221,6 +228,8 @@ impl PromptHistory {
                 title: trimmed.to_string(),
                 source,
             });
+        } else {
+            self.publish_in_memory_snapshot();
         }
     }
 
@@ -262,6 +271,8 @@ impl PromptHistory {
                 conv_id: norm.to_string(),
                 title: trimmed.to_string(),
             });
+        } else {
+            self.publish_in_memory_snapshot();
         }
     }
 
@@ -334,6 +345,8 @@ impl PromptHistory {
             let _ = tx.send(HistoryCommand::DeleteSession {
                 keys: keys.into_iter().collect(),
             });
+        } else {
+            self.publish_in_memory_snapshot();
         }
     }
 
@@ -349,7 +362,9 @@ impl PromptHistory {
             while let Ok(item) = rx.try_recv() {
                 let norm = item.0.strip_prefix("ext-").unwrap_or(&item.0);
                 for s in &mut self.sessions {
-                    if matches_id(s, &item.0, norm) && s.title_source <= TitleSource::Semantic {
+                    if matches_id(s, &item.0, norm)
+                        && TitleSource::Semantic.can_override(s.title_source)
+                    {
                         s.title = Some(item.1.clone());
                         s.title_source = TitleSource::Semantic;
                     }

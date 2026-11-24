@@ -3,11 +3,15 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
+use tokio::sync::watch;
 
 pub mod agent;
 mod api;
 mod external;
+mod hydrate;
 pub mod messages;
+mod migrations;
 pub mod opencode;
 mod session_types;
 mod sessions;
@@ -17,12 +21,22 @@ pub mod transcript;
 mod worker;
 
 pub use agent::*;
+pub use hydrate::{
+    conversation_title, load_hydration_data, load_transcript_blocks_and_usage,
+    resolve_session_telemetry, HydrationData,
+};
 pub use messages::{
     conversation_messages_at, conversation_title_at, default_history_path, StoredMessage,
 };
 pub use session_types::{format_relative_time, infer_backend, SessionRecord, TitleSource};
 pub use telemetry::TelemetrySnapshot;
 pub use transcript::*;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct HistorySnapshot {
+    pub version: u64,
+    pub sessions: Vec<SessionRecord>,
+}
 
 pub enum HistoryCommand {
     Record(String),
@@ -68,6 +82,8 @@ pub struct PromptHistory {
     agent_cache: Arc<RwLock<Vec<SessionRecord>>>,
     agent_updates_rx: Option<Receiver<(String, String)>>,
     deleted_ids: HashSet<String>,
+    snapshot_tx: watch::Sender<Arc<HistorySnapshot>>,
+    _snapshot_rx: watch::Receiver<Arc<HistorySnapshot>>,
 }
 
 impl PromptHistory {
@@ -120,6 +136,10 @@ impl PromptHistory {
                 }
             }
         }
+        let (snapshot_tx, _snapshot_rx) = watch::channel(Arc::new(HistorySnapshot {
+            version: 0,
+            sessions: sessions.clone(),
+        }));
         worker::spawn_history_worker(
             db_path.to_path_buf(),
             rx,
@@ -130,6 +150,7 @@ impl PromptHistory {
             pinned_titles,
             known_models,
             deleted_ids.clone(),
+            snapshot_tx.clone(),
         );
 
         Ok(Self {
@@ -142,6 +163,8 @@ impl PromptHistory {
             agent_cache,
             agent_updates_rx: Some(agent_updates_rx),
             deleted_ids,
+            snapshot_tx,
+            _snapshot_rx,
         })
     }
 
@@ -150,6 +173,10 @@ impl PromptHistory {
         worker::init_connection(&conn)?;
         let entries = Self::load_recent_entries(&conn, 500)?;
         let sessions = Self::load_recent_sessions(&conn, 500)?;
+        let (snapshot_tx, _snapshot_rx) = watch::channel(Arc::new(HistorySnapshot {
+            version: 0,
+            sessions: sessions.clone(),
+        }));
 
         Ok(Self {
             entries,
@@ -161,6 +188,8 @@ impl PromptHistory {
             agent_cache: Arc::new(RwLock::new(Vec::new())),
             agent_updates_rx: None,
             deleted_ids: HashSet::new(),
+            snapshot_tx,
+            _snapshot_rx,
         })
     }
 
@@ -210,34 +239,37 @@ impl PromptHistory {
         self.draft_backup = None;
     }
 
-    pub fn flush(&self) {
-        self.send_flush(true);
+    pub fn snapshot(&self) -> Arc<HistorySnapshot> {
+        self.snapshot_tx.borrow().clone()
     }
 
-    pub(crate) fn write_tx_clone(&self) -> Option<Sender<HistoryCommand>> {
-        self.write_tx.clone()
-    }
-
-    pub(crate) fn flush_db_from_tx(tx: Option<&Sender<HistoryCommand>>) {
-        if let Some(tx) = tx {
-            let (done_tx, done_rx) = channel();
-            if tx
-                .send(HistoryCommand::Flush {
-                    wait_external: false,
-                    done_tx,
-                })
-                .is_ok()
-            {
-                let _ = done_rx.recv();
-            }
+    pub(super) fn publish_in_memory_snapshot(&self) {
+        if self.write_tx.is_none() {
+            let next_ver = self.snapshot_tx.borrow().version.saturating_add(1);
+            let _ = self.snapshot_tx.send(Arc::new(HistorySnapshot {
+                version: next_ver,
+                sessions: self.sessions.clone(),
+            }));
         }
     }
 
-    fn flush_db(&self) {
-        Self::flush_db_from_tx(self.write_tx.as_ref());
+    pub fn subscribe(&self) -> watch::Receiver<Arc<HistorySnapshot>> {
+        self.snapshot_tx.subscribe()
     }
 
-    fn send_flush(&self, wait_external: bool) {
+    pub fn flush(&self) {
+        let _ = self.flush_with_timeout(Duration::from_millis(2000));
+    }
+
+    pub fn flush_with_timeout(&self, timeout: Duration) -> bool {
+        self.send_flush_timeout(true, timeout)
+    }
+
+    fn flush_db(&self) {
+        let _ = self.send_flush_timeout(false, Duration::from_millis(500));
+    }
+
+    fn send_flush_timeout(&self, wait_external: bool, timeout: Duration) -> bool {
         if let Some(ref tx) = self.write_tx {
             let (done_tx, done_rx) = channel();
             if tx
@@ -247,9 +279,10 @@ impl PromptHistory {
                 })
                 .is_ok()
             {
-                let _ = done_rx.recv();
+                return done_rx.recv_timeout(timeout).is_ok();
             }
         }
+        true
     }
 
     pub fn path(&self) -> Option<&Path> {

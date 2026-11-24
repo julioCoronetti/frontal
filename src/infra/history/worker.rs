@@ -6,76 +6,16 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection};
+use tokio::sync::watch;
 
 use super::sessions::{is_deleted_key, is_deleted_record};
 use super::{
-    agent, external, messages, sync, telemetry, HistoryCommand, SessionRecord, TitleSource,
+    agent, external, messages, migrations, sync, telemetry, HistoryCommand, HistorySnapshot,
+    PromptHistory, SessionRecord, TitleSource,
 };
 
 pub(super) fn init_connection(conn: &Connection) -> Result<(), rusqlite::Error> {
-    conn.busy_timeout(Duration::from_millis(5000))?;
-    conn.execute_batch(
-        "PRAGMA journal_mode = WAL;
-         PRAGMA synchronous = NORMAL;
-         CREATE TABLE IF NOT EXISTS prompt_history (
-             id INTEGER PRIMARY KEY AUTOINCREMENT,
-             prompt TEXT NOT NULL,
-             created_at INTEGER NOT NULL
-         );
-         CREATE TABLE IF NOT EXISTS sessions (
-             id TEXT PRIMARY KEY,
-             conversation_id TEXT,
-             backend TEXT,
-             model TEXT,
-             mode TEXT,
-             effort TEXT,
-             title TEXT,
-             title_source INTEGER NOT NULL DEFAULT 0,
-             created_at INTEGER NOT NULL
-         );
-         CREATE TABLE IF NOT EXISTS deleted_sessions (
-             conversation_id TEXT PRIMARY KEY,
-             deleted_at INTEGER NOT NULL
-         );
-         CREATE TABLE IF NOT EXISTS messages (
-             id INTEGER PRIMARY KEY AUTOINCREMENT,
-             conversation_id TEXT NOT NULL,
-             role TEXT NOT NULL,
-             content TEXT NOT NULL,
-             tool_name TEXT,
-             tool_args TEXT,
-             step_index INTEGER,
-             turn_meta TEXT,
-             created_at INTEGER NOT NULL
-         );
-         CREATE INDEX IF NOT EXISTS idx_messages_conversation
-             ON messages(conversation_id, id);",
-    )?;
-    telemetry::ensure_schema(conn)?;
-    let _ = conn.execute("ALTER TABLE sessions ADD COLUMN effort TEXT", []);
-    let _ = conn.execute("ALTER TABLE sessions ADD COLUMN title TEXT", []);
-    let _ = conn.execute(
-        "ALTER TABLE sessions ADD COLUMN custom_title INTEGER NOT NULL DEFAULT 0",
-        [],
-    );
-    let _ = conn.execute("ALTER TABLE sessions ADD COLUMN backend TEXT", []);
-    let _ = conn.execute(
-        "ALTER TABLE sessions ADD COLUMN title_source INTEGER NOT NULL DEFAULT 0",
-        [],
-    );
-    let _ = conn.execute("ALTER TABLE messages ADD COLUMN turn_meta TEXT", []);
-    let _ = conn.execute_batch(
-        "UPDATE sessions SET title_source = 3 WHERE custom_title != 0 AND title_source < 3;
-         UPDATE sessions SET title_source = 2
-             WHERE custom_title = 0 AND title_source = 0
-               AND title IS NOT NULL AND title != '' AND title != 'New session';
-         UPDATE sessions SET backend = CASE
-             WHEN conversation_id LIKE 'ses_%' THEN 'opencode'
-             ELSE 'agy'
-         END
-         WHERE backend IS NULL AND conversation_id IS NOT NULL AND conversation_id != '';",
-    );
-    Ok(())
+    migrations::migrate(conn)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -89,12 +29,24 @@ pub(super) fn spawn_history_worker(
     mut pinned_titles: std::collections::HashMap<String, String>,
     known_models: std::collections::HashMap<String, (Option<String>, Option<String>)>,
     mut deleted_ids: HashSet<String>,
+    snapshot_tx: watch::Sender<Arc<HistorySnapshot>>,
 ) {
     thread::spawn(move || {
         let Ok(bg_conn) = Connection::open(&bg_path) else {
             return;
         };
         let _ = bg_conn.busy_timeout(Duration::from_millis(5000));
+        let mut snapshot_version: u64 = 0;
+        let publish_snapshot = |conn: &Connection, deleted: &HashSet<String>, ver: &mut u64| {
+            if let Ok(mut list) = PromptHistory::load_recent_sessions(conn, 500) {
+                list.retain(|s| !is_deleted_record(s, deleted));
+                *ver = ver.saturating_add(1);
+                let _ = snapshot_tx.send(Arc::new(HistorySnapshot {
+                    version: *ver,
+                    sessions: list,
+                }));
+            }
+        };
         pinned_titles.extend(sync::load_pinned_titles(&bg_conn));
         let mut probed_empty = std::collections::HashSet::new();
         if agent_db_path.is_some() || opencode_db_path.is_some() {
@@ -134,12 +86,14 @@ pub(super) fn spawn_history_worker(
                         agent_db_path.as_deref(),
                         opencode_db_path.as_deref(),
                     );
+                    publish_snapshot(&bg_conn, &deleted_ids, &mut snapshot_version);
                 }
                 HistoryCommand::TouchSession { id, timestamp } => {
                     let _ = bg_conn.execute(
                         "UPDATE sessions SET created_at = ?1 WHERE id = ?2 OR conversation_id = ?2",
                         params![timestamp, id],
                     );
+                    publish_snapshot(&bg_conn, &deleted_ids, &mut snapshot_version);
                 }
                 HistoryCommand::RenameSession { id, title, source } => {
                     let norm = id.strip_prefix("ext-").unwrap_or(&id);
@@ -191,6 +145,7 @@ pub(super) fn spawn_history_worker(
                             params![title, source.as_i64(), id, norm],
                         );
                     }
+                    publish_snapshot(&bg_conn, &deleted_ids, &mut snapshot_version);
                 }
                 HistoryCommand::RenameAgentTitle { conv_id, title } => {
                     let cid = conv_id.strip_prefix("ext-").unwrap_or(&conv_id).to_string();
@@ -233,6 +188,7 @@ pub(super) fn spawn_history_worker(
                         TitleSource::Custom,
                         0,
                     );
+                    publish_snapshot(&bg_conn, &deleted_ids, &mut snapshot_version);
                 }
                 HistoryCommand::RefreshAgent(maybe_cid) => {
                     sync::handle_refresh_agent(
@@ -246,6 +202,7 @@ pub(super) fn spawn_history_worker(
                         &agent_updates_tx,
                         &mut probed_empty,
                     );
+                    publish_snapshot(&bg_conn, &deleted_ids, &mut snapshot_version);
                 }
                 HistoryCommand::AppendMessages {
                     conversation_id,
@@ -273,6 +230,7 @@ pub(super) fn spawn_history_worker(
                         opencode_db_path.is_some(),
                         &mut pending_deletes,
                     );
+                    publish_snapshot(&bg_conn, &deleted_ids, &mut snapshot_version);
                 }
                 HistoryCommand::Flush {
                     wait_external,
