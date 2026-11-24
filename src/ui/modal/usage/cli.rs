@@ -17,45 +17,35 @@ pub(super) fn run_bounded_command(
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        let parent_pid = unsafe { libc::getpid() };
-        cmd.process_group(0);
-        unsafe {
-            cmd.pre_exec(move || {
-                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
-                if libc::getppid() != parent_pid {
-                    libc::_exit(1);
-                }
-                Ok(())
-            });
-        }
-    }
-
-    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-    let pid = child.id() as i32;
-    crate::engine::register_child_pgid(pid);
+    let (mut child, guard) =
+        crate::engine::spawn_std_isolated(&mut cmd).map_err(|e| e.to_string())?;
+    let pgid = guard.pgid();
+    let guard = std::sync::Arc::new(std::sync::Mutex::new(Some(guard)));
+    let thread_guard = std::sync::Arc::clone(&guard);
 
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         if let (Some(bytes), Some(mut stdin)) = (stdin_data, child.stdin.take()) {
             use std::io::Write;
             if let Err(err) = stdin.write_all(&bytes) {
-                #[cfg(unix)]
-                unsafe {
-                    libc::killpg(pid, libc::SIGKILL);
+                if let Ok(mut g) = thread_guard.lock() {
+                    if let Some(mut guard) = g.take() {
+                        guard.kill_sigkill_and_disarm();
+                    }
                 }
                 #[cfg(not(unix))]
                 let _ = child.kill();
                 let _ = child.wait();
-                crate::engine::unregister_child_pgid(pid);
                 let _ = tx.send(Err(err));
                 return;
             }
         }
         let out = child.wait_with_output();
-        crate::engine::unregister_child_pgid(pid);
+        if let Ok(mut g) = thread_guard.lock() {
+            if let Some(mut guard) = g.take() {
+                guard.disarm();
+            }
+        }
         let _ = tx.send(out);
     });
 
@@ -66,17 +56,27 @@ pub(super) fn run_bounded_command(
                 return res.map_err(|e| e.to_string());
             }
             #[cfg(unix)]
-            unsafe {
-                libc::killpg(pid, libc::SIGTERM);
+            if pgid > 0 {
+                unsafe {
+                    libc::killpg(pgid, libc::SIGTERM);
+                }
                 if rx.recv_timeout(Duration::from_millis(50)).is_err() {
-                    libc::killpg(pid, libc::SIGKILL);
+                    if let Ok(mut g) = guard.lock() {
+                        if let Some(mut guard) = g.take() {
+                            guard.kill_sigkill_and_disarm();
+                        }
+                    }
                     let _ = rx.recv_timeout(Duration::from_millis(100));
                 }
             }
             Err("command timed out".to_string())
         }
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            crate::engine::unregister_child_pgid(pid);
+            if let Ok(mut g) = guard.lock() {
+                if let Some(mut guard) = g.take() {
+                    guard.disarm();
+                }
+            }
             Err("command wait thread disconnected".to_string())
         }
     }

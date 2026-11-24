@@ -5,7 +5,7 @@ mod setup;
 use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 use tokio::process::{Child, ChildStdout};
 use tokio::sync::{mpsc, Mutex, RwLock};
@@ -14,7 +14,7 @@ use tokio_util::codec::{FramedRead, LinesCodec, LinesCodecError};
 use futures_util::StreamExt;
 
 use super::process::{
-    kill_pgid_sigterm, shutdown_isolated_child, spawn_piped_isolated, spawn_stderr_tail_task,
+    shutdown_isolated_child, spawn_piped_isolated, spawn_stderr_tail_task, ProcessGroupGuard,
 };
 use crate::protocol::acp::{encode_base64, parse_acp_line, AcpContentBlock, AcpIncoming};
 use crate::protocol::{
@@ -46,6 +46,7 @@ pub struct AcpEngine {
     cmd_tx: mpsc::Sender<AcpCommand>,
     child: Arc<Mutex<Option<Child>>>,
     child_pid: Arc<AtomicU32>,
+    pgid_guard: Arc<StdMutex<Option<ProcessGroupGuard>>>,
     shutting_down: Arc<AtomicBool>,
     sender: mpsc::Sender<SessionEnvelope>,
     stderr_tail: Arc<Mutex<VecDeque<String>>>,
@@ -65,8 +66,10 @@ impl AcpEngine {
         let stderr_tail = Arc::new(Mutex::new(VecDeque::with_capacity(256)));
 
         let args = config.build_acp_args();
-        let mut child = spawn_piped_isolated(&config.agy_bin, &args, config.cwd.as_deref())?;
+        let (mut child, guard) =
+            spawn_piped_isolated(&config.agy_bin, &args, config.cwd.as_deref())?;
         let child_pid = Arc::new(AtomicU32::new(child.id().unwrap_or(0)));
+        let pgid_guard = Arc::new(StdMutex::new(Some(guard)));
         let shutting_down = Arc::new(AtomicBool::new(false));
 
         let stdin = child.stdin.take();
@@ -98,6 +101,7 @@ impl AcpEngine {
             cwd,
             Arc::clone(&child),
             Arc::clone(&child_pid),
+            Arc::clone(&pgid_guard),
             Arc::clone(&stderr_tail),
             Arc::clone(&shutting_down),
             stdin,
@@ -113,6 +117,7 @@ impl AcpEngine {
             cmd_tx,
             child,
             child_pid,
+            pgid_guard,
             shutting_down,
             sender,
             stderr_tail,
@@ -187,8 +192,10 @@ impl AcpEngine {
         let maybe_child = self.child.lock().await.take();
         if let Some(mut child) = maybe_child {
             let target_sender = override_sender.unwrap_or(&self.sender);
+            let mut guard = self.pgid_guard.lock().ok().and_then(|mut g| g.take());
             let res = shutdown_isolated_child(
                 &mut child,
+                guard.as_mut(),
                 grace,
                 &self.stderr_tail,
                 &self.session_id,
@@ -232,9 +239,9 @@ impl AcpEngine {
 impl Drop for AcpEngine {
     fn drop(&mut self) {
         self.shutting_down.store(true, Ordering::Release);
-        let pid = self.child_pid.load(Ordering::Acquire);
-        if pid != 0 {
-            kill_pgid_sigterm(Some(pid));
+        self.child_pid.store(0, Ordering::Release);
+        if let Ok(mut g) = self.pgid_guard.lock() {
+            drop(g.take());
         }
     }
 }

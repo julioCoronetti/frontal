@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use futures_util::StreamExt;
@@ -9,7 +9,7 @@ use tokio::process::{ChildStderr, Command};
 use tokio::sync::{mpsc, Notify, RwLock};
 use tokio_util::codec::{FramedRead, LinesCodec};
 
-use super::{register_child_pgid, unregister_child_pgid};
+use super::process::{spawn_tokio_isolated, ProcessGroupGuard};
 use crate::protocol::{
     parse_engine_line, EngineEvent, ErrorEvent, InitEvent, PromptPayload, ProtocolError,
     ResultData, ResultEvent, ResultStatus, SessionEnvelope, SessionId, StreamEvent, TokenUsage,
@@ -21,6 +21,7 @@ pub struct OpenCodeEngine {
     config: EngineConfig,
     conversation_id: Arc<RwLock<Option<String>>>,
     active_pgid: Arc<AtomicI32>,
+    pgid_guard: Arc<StdMutex<Option<ProcessGroupGuard>>>,
     pgid_notify: Arc<Notify>,
     sender: mpsc::Sender<SessionEnvelope>,
 }
@@ -45,6 +46,7 @@ impl OpenCodeEngine {
             config,
             conversation_id: Arc::new(RwLock::new(initial_conversation)),
             active_pgid: Arc::new(AtomicI32::new(0)),
+            pgid_guard: Arc::new(StdMutex::new(None)),
             pgid_notify: Arc::new(Notify::new()),
             sender,
         }
@@ -94,7 +96,6 @@ impl OpenCodeEngine {
         let current_conversation = self.conversation_id.read().await.clone();
         let args =
             build_opencode_payload_args(&self.config, current_conversation.as_deref(), &payload);
-        let parent_pid = unsafe { libc::getpid() };
         let mut cmd = Command::new(&self.config.opencode_bin);
         cmd.args(&args)
             .stdin(Stdio::null())
@@ -106,19 +107,7 @@ impl OpenCodeEngine {
             cmd.current_dir(dir);
         }
 
-        cmd.process_group(0);
-
-        unsafe {
-            cmd.pre_exec(move || {
-                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
-                if libc::getppid() != parent_pid {
-                    libc::_exit(1);
-                }
-                Ok(())
-            });
-        }
-
-        let mut child = cmd.spawn().map_err(|e| {
+        let (mut child, guard) = spawn_tokio_isolated(&mut cmd).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 EngineError::ProcessNotFound(self.config.opencode_bin.display().to_string())
             } else {
@@ -126,9 +115,11 @@ impl OpenCodeEngine {
             }
         })?;
 
-        let pgid = child.id().map(|pid| pid as i32).unwrap_or(0);
+        let pgid = guard.pgid();
         self.active_pgid.store(pgid, Ordering::Release);
-        register_child_pgid(pgid);
+        if let Ok(mut g) = self.pgid_guard.lock() {
+            *g = Some(guard);
+        }
 
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
@@ -136,6 +127,7 @@ impl OpenCodeEngine {
         let session_id = self.session_id.clone();
         let conversation_id = Arc::clone(&self.conversation_id);
         let active_pgid = Arc::clone(&self.active_pgid);
+        let pgid_guard = Arc::clone(&self.pgid_guard);
         let pgid_notify = Arc::clone(&self.pgid_notify);
 
         tokio::spawn(async move {
@@ -192,7 +184,11 @@ impl OpenCodeEngine {
             }
 
             let exit_status = child.wait().await;
-            unregister_child_pgid(pgid);
+            if let Ok(mut g) = pgid_guard.lock() {
+                if let Some(mut guard) = g.take() {
+                    guard.disarm();
+                }
+            }
             let cleared = active_pgid
                 .compare_exchange(pgid, 0, Ordering::Release, Ordering::Relaxed)
                 .is_ok();
@@ -261,7 +257,11 @@ impl OpenCodeEngine {
                 }
                 let _ = self.wait_for_pgid_clear(Duration::from_millis(500)).await;
             }
-            unregister_child_pgid(pgid);
+            if let Ok(mut g) = self.pgid_guard.lock() {
+                if let Some(mut guard) = g.take() {
+                    guard.disarm();
+                }
+            }
             let _ =
                 self.active_pgid
                     .compare_exchange(pgid, 0, Ordering::Release, Ordering::Relaxed);
@@ -283,12 +283,9 @@ impl OpenCodeEngine {
 
 impl Drop for OpenCodeEngine {
     fn drop(&mut self) {
-        let pgid = self.active_pgid.load(Ordering::Acquire);
-        if pgid > 0 {
-            unregister_child_pgid(pgid);
-            unsafe {
-                libc::killpg(pgid, libc::SIGTERM);
-            }
+        self.active_pgid.store(0, Ordering::Release);
+        if let Ok(mut g) = self.pgid_guard.lock() {
+            drop(g.take());
         }
     }
 }

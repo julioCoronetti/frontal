@@ -1,12 +1,12 @@
 use serde_json::json;
 use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 use tokio::process::{Child, ChildStdin};
 use tokio::sync::{mpsc, Mutex, RwLock};
 
-use super::super::process::shutdown_isolated_child;
+use super::super::process::{shutdown_isolated_child, ProcessGroupGuard};
 use super::setup::spawn_stdin_writer;
 use super::{AcpCommand, WireEvent};
 use crate::protocol::acp::{
@@ -35,6 +35,7 @@ pub(super) struct CoordinatorCtx {
     pub(super) cwd: String,
     child: Arc<Mutex<Option<Child>>>,
     child_pid: Arc<AtomicU32>,
+    pgid_guard: Arc<StdMutex<Option<ProcessGroupGuard>>>,
     stderr_tail: Arc<Mutex<VecDeque<String>>>,
     shutting_down: Arc<AtomicBool>,
     stdin_tx: Option<mpsc::UnboundedSender<String>>,
@@ -60,6 +61,7 @@ impl CoordinatorCtx {
         cwd: String,
         child: Arc<Mutex<Option<Child>>>,
         child_pid: Arc<AtomicU32>,
+        pgid_guard: Arc<StdMutex<Option<ProcessGroupGuard>>>,
         stderr_tail: Arc<Mutex<VecDeque<String>>>,
         shutting_down: Arc<AtomicBool>,
         stdin: Option<ChildStdin>,
@@ -75,6 +77,7 @@ impl CoordinatorCtx {
             cwd,
             child,
             child_pid,
+            pgid_guard,
             stderr_tail,
             shutting_down,
             stdin_tx,
@@ -222,12 +225,15 @@ impl CoordinatorCtx {
         if let Some(mut child) = self.child.lock().await.take() {
             match tokio::time::timeout(Duration::from_secs(2), child.wait()).await {
                 Ok(Ok(status)) => {
-                    let pid = self.child_pid.swap(0, Ordering::AcqRel);
-                    #[cfg(unix)]
-                    if pid != 0 {
-                        unsafe {
-                            libc::killpg(pid as libc::pid_t, libc::SIGKILL);
-                        }
+                    self.child_pid.store(0, Ordering::Release);
+                    if let Some(mut guard) = self
+                        .pgid_guard
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .take()
+                    {
+                        guard.signal(libc::SIGTERM);
+                        guard.disarm();
                     }
                     let tail = self.stderr_tail.lock().await.iter().cloned().collect();
                     let _ = self
@@ -242,8 +248,14 @@ impl CoordinatorCtx {
                         .await;
                 }
                 _ => {
+                    let mut guard = self
+                        .pgid_guard
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .take();
                     let _ = shutdown_isolated_child(
                         &mut child,
+                        guard.as_mut(),
                         Duration::from_millis(200),
                         &self.stderr_tail,
                         &self.session_id,

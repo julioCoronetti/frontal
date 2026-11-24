@@ -15,19 +15,7 @@ fn run_command_bounded(program: &str, args: &[&str], max_bytes: usize) -> Option
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::setpgid(0, 0);
-                Ok(())
-            });
-        }
-    }
-    let mut child = cmd.spawn().ok()?;
-    #[cfg(unix)]
-    let pid = child.id() as libc::pid_t;
+    let (mut child, mut guard) = crate::engine::spawn_std_isolated(&mut cmd).ok()?;
     let stdout = child.stdout.take()?;
     let reader = std::thread::spawn(move || {
         let mut buf = Vec::new();
@@ -38,18 +26,12 @@ fn run_command_bounded(program: &str, args: &[&str], max_bytes: usize) -> Option
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                #[cfg(unix)]
-                unsafe {
-                    libc::killpg(pid, libc::SIGKILL);
-                }
+                guard.disarm();
                 break status;
             }
             Ok(None) => {
                 if Instant::now() >= deadline {
-                    #[cfg(unix)]
-                    unsafe {
-                        libc::killpg(pid, libc::SIGKILL);
-                    }
+                    guard.kill_sigkill_and_disarm();
                     let _ = child.kill();
                     let _ = child.wait();
                     let _ = reader.join();
@@ -58,10 +40,7 @@ fn run_command_bounded(program: &str, args: &[&str], max_bytes: usize) -> Option
                 std::thread::sleep(Duration::from_millis(15));
             }
             Err(_) => {
-                #[cfg(unix)]
-                unsafe {
-                    libc::killpg(pid, libc::SIGKILL);
-                }
+                guard.kill_sigkill_and_disarm();
                 let _ = child.kill();
                 let _ = child.wait();
                 let _ = reader.join();

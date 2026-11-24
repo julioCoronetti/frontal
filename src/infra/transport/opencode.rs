@@ -166,25 +166,8 @@ pub fn run_opencode_command_with_bin(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        let parent_pid = unsafe { libc::getpid() };
-        cmd.process_group(0);
-        unsafe {
-            cmd.pre_exec(move || {
-                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
-                if libc::getppid() != parent_pid {
-                    libc::_exit(1);
-                }
-                Ok(())
-            });
-        }
-    }
-
-    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-    let pid = child.id() as i32;
-    crate::engine::register_child_pgid(pid);
+    let (mut child, mut guard) =
+        crate::engine::spawn_std_isolated(&mut cmd).map_err(|e| e.to_string())?;
 
     let stdout_pipe = child.stdout.take();
     let stderr_pipe = child.stderr.take();
@@ -228,33 +211,22 @@ pub fn run_opencode_command_with_bin(
 
     let status = match exited {
         Some(Ok(status)) => {
-            #[cfg(unix)]
-            unsafe {
-                libc::killpg(pid, libc::SIGKILL);
-            }
-            crate::engine::unregister_child_pgid(pid);
+            guard.kill_sigkill_and_disarm();
             status
         }
         Some(Err(err)) => {
-            #[cfg(unix)]
-            unsafe {
-                libc::killpg(pid, libc::SIGKILL);
-            }
+            guard.kill_sigkill_and_disarm();
             #[cfg(not(unix))]
             {
                 let _ = child.kill();
             }
             let _ = child.wait();
-            crate::engine::unregister_child_pgid(pid);
             let _ = stdout_handle.join();
             let _ = stderr_handle.join();
             return Err(err.to_string());
         }
         None => {
-            #[cfg(unix)]
-            unsafe {
-                libc::killpg(pid, libc::SIGTERM);
-            }
+            guard.signal(libc::SIGTERM);
             let sigterm_deadline = Instant::now() + Duration::from_millis(50);
             let mut terminated = false;
             while Instant::now() < sigterm_deadline {
@@ -264,10 +236,7 @@ pub fn run_opencode_command_with_bin(
                 }
                 std::thread::sleep(Duration::from_millis(5));
             }
-            #[cfg(unix)]
-            unsafe {
-                libc::killpg(pid, libc::SIGKILL);
-            }
+            guard.kill_sigkill_and_disarm();
             if !terminated {
                 #[cfg(not(unix))]
                 {
@@ -275,7 +244,6 @@ pub fn run_opencode_command_with_bin(
                 }
                 let _ = child.wait();
             }
-            crate::engine::unregister_child_pgid(pid);
             let _ = stdout_handle.join();
             let _ = stderr_handle.join();
             return Err(format!("opencode {} timed out", args.join(" ")));
