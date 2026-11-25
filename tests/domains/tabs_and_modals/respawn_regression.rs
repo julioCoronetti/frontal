@@ -72,7 +72,6 @@ fn protocol_error_consolidates_active_turn_and_clears_telemetry() {
         .append_streaming_delta(BlockKind::Assistant, "partial");
     app.active_tab_mut()
         .transition_turn(frontal::ui::tab::TurnEvent::Submit);
-    app.active_tab_mut().turn_started_at = Some(std::time::Instant::now());
 
     app.handle_engine_envelope(SessionEnvelope {
         session_id: sid,
@@ -82,7 +81,7 @@ fn protocol_error_consolidates_active_turn_and_clears_telemetry() {
         },
     });
     assert!(!app.active_tab().cache.has_unconsolidated_blocks());
-    assert!(app.active_tab().turn_started_at.is_none());
+    assert!(app.active_tab().turn_started_at().is_none());
     assert!(app.active_tab().in_flight_usage.is_none());
     assert!(!app.active_tab().is_waiting_for_response());
 }
@@ -236,7 +235,6 @@ fn process_exited_and_prompt_failure_clear_turn_telemetry() {
     let mut app = App::new_isolated(manager, sid.clone());
 
     app.tabs[0].transition_turn(frontal::ui::tab::TurnEvent::Submit);
-    app.tabs[0].turn_started_at = Some(std::time::Instant::now());
     app.tabs[0].in_flight_usage = Some(TokenUsage {
         input_tokens: 5,
         ..Default::default()
@@ -248,18 +246,17 @@ fn process_exited_and_prompt_failure_clear_turn_telemetry() {
             stderr_tail: Vec::new(),
         },
     });
-    assert!(app.tabs[0].turn_started_at.is_none());
+    assert!(app.tabs[0].turn_started_at().is_none());
     assert!(app.tabs[0].in_flight_usage.is_none());
     assert!(!app.tabs[0].is_waiting_for_response());
 
     app.tabs[0].transition_turn(frontal::ui::tab::TurnEvent::Submit);
-    app.tabs[0].turn_started_at = Some(std::time::Instant::now());
     app.tabs[0].in_flight_usage = Some(TokenUsage {
         input_tokens: 10,
         ..Default::default()
     });
     app.handle_prompt_failure(&sid, "boom");
     assert!(app.tabs[0].in_flight_usage.is_none());
-    assert!(app.tabs[0].turn_started_at.is_none());
+    assert!(app.tabs[0].turn_started_at().is_none());
     assert!(!app.tabs[0].is_waiting_for_response());
 }

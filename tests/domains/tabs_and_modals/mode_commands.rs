@@ -134,11 +134,11 @@ fn test_rename_command_and_title_synchronization() {
     assert_eq!(app.active_tab().status_text, "Usage: /rename <title>");
     assert_eq!(app.tabs[0].title, "Architectural Refactoring");
 
-    let clean = frontal::ui::history::clean_session_title(
+    let clean = frontal::infra::history::clean_session_title(
         "cara seguinte estamos com problema na trc fiserv",
     );
     assert_eq!(clean, "Estamos com problema na trc fiserv");
 
-    let clean_empty = frontal::ui::history::clean_session_title("seguinte:");
+    let clean_empty = frontal::infra::history::clean_session_title("seguinte:");
     assert_eq!(clean_empty, "New Session");
 }

@@ -149,7 +149,8 @@ impl App {
                     "view_usage" => {
                         let tab = self.active_tab();
                         let modal = if tab.backend == crate::config::BackendKind::OpenCode {
-                            crate::ui::modal::UsageModal::load_opencode(
+                            crate::ui::modal::UsageModal::load_opencode_with_service(
+                                self.usage_service.clone(),
                                 &self.active_model_name(),
                                 tab.last_turn_usage,
                                 tab.accumulated_usage,
@@ -159,7 +160,10 @@ impl App {
                                     || std::env::var_os("FRONTAL_OPENCODE_BIN").is_some(),
                             )
                         } else {
-                            crate::ui::modal::UsageModal::load(!self.history.is_in_memory())
+                            crate::ui::modal::UsageModal::load_with_service(
+                                self.usage_service.clone(),
+                                !self.history.is_in_memory(),
+                            )
                         };
                         self.modals.push(Modal::Usage(modal));
                         Some(None)

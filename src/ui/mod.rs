@@ -44,7 +44,7 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
 
     let (catalog_tx, mut catalog_rx) = tokio::sync::mpsc::channel(1);
     tokio::spawn(async move {
-        let catalog = tokio::task::spawn_blocking(crate::model_catalog::ModelCatalog::load_default)
+        let catalog = tokio::task::spawn_blocking(crate::infra::model_catalog::load_default)
             .await
             .unwrap_or_default();
         let _ = catalog_tx.send(catalog).await;
@@ -61,12 +61,19 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let (paste_tx, mut paste_rx) = tokio::sync::mpsc::channel(8);
+    let (bg_tx, mut bg_rx) = tokio::sync::mpsc::channel::<BgEvent>(16);
+    let mut bg_tasks: tokio::task::JoinSet<()> = tokio::task::JoinSet::new();
     let (osc52_tx, mut osc52_rx) = tokio::sync::watch::channel::<(u64, String)>((0, String::new()));
     let mut applied_osc52_seq: u64 = 0;
+    let mut pending_osc52: Option<(u64, String)> = None;
 
-    guard.terminal_mut().draw(|f| app.render(f))?;
+    let mut run_result: Result<(), Box<dyn std::error::Error>> = guard
+        .terminal_mut()
+        .draw(|f| app.render(f))
+        .map(|_| ())
+        .map_err(Into::into);
 
-    while !app.should_quit {
+    while run_result.is_ok() && !app.should_quit {
         tokio::select! {
             Some(models) = models_rx.recv() => {
                 app.set_available_models(models);
@@ -80,48 +87,43 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
             Some((sid, paste_res)) = paste_rx.recv() => {
                 app.apply_paste_outcome(&sid, paste_res);
             }
+            Some(bg_event) = bg_rx.recv() => {
+                while bg_tasks.try_join_next().is_some() {}
+                handle_bg_event(&mut app, bg_event);
+            }
             Ok(()) = osc52_rx.changed() => {
-                let guard = osc52_rx.borrow_and_update();
-                if guard.0 > applied_osc52_seq
-                    && guard.0 >= app.clipboard.last_applied_seq()
-                    && !guard.1.is_empty()
-                {
-                    applied_osc52_seq = guard.0;
-                    clipboard::SystemClipboard::write_osc52_stdout(&guard.1);
-                }
+                sync_osc52_watch(&mut osc52_rx, &mut applied_osc52_seq, &mut pending_osc52, &app.clipboard);
             }
             maybe_event = event_stream.next() => {
                 if let Some(Ok(event)) = maybe_event {
                     if let Some(action) = app.handle_terminal_event(event) {
                         match action {
                             AppAction::SubmitPrompt(prompt) => {
-                                let mut session_id = app.active_session_id().clone();
-                                let ready = if app.session_manager.is_dormant(&session_id) {
-                                    match app.respawn_active_session(None, None, None, None).await {
-                                        Ok(new_id) => {
-                                            session_id = new_id;
-                                            let tab = app.active_tab_mut();
-                                            tab.transition_turn(crate::ui::tab::TurnEvent::Submit);
-                                            tab.status_text = String::from("Thinking...");
-                                            app.dirty = true;
-                                            true
-                                        }
-                                        Err(err) => {
-                                            app.handle_prompt_failure(&session_id, &err.to_string());
-                                            false
-                                        }
-                                    }
-                                } else {
-                                    true
-                                };
-                                if ready {
-                                    if let Err(err) = app
-                                        .session_manager
-                                        .send_prompt(&session_id, prompt)
-                                        .await
-                                    {
-                                        app.handle_prompt_failure(&session_id, &err.to_string());
-                                    }
+                                let session_id = app.active_session_id().clone();
+                                if app.session_manager.is_dormant(&session_id) {
+                                    let (plan, io_input) =
+                                        app.prepare_respawn(None, None, None, None);
+                                    let tab = app.active_tab_mut();
+                                    tab.transition_turn(crate::ui::tab::TurnEvent::Submit);
+                                    tab.status_text = String::from("Resuming session...");
+                                    app.dirty = true;
+                                    let tx = bg_tx.clone();
+                                    bg_tasks.spawn(async move {
+                                        let outcome = Box::new(app::run_respawn_io(io_input).await);
+                                        send_bg_or_discard(
+                                            &tx,
+                                            BgEvent::RespawnFinished {
+                                                plan: Box::new(plan),
+                                                outcome,
+                                                follow_up_prompt: Some(prompt),
+                                            },
+                                        )
+                                        .await;
+                                    });
+                                } else if let Err(err) =
+                                    app.session_manager.dispatch_prompt_sync(&session_id, prompt)
+                                {
+                                    app.handle_prompt_failure(&session_id, &err.to_string());
                                 }
                             }
                             AppAction::PasteClipboard => {
@@ -180,20 +182,42 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                                 config.model = Some(app.active_model_name());
                                 config.effort = Some(app.active_effort_name());
                                 config.mode = Some(app.active_mode_name());
-                                if let Ok(new_id) =
-                                    app.session_manager.create_subprocess_session(config).await
-                                {
-                                    app.add_tab(new_id, None);
-                                }
+                                let sender = app.session_manager.event_sender();
+                                let tx = bg_tx.clone();
+                                bg_tasks.spawn(async move {
+                                    let res = crate::infra::session::SessionManager::spawn_engine_detached(
+                                        config,
+                                        sender,
+                                    )
+                                    .await;
+                                    send_bg_or_discard(&tx, BgEvent::NewTabSpawned { res }).await;
+                                });
                             }
                             AppAction::SwitchTab(idx) => {
                                 app.apply_sync_action(&AppAction::SwitchTab(idx));
                             }
                             AppAction::CloseTab(idx) => {
-                                let _ = app.close_tab(idx).await;
+                                let _ = app.close_tab_sync(idx);
                             }
                             AppAction::CloseOrResetTab(idx) => {
-                                let _ = app.close_or_reset_tab(idx).await;
+                                if let Some(pending) = app.close_or_reset_tab_sync(idx) {
+                                    let tx = bg_tx.clone();
+                                    bg_tasks.spawn(async move {
+                                        let res = crate::infra::session::SessionManager::spawn_engine_detached(
+                                            pending.config.clone(),
+                                            pending.event_sender.clone(),
+                                        )
+                                        .await;
+                                        send_bg_or_discard(
+                                            &tx,
+                                            BgEvent::TabResetSpawned {
+                                                pending: Box::new(pending),
+                                                res,
+                                            },
+                                        )
+                                        .await;
+                                    });
+                                }
                             }
                             AppAction::RespawnSession {
                                 conversation_id,
@@ -201,35 +225,37 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                                 effort,
                                 mode,
                             } => {
-                                if let Err(err) = app
-                                    .respawn_active_session(conversation_id, model, effort, mode)
-                                    .await
-                                {
-                                    app.active_tab_mut().status_text =
-                                        format!("Failed to respawn session: {}", err);
-                                    app.dirty = true;
-                                }
+                                let (plan, io_input) =
+                                    app.prepare_respawn(conversation_id, model, effort, mode);
+                                app.active_tab_mut().status_text =
+                                    String::from("Respawning session...");
+                                app.dirty = true;
+                                let tx = bg_tx.clone();
+                                bg_tasks.spawn(async move {
+                                    let outcome = Box::new(app::run_respawn_io(io_input).await);
+                                    send_bg_or_discard(
+                                        &tx,
+                                        BgEvent::RespawnFinished {
+                                            plan: Box::new(plan),
+                                            outcome,
+                                            follow_up_prompt: None,
+                                        },
+                                    )
+                                    .await;
+                                });
                             }
                             AppAction::Quit => {
                                 break;
                             }
                         }
                     }
-                    while let Some((sid, prompt)) = app.pending_engine_prompts.pop_front() {
-                        if let Err(err) = app.session_manager.send_prompt(&sid, prompt).await {
-                            app.handle_prompt_failure(&sid, &err.to_string());
-                        }
-                    }
+                    app.flush_pending_engine_prompts();
                 }
             }
             maybe_envelope = app.session_manager.recv() => {
                 if let Some(envelope) = maybe_envelope {
                     app.handle_engine_envelope(envelope);
-                    while let Some((sid, prompt)) = app.pending_engine_prompts.pop_front() {
-                        if let Err(err) = app.session_manager.send_prompt(&sid, prompt).await {
-                            app.handle_prompt_failure(&sid, &err.to_string());
-                        }
-                    }
+                    app.flush_pending_engine_prompts();
                 }
             }
             _ = ticker.tick() => {
@@ -249,20 +275,184 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                     app.dirty = true;
                 }
                 if app.dirty {
-                    guard.terminal_mut().draw(|f| app.render(f))?;
+                    if let Err(err) = guard.terminal_mut().draw(|f| app.render(f)) {
+                        run_result = Err(err.into());
+                        break;
+                    }
                     app.dirty = false;
                 }
+                flush_pending_osc52(&mut pending_osc52, &app.clipboard);
             }
         }
     }
 
+    if osc52_rx.has_changed().unwrap_or(false) {
+        sync_osc52_watch(
+            &mut osc52_rx,
+            &mut applied_osc52_seq,
+            &mut pending_osc52,
+            &app.clipboard,
+        );
+    }
+    flush_pending_osc52(&mut pending_osc52, &app.clipboard);
     guard.restore();
-    let _ = app.history.flush_with_timeout(Duration::from_millis(500));
-    let _ = app
-        .session_manager
-        .shutdown_all(Duration::from_millis(500))
+    bg_rx.close();
+    drop(bg_tx);
+    while let Ok(bg_event) = bg_rx.try_recv() {
+        bg_tasks.spawn(discard_bg_event(bg_event));
+    }
+    let history_flusher = app.history.hydration_client();
+    let flush_task = tokio::task::spawn_blocking(move || {
+        let _ = history_flusher.flush_with_timeout(Duration::from_millis(500));
+    });
+    let (_, _, _) = tokio::join!(
+        app.session_manager.shutdown_all(Duration::from_millis(500)),
+        drain_bg_tasks(&mut bg_tasks, Duration::from_millis(800)),
+        flush_task,
+    );
+    let _ = crate::engine::drain_pgid_reaper(Duration::from_millis(300));
+    run_result
+}
+
+async fn drain_bg_tasks(bg_tasks: &mut tokio::task::JoinSet<()>, wait: Duration) {
+    let drained = tokio::time::timeout(wait, async {
+        while bg_tasks.join_next().await.is_some() {}
+    })
+    .await;
+    if drained.is_err() {
+        bg_tasks.abort_all();
+        while bg_tasks.join_next().await.is_some() {}
+    }
+}
+
+enum BgEvent {
+    NewTabSpawned {
+        res: Result<
+            (
+                crate::protocol::SessionId,
+                crate::infra::session::SessionHandle,
+            ),
+            crate::transport::EngineError,
+        >,
+    },
+    TabResetSpawned {
+        pending: Box<app::PendingTabReset>,
+        res: Result<
+            (
+                crate::protocol::SessionId,
+                crate::infra::session::SessionHandle,
+            ),
+            crate::transport::EngineError,
+        >,
+    },
+    RespawnFinished {
+        plan: Box<app::RespawnPlan>,
+        outcome: Box<app::RespawnIoResult>,
+        follow_up_prompt: Option<crate::protocol::PromptPayload>,
+    },
+}
+
+fn handle_bg_event(app: &mut App, event: BgEvent) {
+    match event {
+        BgEvent::NewTabSpawned { res } => match res {
+            Ok((new_id, handle)) => {
+                app.session_manager
+                    .attach_engine(new_id.clone(), handle, false);
+                app.add_tab(new_id, None);
+            }
+            Err(err) => {
+                app.active_tab_mut().status_text = format!("Failed to open tab: {}", err);
+                app.dirty = true;
+            }
+        },
+        BgEvent::TabResetSpawned { pending, res } => {
+            app.finish_tab_reset(*pending, res);
+        }
+        BgEvent::RespawnFinished {
+            plan,
+            outcome,
+            follow_up_prompt,
+        } => {
+            let tab_id = plan.token.tab_id;
+            match app.apply_respawn_outcome(*plan, *outcome) {
+                Ok(new_id) => {
+                    if let Some(prompt) = follow_up_prompt {
+                        if let Some(tab) = app.tabs.iter_mut().find(|t| t.tab_id == tab_id) {
+                            tab.transition_turn(crate::ui::tab::TurnEvent::Submit);
+                            tab.status_text = String::from("Thinking...");
+                        }
+                        app.dirty = true;
+                        if let Err(err) = app.session_manager.dispatch_prompt_sync(&new_id, prompt)
+                        {
+                            app.handle_prompt_failure(&new_id, &err.to_string());
+                        }
+                    }
+                }
+                Err(err) => {
+                    if follow_up_prompt.is_some() {
+                        if let Some(tab) = app.tabs.iter().find(|t| t.tab_id == tab_id) {
+                            let sid = tab.session_id.clone();
+                            app.handle_prompt_failure(&sid, &err.to_string());
+                        }
+                    } else if let Some(tab) = app.tabs.iter_mut().find(|t| t.tab_id == tab_id) {
+                        tab.status_text = format!("Failed to respawn session: {}", err);
+                        app.dirty = true;
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn sync_osc52_watch(
+    osc52_rx: &mut tokio::sync::watch::Receiver<(u64, String)>,
+    applied_seq: &mut u64,
+    pending: &mut Option<(u64, String)>,
+    clipboard: &clipboard::SystemClipboard,
+) {
+    let guard = osc52_rx.borrow_and_update();
+    if guard.0 > *applied_seq && guard.0 >= clipboard.last_applied_seq() && !guard.1.is_empty() {
+        *applied_seq = guard.0;
+        *pending = Some((guard.0, guard.1.clone()));
+    }
+}
+
+fn flush_pending_osc52(
+    pending: &mut Option<(u64, String)>,
+    clipboard: &clipboard::SystemClipboard,
+) {
+    if let Some((seq, text)) = pending.take() {
+        if seq >= clipboard.last_applied_seq() {
+            clipboard::SystemClipboard::write_osc52_stdout(&text);
+        }
+    }
+}
+
+async fn send_bg_or_discard(tx: &tokio::sync::mpsc::Sender<BgEvent>, event: BgEvent) {
+    if let Err(err) = tx.send(event).await {
+        discard_bg_event(err.0).await;
+    }
+}
+
+async fn discard_bg_event(event: BgEvent) {
+    let maybe_handle = match event {
+        BgEvent::NewTabSpawned { res: Ok((_, h)) } => Some(h),
+        BgEvent::TabResetSpawned {
+            res: Ok((_, h)), ..
+        } => Some(h),
+        BgEvent::RespawnFinished { outcome, .. } => match outcome.spawned {
+            Some(Ok((_, h))) => Some(h),
+            _ => None,
+        },
+        _ => None,
+    };
+    if let Some(handle) = maybe_handle {
+        let _ = crate::infra::session::SessionManager::shutdown_handle(
+            handle,
+            Duration::from_millis(500),
+        )
         .await;
-    Ok(())
+    }
 }
 
 fn resolve_clipboard_paste(

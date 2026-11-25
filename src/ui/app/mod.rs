@@ -2,16 +2,21 @@ mod commands;
 mod events;
 mod render;
 mod respawn;
+mod respawn_io;
 mod stream;
 mod tabs;
 
+pub(crate) use respawn::RespawnPlan;
+pub(crate) use respawn_io::{run_respawn_io, RespawnIoResult};
+pub(crate) use tabs::PendingTabReset;
+
 use ratatui::layout::Rect;
 
+use crate::infra::history::PromptHistory;
 use crate::protocol::SessionId;
 use crate::session::SessionManager;
 use crate::ui::autocomplete::{AutocompletePopover, FileSearchWorker};
 use crate::ui::clipboard::SystemClipboard;
-use crate::ui::history::PromptHistory;
 use crate::ui::modal::ModalStack;
 use crate::ui::tab::TabState;
 
@@ -69,6 +74,7 @@ pub struct App {
     pub active_tab_index: usize,
     pub modals: ModalStack,
     pub clipboard: SystemClipboard,
+    pub usage_service: crate::infra::usage::UsageService,
     pub cwd_display: String,
     pub available_models: Vec<(String, String)>,
     pub opencode_models: Vec<(String, String)>,
@@ -126,11 +132,12 @@ impl App {
             active_tab_index: 0,
             modals: ModalStack::new(),
             clipboard: SystemClipboard::new(),
+            usage_service: crate::infra::usage::UsageService::new(),
             cwd_display,
             available_models,
             opencode_models: Vec::new(),
             model_catalog: crate::model_catalog::ModelCatalog::default(),
-            user_config: crate::config::UserConfig::load(),
+            user_config: crate::infra::config_store::load(),
             sidebar_visible: true,
             viewport_bounds: (0, 0, 80, 20),
             hit_regions: Vec::new(),
@@ -165,6 +172,7 @@ impl App {
             active_tab_index: 0,
             modals: ModalStack::new(),
             clipboard: SystemClipboard::new_isolated(),
+            usage_service: crate::infra::usage::UsageService::new(),
             cwd_display,
             available_models,
             opencode_models: Vec::new(),
@@ -272,6 +280,14 @@ impl App {
                 self.switch_tab(*idx);
             }
             _ => {}
+        }
+    }
+
+    pub fn flush_pending_engine_prompts(&mut self) {
+        while let Some((sid, prompt)) = self.pending_engine_prompts.pop_front() {
+            if let Err(err) = self.session_manager.dispatch_prompt_sync(&sid, prompt) {
+                self.handle_prompt_failure(&sid, &err.to_string());
+            }
         }
     }
 

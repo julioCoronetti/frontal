@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use crate::config::BackendKind;
 use crate::protocol::{ResultStatus, SessionId, StepState, StreamEvent, TokenUsage};
 use crate::ui::cache::{BlockKind, RenderCache};
@@ -6,10 +8,18 @@ use crate::ui::viewport::ConversationViewport;
 
 pub const INTERRUPT_ARM_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1500);
 
+static NEXT_TAB_ID: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OpToken {
+    pub tab_id: u64,
+    pub generation_id: u64,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TurnState {
     Idle,
-    Submitting,
+    Submitting { started_at: std::time::Instant },
     Streaming { started_at: std::time::Instant },
     Interrupting,
 }
@@ -32,6 +42,8 @@ pub enum StreamOutcome {
 }
 
 pub struct TabState {
+    pub tab_id: u64,
+    pub generation_id: u64,
     pub session_id: SessionId,
     pub backend: BackendKind,
     pub title: String,
@@ -44,7 +56,6 @@ pub struct TabState {
     pub turn_state: TurnState,
     pub status_text: String,
     pub has_unread: bool,
-    pub turn_started_at: Option<std::time::Instant>,
     pub last_turn_usage: Option<TokenUsage>,
     pub in_flight_usage: Option<TokenUsage>,
     pub accumulated_usage: TokenUsage,
@@ -64,6 +75,8 @@ pub struct TabState {
 impl TabState {
     pub fn new(session_id: SessionId, title: String) -> Self {
         Self {
+            tab_id: NEXT_TAB_ID.fetch_add(1, Ordering::Relaxed),
+            generation_id: 1,
             session_id,
             backend: BackendKind::Agy,
             title,
@@ -76,7 +89,6 @@ impl TabState {
             turn_state: TurnState::Idle,
             status_text: String::from("Ready"),
             has_unread: false,
-            turn_started_at: None,
             last_turn_usage: None,
             in_flight_usage: None,
             accumulated_usage: TokenUsage::default(),
@@ -91,6 +103,27 @@ impl TabState {
             queued_prompts: std::collections::VecDeque::new(),
             persisted_block_id: 0,
             esc_armed_at: None,
+        }
+    }
+
+    pub fn op_token(&self) -> OpToken {
+        OpToken {
+            tab_id: self.tab_id,
+            generation_id: self.generation_id,
+        }
+    }
+
+    pub fn bump_generation(&mut self) -> OpToken {
+        self.generation_id = self.generation_id.wrapping_add(1);
+        self.op_token()
+    }
+
+    pub fn turn_started_at(&self) -> Option<std::time::Instant> {
+        match self.turn_state {
+            TurnState::Submitting { started_at } | TurnState::Streaming { started_at } => {
+                Some(started_at)
+            }
+            TurnState::Idle | TurnState::Interrupting => None,
         }
     }
 
@@ -111,25 +144,29 @@ impl TabState {
     }
 
     pub fn is_waiting_for_response(&self) -> bool {
-        matches!(self.turn_state, TurnState::Submitting)
+        matches!(self.turn_state, TurnState::Submitting { .. })
     }
 
     pub fn transition_turn(&mut self, event: TurnEvent) {
         match event {
             TurnEvent::Submit => {
-                self.turn_state = TurnState::Submitting;
-                self.turn_started_at = Some(std::time::Instant::now());
+                self.turn_state = TurnState::Submitting {
+                    started_at: std::time::Instant::now(),
+                };
             }
             TurnEvent::StreamActivity => match self.turn_state {
-                TurnState::Idle | TurnState::Submitting => {
-                    let started_at = self.turn_started_at.unwrap_or_else(std::time::Instant::now);
+                TurnState::Idle => {
+                    self.turn_state = TurnState::Streaming {
+                        started_at: std::time::Instant::now(),
+                    };
+                }
+                TurnState::Submitting { started_at } => {
                     self.turn_state = TurnState::Streaming { started_at };
                 }
                 TurnState::Streaming { .. } | TurnState::Interrupting => {}
             },
             TurnEvent::TurnCompleted => {
                 self.turn_state = TurnState::Idle;
-                self.turn_started_at = None;
                 self.in_flight_usage = None;
                 self.esc_armed_at = None;
                 self.last_step_index = None;
@@ -137,7 +174,6 @@ impl TabState {
             TurnEvent::StreamError => {
                 self.turn_state = TurnState::Idle;
                 self.esc_armed_at = None;
-                self.turn_started_at = None;
                 self.in_flight_usage = None;
                 self.last_step_index = None;
                 self.pending_danger = None;
@@ -151,7 +187,6 @@ impl TabState {
                 }
                 self.in_flight_usage = None;
                 self.last_step_index = None;
-                self.turn_started_at = None;
                 self.esc_armed_at = None;
                 self.pending_danger = None;
                 self.suspended_events.clear();
@@ -159,7 +194,6 @@ impl TabState {
             }
             TurnEvent::ProcessExited => {
                 self.turn_state = TurnState::Idle;
-                self.turn_started_at = None;
                 self.pending_danger = None;
                 self.suspended_events.clear();
                 self.queued_prompts.clear();
@@ -178,7 +212,6 @@ impl TabState {
                 self.queued_prompts.clear();
                 self.in_flight_usage = None;
                 self.last_step_index = None;
-                self.turn_started_at = None;
                 self.esc_armed_at = None;
             }
         }
@@ -294,11 +327,7 @@ impl TabState {
                     .result
                     .as_ref()
                     .and_then(|r| r.duration_seconds)
-                    .or_else(|| {
-                        self.turn_started_at
-                            .take()
-                            .map(|t| t.elapsed().as_secs_f64())
-                    });
+                    .or_else(|| self.turn_started_at().map(|t| t.elapsed().as_secs_f64()));
                 if let Some(result) = &res.result {
                     self.update_context_hint(result.context_window);
                     if let Some(model) = &result.model {

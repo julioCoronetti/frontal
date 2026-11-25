@@ -1,16 +1,39 @@
 use crate::config::BackendKind;
+use crate::infra::session::{SessionManager, SessionMetadata, SessionStatus};
 use crate::protocol::SessionId;
+use crate::transport::{EngineConfig, EngineError};
+use crate::ui::app::respawn_io::{run_respawn_io, RespawnIoInput, RespawnIoResult};
 use crate::ui::app::App;
+use crate::ui::history::HydratedSession;
+use crate::ui::tab::{OpToken, TurnEvent};
+
+pub(crate) struct RespawnPlan {
+    pub token: OpToken,
+    pub old_id: SessionId,
+    pub was_replay: bool,
+    pub target_backend: BackendKind,
+    pub requested_backend: Option<BackendKind>,
+    pub is_different_conv: bool,
+    pub model_changed: bool,
+    pub final_conv_id: Option<String>,
+    pub final_mode: Option<String>,
+    pub is_explicit_config_change: bool,
+    pub shares_active_conv: bool,
+    pub prev_meta: Option<SessionMetadata>,
+    pub dormant_config: Option<EngineConfig>,
+    pub warnings: Vec<String>,
+}
 
 impl App {
-    pub async fn respawn_active_session(
+    pub(crate) fn prepare_respawn(
         &mut self,
         conversation_id: Option<String>,
         model: Option<String>,
         effort: Option<String>,
         mode: Option<String>,
-    ) -> Result<SessionId, crate::transport::EngineError> {
+    ) -> (RespawnPlan, RespawnIoInput) {
         let tab_idx = self.active_tab_index;
+        let token = self.tabs[tab_idx].bump_generation();
         let old_id = self.active_session_id().clone();
         let was_replay = self.session_manager.is_replay_session(&old_id);
         let base_engine_config = self.session_manager.get_engine_config(&old_id);
@@ -64,49 +87,6 @@ impl App {
             _ => false,
         };
         let should_hydrate = is_different_conv || self.tabs[tab_idx].cache.is_empty();
-        let hydrated_session = if should_hydrate {
-            if let Some(ref cid) = final_conv_id {
-                let cid_clone = cid.clone();
-                let db_path = self.history.path().map(|path| path.to_path_buf());
-                tokio::task::spawn_blocking(move || {
-                    crate::ui::history::hydrate_session_blocking(&cid_clone, db_path.as_deref())
-                })
-                .await
-                .ok()
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        let hydrated_effort_direct = hydrated_session.as_ref().and_then(|h| h.effort.clone());
-        let (hydrated_model, hydrated_effort) = hydrated_session
-            .as_ref()
-            .and_then(|h| h.telemetry.as_ref())
-            .and_then(|t| t.model.as_deref())
-            .map(str::trim)
-            .filter(|m| !m.is_empty())
-            .map(|raw| {
-                let sanitized = crate::config::sanitize_model_id(raw);
-                if target_backend == BackendKind::Agy && !sanitized.contains('/') {
-                    let (base, eff) =
-                        crate::transport::EngineConfig::split_model_effort(&sanitized);
-                    (
-                        (!base.is_empty()).then(|| base.to_string()),
-                        eff.map(str::to_string),
-                    )
-                } else if is_model_compatible_with_backend(target_backend, &sanitized) {
-                    (
-                        Some(sanitized).filter(|s| !s.is_empty()),
-                        hydrated_effort_direct.clone(),
-                    )
-                } else {
-                    (None, None)
-                }
-            })
-            .unwrap_or((None, hydrated_effort_direct));
-
         let model_changed = model
             .as_ref()
             .map(|requested| prev_model.as_ref() != Some(requested))
@@ -122,18 +102,6 @@ impl App {
             && is_model_compatible_with_backend(target_backend, &self.user_config.model))
         .then(|| crate::config::sanitize_model_id(&self.user_config.model))
         .filter(|m| !m.is_empty());
-        let has_hydrated_model = hydrated_model.is_some();
-        let final_model = model
-            .or(hydrated_model)
-            .or(inherited_prev_model)
-            .or(user_fallback_model.clone());
-        let final_effort = effort
-            .or(hydrated_effort)
-            .or(inherited_prev_effort)
-            .or_else(|| {
-                (!has_hydrated_model && user_fallback_model.is_some())
-                    .then(|| self.user_config.effort.clone())
-            });
         let requested_mode = mode
             .map(|value| {
                 BackendKind::normalize_mode(&value)
@@ -169,60 +137,176 @@ impl App {
         } else {
             None
         };
-        if shares_active_conv {
+        let engine_config = (!was_replay).then(|| {
+            let mut config = base_engine_config.unwrap_or_default();
+            config.backend = target_backend;
+            config.conversation_id = final_conv_id.clone();
+            config.mode = final_mode.clone();
+            config
+        });
+        let dormant_config = shares_active_conv
+            .then(|| {
+                engine_config.clone().map(|mut c| {
+                    c.model = model
+                        .clone()
+                        .or_else(|| inherited_prev_model.clone())
+                        .or_else(|| user_fallback_model.clone());
+                    c.effort = effort.clone().or_else(|| inherited_prev_effort.clone());
+                    c
+                })
+            })
+            .flatten();
+        let mut plan_warnings = Vec::new();
+        let detached_old = if shares_active_conv {
             self.pending_engine_prompts
                 .retain(|(sid, _)| sid != &old_id);
-            let _ = self
-                .session_manager
-                .shutdown_session(&old_id, std::time::Duration::from_millis(500))
-                .await;
-        }
+            let detached = self.session_manager.detach_engine(&old_id);
+            if let (Some(mut meta), Some(cfg)) = (prev_meta.clone(), dormant_config.clone()) {
+                meta.status = SessionStatus::Closed;
+                if !self
+                    .session_manager
+                    .save_dormant_metadata(old_id.clone(), meta, cfg)
+                {
+                    let msg = format!(
+                        "Failed to archive dormant metadata for active session {}",
+                        old_id
+                    );
+                    self.tabs[tab_idx].status_text = msg.clone();
+                    plan_warnings.push(msg);
+                    self.dirty = true;
+                }
+            }
+            detached
+        } else {
+            None
+        };
 
-        let new_id = if was_replay {
+        let plan = RespawnPlan {
+            token,
+            old_id,
+            was_replay,
+            target_backend,
+            requested_backend,
+            is_different_conv,
+            model_changed,
+            final_conv_id: final_conv_id.clone(),
+            final_mode,
+            is_explicit_config_change,
+            shares_active_conv,
+            prev_meta,
+            dormant_config,
+            warnings: plan_warnings,
+        };
+        let io_input = RespawnIoInput {
+            detached_old,
+            should_hydrate,
+            final_conv_id,
+            hydration_client: self.history.hydration_client(),
+            engine_config,
+            event_sender: self.session_manager.event_sender(),
+            target_backend,
+            requested_model: model,
+            requested_effort: effort,
+            inherited_prev_model,
+            inherited_prev_effort,
+            user_fallback_model,
+            user_config_effort: self.user_config.effort.clone(),
+        };
+        (plan, io_input)
+    }
+
+    pub(crate) fn apply_respawn_outcome(
+        &mut self,
+        plan: RespawnPlan,
+        outcome: RespawnIoResult,
+    ) -> Result<SessionId, EngineError> {
+        let Some(tab_idx) = self.tabs.iter().position(|t| {
+            t.tab_id == plan.token.tab_id && t.generation_id == plan.token.generation_id
+        }) else {
+            if let Some(Ok((_sid, handle))) = outcome.spawned {
+                tokio::spawn(async move {
+                    let _ = SessionManager::shutdown_handle(
+                        handle,
+                        std::time::Duration::from_millis(500),
+                    )
+                    .await;
+                });
+            }
+            return Err(EngineError::ProcessNotRunning);
+        };
+
+        let final_model = outcome.final_model;
+        let final_effort = outcome.final_effort;
+        let final_mode = outcome.final_mode.or(plan.final_mode);
+        let mut all_warnings = plan.warnings;
+        all_warnings.extend(outcome.warnings);
+
+        let new_id = if plan.was_replay {
             let id = SessionId::new();
             self.session_manager.register_mock_session_with_metadata(
                 id.clone(),
-                final_conv_id.clone(),
+                plan.final_conv_id.clone(),
                 final_model.clone(),
                 final_effort.clone(),
                 final_mode.clone(),
             );
             id
         } else {
-            let mut config = base_engine_config.unwrap_or_default();
-            config.backend = target_backend;
-            config.conversation_id = final_conv_id.clone();
-            config.model = final_model.clone();
-            config.effort = final_effort.clone();
-            config.mode = final_mode.clone();
-            let dormant_config = shares_active_conv.then(|| config.clone());
-            match self.session_manager.create_subprocess_session(config).await {
-                Ok(id) => id,
+            match outcome
+                .spawned
+                .unwrap_or_else(|| Err(EngineError::Protocol("missing spawned engine".into())))
+            {
+                Ok((id, handle)) => self.session_manager.attach_engine(id, handle, false),
                 Err(err) => {
-                    if let (Some(mut meta), Some(cfg)) = (prev_meta, dormant_config) {
-                        meta.status = crate::infra::session::SessionStatus::Closed;
+                    let dormant_ok = if let (Some(mut meta), Some(mut cfg)) =
+                        (plan.prev_meta, plan.dormant_config)
+                    {
+                        cfg.model = final_model;
+                        cfg.effort = final_effort;
+                        cfg.mode = final_mode;
+                        meta.status = SessionStatus::Closed;
                         self.session_manager
-                            .save_dormant_metadata(old_id.clone(), meta, cfg);
+                            .save_dormant_metadata(plan.old_id.clone(), meta, cfg)
+                    } else {
+                        true
+                    };
+                    self.tabs[tab_idx].transition_turn(TurnEvent::RespawnReset);
+                    if !dormant_ok {
+                        all_warnings.push(format!(
+                            "dormant rollback skipped for active session {}",
+                            plan.old_id
+                        ));
                     }
-                    self.tabs[tab_idx].transition_turn(crate::ui::tab::TurnEvent::RespawnReset);
-                    self.tabs[tab_idx].status_text = format!("Failed to respawn session: {}", err);
+                    self.tabs[tab_idx].status_text = if all_warnings.is_empty() {
+                        format!("Failed to respawn session: {}", err)
+                    } else {
+                        format!(
+                            "Failed to respawn session: {} ({})",
+                            err,
+                            all_warnings.join("; ")
+                        )
+                    };
                     self.dirty = true;
                     return Err(err);
                 }
             }
         };
-        if !shares_active_conv {
+
+        if !plan.shares_active_conv {
             self.pending_engine_prompts
-                .retain(|(sid, _)| sid != &old_id);
-            self.session_manager
-                .detach_and_shutdown_background(&old_id, std::time::Duration::from_millis(500));
+                .retain(|(sid, _)| sid != &plan.old_id);
+            self.session_manager.detach_and_shutdown_background(
+                &plan.old_id,
+                std::time::Duration::from_millis(500),
+            );
         } else {
-            self.session_manager.remove_dormant_metadata(&old_id);
+            self.session_manager.remove_dormant_metadata(&plan.old_id);
         }
-        if let Some(backend) = requested_backend {
+
+        if let Some(backend) = plan.requested_backend {
             self.user_config.backend = backend;
         }
-        if is_explicit_config_change {
+        if plan.is_explicit_config_change {
             if let Some(m) = &final_model {
                 self.user_config.model = m.clone();
             }
@@ -234,16 +318,17 @@ impl App {
             }
             let config_to_save = self.user_config.clone();
             tokio::task::spawn_blocking(move || {
-                let _ = config_to_save.save();
+                let _ = crate::infra::config_store::save(&config_to_save);
             });
         }
+
         self.session_manager.set_active_session(new_id.clone());
         self.tabs[tab_idx].session_id = new_id.clone();
-        self.tabs[tab_idx].backend = target_backend;
-        self.tabs[tab_idx].transition_turn(crate::ui::tab::TurnEvent::RespawnReset);
+        self.tabs[tab_idx].backend = plan.target_backend;
+        self.tabs[tab_idx].transition_turn(TurnEvent::RespawnReset);
         self.modals.remove_danger_modal();
 
-        if is_different_conv {
+        if plan.is_different_conv {
             self.tabs[tab_idx].last_turn_usage = None;
             self.tabs[tab_idx].accumulated_usage = crate::protocol::TokenUsage::default();
             self.tabs[tab_idx].steps_seen = 0;
@@ -252,22 +337,47 @@ impl App {
             self.tabs[tab_idx].last_turn_duration_seconds = None;
         }
         self.tabs[tab_idx].in_flight_usage = None;
-        if is_different_conv || model_changed {
+        if plan.is_different_conv || plan.model_changed {
             self.tabs[tab_idx].context_window_hint = None;
             self.tabs[tab_idx].served_model = None;
         }
-        self.apply_hydrated_session(tab_idx, hydrated_session, is_different_conv, model_changed);
+        self.apply_hydrated_session(
+            tab_idx,
+            outcome.hydrated_session,
+            plan.is_different_conv,
+            plan.model_changed,
+        );
 
         self.sync_session_to_history(&new_id);
-        self.tabs[tab_idx].status_text = format!("Respawned session: {}", new_id);
+        self.tabs[tab_idx].status_text = if all_warnings.is_empty() {
+            format!("Respawned session: {}", new_id)
+        } else {
+            format!(
+                "Respawned session: {} ({})",
+                new_id,
+                all_warnings.join("; ")
+            )
+        };
         self.dirty = true;
         Ok(new_id)
+    }
+
+    pub async fn respawn_active_session(
+        &mut self,
+        conversation_id: Option<String>,
+        model: Option<String>,
+        effort: Option<String>,
+        mode: Option<String>,
+    ) -> Result<SessionId, EngineError> {
+        let (plan, io_input) = self.prepare_respawn(conversation_id, model, effort, mode);
+        let outcome = run_respawn_io(io_input).await;
+        self.apply_respawn_outcome(plan, outcome)
     }
 
     fn apply_hydrated_session(
         &mut self,
         tab_idx: usize,
-        hydrated_session: Option<crate::ui::history::HydratedSession>,
+        hydrated_session: Option<HydratedSession>,
         is_different_conv: bool,
         model_changed: bool,
     ) {
@@ -348,7 +458,7 @@ fn backend_compatible(backend: BackendKind, conversation_id: &str) -> bool {
     }
 }
 
-fn is_model_compatible_with_backend(backend: BackendKind, model: &str) -> bool {
+pub(crate) fn is_model_compatible_with_backend(backend: BackendKind, model: &str) -> bool {
     let trimmed = model.trim();
     if trimmed.is_empty() {
         return false;
@@ -358,3 +468,7 @@ fn is_model_compatible_with_backend(backend: BackendKind, model: &str) -> bool {
         BackendKind::OpenCode => trimmed.contains('/'),
     }
 }
+
+#[cfg(test)]
+#[path = "respawn_tests.rs"]
+mod tests;
