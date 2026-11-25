@@ -1,7 +1,8 @@
 # Frontal Architecture Roadmap (Target 10/10) & 10-Bump Audit Protocol
 
 **Baseline:** `develop` (`11f512e`, v0.21.0, nota **5.5 / 10**) vs `main` (`2b7dc80`, v0.21.0, nota **4.8 / 10**)  
-**Escopo:** Plano de consolidação estrutural, escalabilidade e otimização 60 FPS, mais protocolo recorrente de auditoria a cada 10 bumps/atualizações.
+**Escopo:** Plano de consolidação estrutural, escalabilidade e otimização 60 FPS, mais protocolo recorrente de auditoria a cada 10 bumps/atualizações.  
+**Parte 2 (Apontamentos e Pendências por Fase):** [`architecture_audit_findings.md`](./architecture_audit_findings.md)
 
 ---
 
@@ -140,3 +141,9 @@ Critério mínimo de aprovação do marco: **zero achados `CRITICAL` e nota cons
    - Verificar via busca automatizada ausência de ramificações por `BackendKind`, `ses_` ou strings de protocolo fora de `infra/backends/` e `core/protocol/`.
 5. **Ciclo de Vida e Paridade Documental:**
    - Auditar cobertura de `ProcessGroupGuard` em todos os spawns de processo, confirmar convergência de `TurnState`/`SessionConfig` e sincronizar `AGENTS.md`, `README.md` e `.wiki/Frontal-Architecture.md` com a implementação real.
+
+---
+
+## 5. Parte 2 — Registro Vivo de Apontamentos e Pendências
+
+Todos os achados abertos por fase (itens parciais, gaps residuais e verificações para etapas futuras) estão consolidados e rastreados em [`architecture_audit_findings.md`](./architecture_audit_findings.md).

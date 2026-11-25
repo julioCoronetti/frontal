@@ -21,7 +21,7 @@
 ## Invariants & Traps
 - RenderCache L1 stores immutable `MessageBlock` AST; L2 caches width-wrapped lines by `(width, revision)` — invalidate only L2 on resize/toggle for 60 FPS streaming.
 - Never run synchronous disk I/O, SQLite queries, or subprocess scans inside `tokio::select!` (`src/ui/mod.rs`).
-- Access active `TabState` in `App` via O(1) index and `Deref`/`DerefMut` (no `std::mem::swap`); route stream events through `TabState::apply_stream_event`.
+- Access active `TabState` in `App` via O(1) index and explicit `active_tab()`/`active_tab_mut()`/`tab()`/`tab_mut()` accessors (no `Deref`/`std::mem::swap`); route stream events through `TabState::apply_stream_event`.
 - Spawn child engines in dedicated POSIX process groups (`setpgid(0, 0)`, `PR_SET_PDEATHSIG(libc::SIGTERM)`) and terminate via `killpg` (`SIGINT` -> `SIGTERM` -> `SIGKILL`).
 - Isolate test fixtures with `PromptHistory::open_in_memory()` and `SystemClipboard::new_isolated()`.
 

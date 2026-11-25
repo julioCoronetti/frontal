@@ -15,14 +15,14 @@ Reference documentation for on-demand inspection of repository modules.
 - `src/infra/mod.rs`: Infrastructure module declarations.
 - `src/infra/engine/`: High-level agentic engines (`AcpEngine` over `agy acp --stdio`, and `OpenCodeEngine` per-turn supervisor) partitioned into `mod.rs`, `opencode.rs`, `acp/{mod.rs,coordinator.rs,handshake.rs,setup.rs}`, and `process.rs`, with shared POSIX pgid registry and streaming channels.
 - `src/infra/transport/`: `EngineTransport` implementations (`EngineConfig`, `EngineError`, `OpenCode` helpers, and `FixtureReplayEngine`) partitioned into `mod.rs`, `opencode.rs`, and `replay.rs`.
-- `src/infra/session.rs`: Session multiplexing and management via `SessionId` and `SessionManager`.
+- `src/infra/session/`: Session multiplexing and management (`mod.rs`, `config.rs`, `lifecycle.rs`) via `SessionId`, `SessionConfig`, and `SessionManager`.
 - `src/infra/clipboard/`: System clipboard integration via `arboard`, zero-dep PNG encoding (`image_codec.rs`), platform media fallbacks (`platform.rs`), isolated in-memory buffer, and OSC 52 fallback.
 - `src/infra/history/`: Command history and unified session persistence in SQLite WAL (`PromptHistory`) with dedicated background worker (`worker.rs`), partitioned session types & operations (`session_types.rs`, `sessions.rs`), local sync & external Agy/OpenCode discovery (`sync.rs`, `external.rs`), RAII `Drop` flush, non-blocking external `conversation_summaries.db` cache (`agent.rs`), JSONL transcript block & telemetry parser (`transcript.rs`), OpenCode SQLite discovery/hydration/message reader (`opencode/{mod.rs,messages.rs}`), and per-conversation message/telemetry storage (`messages.rs`, `telemetry.rs`) for cross-engine resume.
 
 ## Terminal Interface (`src/ui/`)
 - `src/ui/mod.rs`: Asynchronous 60 FPS TUI event loop (crossterm `EventStream`, cancellation, render ticks).
 - `src/ui/app/`: Central application module partitioned into modular submodules (500-line ceiling):
-  - `src/ui/app/mod.rs`: `App` struct with `Deref`/`DerefMut` to active `TabState`, `AppAction` enum, and constructors.
+  - `src/ui/app/mod.rs`: `App` struct, `AppAction` enum, `apply_sync_action`, and constructors.
   - `src/ui/app/tabs.rs`: Multi-session tab CRUD/reset with O(1) tab switching and `TabState` single source of truth.
   - `src/ui/app/respawn.rs`: Active session respawn, history hydration bridge, and backend/model compatibility resolution.
   - `src/ui/app/events/`: Non-blocking terminal event routing partitioned into `mod.rs`, `keyboard.rs`, and `mouse.rs`.
@@ -52,7 +52,7 @@ Reference documentation for on-demand inspection of repository modules.
 - `tests/suite.rs`: Canonical entry point for the single integration test crate.
 - `tests/common/mod.rs`: Hermetic test utilities (`test_app`, `press_key`, RAII guards `TempDirGuard`/`TempFileGuard`, `PGID_TEST_LOCK`).
 - `tests/domains/`: Partitioned 8 integration test domains (500-line ceiling per file):
-  - `tests/domains/architecture.rs`: Repository architecture & module boundary invariants.
+  - `tests/domains/architecture/`: Repository architecture & module boundary invariants (`mod.rs`, `invariants.rs`, `lexer.rs`, `boundaries.rs`).
   - `tests/domains/protocol_and_cli.rs`: NDJSON/ACP protocol parsing, CLI flags, and model catalog decoding.
   - `tests/domains/viewport_and_clipboard.rs`: Viewport sticky scroll, text selection, and clipboard integration.
   - `tests/domains/cache_and_markdown/`: `mod.rs`, `cache_l1_l2.rs`, `markdown_ast.rs`, `table_wrap.rs`, `tool_clamping.rs`.
