@@ -86,14 +86,9 @@ pub struct App {
 
 impl App {
     pub fn new(session_manager: SessionManager, active_session: SessionId) -> Self {
-        let history = if let Ok(home) = std::env::var("HOME") {
-            let path = std::path::PathBuf::from(home)
-                .join(".frontal")
-                .join("history.db");
-            PromptHistory::open(&path).unwrap_or_else(|_| PromptHistory::open_in_memory().unwrap())
-        } else {
-            PromptHistory::open_in_memory().unwrap()
-        };
+        let history = crate::infra::history::default_history_path()
+            .and_then(|path| PromptHistory::open(&path).ok())
+            .unwrap_or_else(|| PromptHistory::open_in_memory().unwrap());
 
         let search_worker = FileSearchWorker::new();
         if let Ok(cwd) = std::env::current_dir() {

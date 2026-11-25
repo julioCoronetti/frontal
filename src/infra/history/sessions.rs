@@ -138,10 +138,9 @@ impl PromptHistory {
         if self.sessions.len() > 500 {
             self.sessions.truncate(500);
         }
+        self.publish_local_snapshot();
         if let Some(ref tx) = self.write_tx {
             let _ = tx.send(HistoryCommand::RecordSession(record));
-        } else {
-            self.publish_in_memory_snapshot();
         }
     }
 
@@ -157,13 +156,12 @@ impl PromptHistory {
         }
         self.sessions
             .sort_by_key(|s| std::cmp::Reverse(s.created_at));
+        self.publish_local_snapshot();
         if let Some(ref tx) = self.write_tx {
             let _ = tx.send(HistoryCommand::TouchSession {
                 id: id_or_conv.to_string(),
                 timestamp: now,
             });
-        } else {
-            self.publish_in_memory_snapshot();
         }
     }
 
@@ -209,18 +207,21 @@ impl PromptHistory {
             return;
         }
         let target_norm = resolved_cid.as_deref().unwrap_or(norm);
-        if source == TitleSource::Custom {
-            if let Ok(mut guard) = self.agent_cache.write() {
-                for item in guard.iter_mut() {
-                    if !is_deleted_record(item, &self.deleted_ids)
-                        && (matches_id(item, key, norm)
-                            || matches_id(item, target_norm, target_norm))
-                    {
-                        item.title = Some(trimmed.to_string());
-                        item.title_source = TitleSource::Custom;
-                    }
+        let deleted = &self.deleted_ids;
+        let update_agents = |agents: &mut Vec<SessionRecord>| {
+            for item in agents.iter_mut() {
+                if !is_deleted_record(item, deleted)
+                    && (matches_id(item, key, norm) || matches_id(item, target_norm, target_norm))
+                {
+                    item.title = Some(trimmed.to_string());
+                    item.title_source = TitleSource::Custom;
                 }
             }
+        };
+        if source == TitleSource::Custom {
+            self.publish_local_snapshot_with(update_agents);
+        } else {
+            self.publish_local_snapshot();
         }
         if let Some(ref tx) = self.write_tx {
             let _ = tx.send(HistoryCommand::RenameSession {
@@ -228,8 +229,6 @@ impl PromptHistory {
                 title: trimmed.to_string(),
                 source,
             });
-        } else {
-            self.publish_in_memory_snapshot();
         }
     }
 
@@ -245,15 +244,15 @@ impl PromptHistory {
                 s.title_source = TitleSource::Custom;
             }
         }
-        if let Ok(mut guard) = self.agent_cache.write() {
-            if let Some(item) = guard
+        self.publish_local_snapshot_with(|agents| {
+            if let Some(item) = agents
                 .iter_mut()
                 .find(|s| s.conversation_id.as_deref() == Some(norm))
             {
                 item.title = Some(trimmed.to_string());
                 item.title_source = TitleSource::Custom;
             } else {
-                guard.push(SessionRecord {
+                agents.push(SessionRecord {
                     id: format!("ext-{}", norm),
                     conversation_id: Some(norm.to_string()),
                     backend: Some(infer_backend(Some(norm), None)),
@@ -265,20 +264,18 @@ impl PromptHistory {
                     created_at: 0,
                 });
             }
-        }
+        });
         if let Some(ref tx) = self.write_tx {
             let _ = tx.send(HistoryCommand::RenameAgentTitle {
                 conv_id: norm.to_string(),
                 title: trimmed.to_string(),
             });
-        } else {
-            self.publish_in_memory_snapshot();
         }
     }
 
     pub fn cached_agent_title(&self, conv_id: &str) -> Option<String> {
-        let guard = self.agent_cache.read().ok()?;
-        guard
+        let snap = self.snapshot();
+        snap.agent_sessions
             .iter()
             .find(|s| {
                 !is_deleted_record(s, &self.deleted_ids)
@@ -288,8 +285,8 @@ impl PromptHistory {
     }
 
     pub fn cached_agent_entry(&self, conv_id: &str) -> Option<(String, TitleSource)> {
-        let guard = self.agent_cache.read().ok()?;
-        let item = guard.iter().find(|s| {
+        let snap = self.snapshot();
+        let item = snap.agent_sessions.iter().find(|s| {
             !is_deleted_record(s, &self.deleted_ids)
                 && s.conversation_id.as_deref() == Some(conv_id)
         })?;
@@ -298,8 +295,8 @@ impl PromptHistory {
     }
 
     pub fn cached_agent_timestamp(&self, conv_id: &str) -> Option<i64> {
-        let guard = self.agent_cache.read().ok()?;
-        guard
+        let snap = self.snapshot();
+        snap.agent_sessions
             .iter()
             .find(|s| {
                 !is_deleted_record(s, &self.deleted_ids)
@@ -310,16 +307,12 @@ impl PromptHistory {
     }
 
     pub fn cached_agent_conversations(&self) -> Vec<SessionRecord> {
-        self.agent_cache
-            .read()
-            .map(|guard| {
-                guard
-                    .iter()
-                    .filter(|s| !is_deleted_record(s, &self.deleted_ids))
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default()
+        self.snapshot()
+            .agent_sessions
+            .iter()
+            .filter(|s| !is_deleted_record(s, &self.deleted_ids))
+            .cloned()
+            .collect()
     }
 
     pub fn delete_session(&mut self, id_or_conv: &str) {
@@ -332,21 +325,19 @@ impl PromptHistory {
             keys.insert(raw.to_string());
         }
         collect_matching_keys(&self.sessions, &mut keys);
-        if let Ok(mut guard) = self.agent_cache.write() {
-            collect_matching_keys(&guard, &mut keys);
-            self.deleted_ids.extend(keys.iter().cloned());
-            guard.retain(|s| !is_deleted_record(s, &self.deleted_ids));
-        } else {
-            self.deleted_ids.extend(keys.iter().cloned());
-        }
+        let snap = self.snapshot();
+        collect_matching_keys(&snap.agent_sessions, &mut keys);
+        self.deleted_ids.extend(keys.iter().cloned());
         self.sessions
             .retain(|s| !is_deleted_record(s, &self.deleted_ids));
+        let deleted = &self.deleted_ids;
+        self.publish_local_snapshot_with(|agents| {
+            agents.retain(|s| !is_deleted_record(s, deleted));
+        });
         if let Some(ref tx) = self.write_tx {
             let _ = tx.send(HistoryCommand::DeleteSession {
                 keys: keys.into_iter().collect(),
             });
-        } else {
-            self.publish_in_memory_snapshot();
         }
     }
 

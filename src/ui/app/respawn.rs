@@ -34,7 +34,8 @@ impl App {
             .unwrap_or(self.tabs[tab_idx].backend);
         let requested_backend = conversation_id.as_deref().map(|id| {
             self.history
-                .sessions()
+                .snapshot()
+                .sessions
                 .iter()
                 .find(|s| s.conversation_id.as_deref() == Some(id))
                 .and_then(|s| s.backend)

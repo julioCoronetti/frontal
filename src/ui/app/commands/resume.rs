@@ -73,7 +73,8 @@ impl App {
             if let Some(ref t) = final_title {
                 if let Some(tab) = self.tabs.iter_mut().find(|tb| &tb.session_id == session_id) {
                     if !tab.custom_title
-                        && (final_source > tab.title_source || is_default_tab_title(&tab.title))
+                        && (final_source.can_override(tab.title_source)
+                            || is_default_tab_title(&tab.title))
                     {
                         tab.title = t.clone();
                         tab.title_source = final_source;
@@ -86,7 +87,8 @@ impl App {
             }
             let existing_ts = self
                 .history
-                .sessions()
+                .snapshot()
+                .sessions
                 .iter()
                 .find(|s| {
                     s.id == session_id.as_str()
@@ -113,6 +115,7 @@ impl App {
 
     pub(crate) fn open_tab_conversation_ids(&self) -> std::collections::HashSet<String> {
         let mut open_ids = std::collections::HashSet::new();
+        let snap = self.history.snapshot();
         for tab in &self.tabs {
             open_ids.insert(tab.session_id.as_str().to_string());
             if let Some(Some(cid)) = self
@@ -122,9 +125,8 @@ impl App {
             {
                 open_ids.insert(cid);
             }
-            for s in self
-                .history
-                .sessions()
+            for s in snap
+                .sessions
                 .iter()
                 .filter(|s| s.id == tab.session_id.as_str())
             {
@@ -142,6 +144,7 @@ impl App {
             self.sync_session_to_history(&sid);
         }
 
+        let snap = self.history.snapshot();
         let mut items = Vec::new();
         let mut refresh_cids = Vec::new();
 
@@ -160,9 +163,8 @@ impl App {
                     refresh_cids.push(cid.clone());
                 }
             }
-            let rel_time = self
-                .history
-                .sessions()
+            let rel_time = snap
+                .sessions
                 .iter()
                 .find(|s| {
                     s.id == tab.session_id.as_str()
@@ -185,9 +187,19 @@ impl App {
 
         let open_ids = self.open_tab_conversation_ids();
 
-        let mut past_sessions = self.history.resumable_sessions();
+        let mut past_sessions: Vec<_> = snap
+            .sessions
+            .iter()
+            .filter(|s| {
+                s.conversation_id
+                    .as_ref()
+                    .map(|c| !c.trim().is_empty())
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .collect();
         if !self.history.is_in_memory() {
-            for ext in self.history.cached_agent_conversations() {
+            for ext in &snap.agent_sessions {
                 if let Some(ref cid) = ext.conversation_id {
                     if let Some(existing) = past_sessions
                         .iter_mut()
@@ -196,7 +208,7 @@ impl App {
                         let title_missing = existing.title.is_none()
                             || existing.title.as_deref() == Some(cid.as_str());
                         if (title_missing
-                            || (existing.title_source < ext.title_source
+                            || (ext.title_source.can_override(existing.title_source)
                                 && existing.title_source < TitleSource::Custom))
                             && ext.title.is_some()
                         {
@@ -216,7 +228,7 @@ impl App {
                             existing.created_at = ext.created_at;
                         }
                     } else {
-                        past_sessions.push(ext);
+                        past_sessions.push(ext.clone());
                     }
                 }
             }

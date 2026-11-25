@@ -2,7 +2,7 @@ use rusqlite::{params, Connection};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
 
@@ -36,6 +36,7 @@ pub use transcript::*;
 pub struct HistorySnapshot {
     pub version: u64,
     pub sessions: Vec<SessionRecord>,
+    pub agent_sessions: Vec<SessionRecord>,
 }
 
 pub enum HistoryCommand {
@@ -79,7 +80,6 @@ pub struct PromptHistory {
     draft_backup: Option<String>,
     db_path: Option<PathBuf>,
     write_tx: Option<Sender<HistoryCommand>>,
-    agent_cache: Arc<RwLock<Vec<SessionRecord>>>,
     agent_updates_rx: Option<Receiver<(String, String)>>,
     deleted_ids: HashSet<String>,
     snapshot_tx: watch::Sender<Arc<HistorySnapshot>>,
@@ -121,7 +121,6 @@ impl PromptHistory {
 
         let (tx, rx) = channel::<HistoryCommand>();
         let (agent_updates_tx, agent_updates_rx) = channel::<(String, String)>();
-        let agent_cache = Arc::new(RwLock::new(Vec::new()));
         let mut pinned_titles = std::collections::HashMap::new();
         let mut known_models = std::collections::HashMap::new();
         for s in &sessions {
@@ -139,13 +138,13 @@ impl PromptHistory {
         let (snapshot_tx, _snapshot_rx) = watch::channel(Arc::new(HistorySnapshot {
             version: 0,
             sessions: sessions.clone(),
+            agent_sessions: Vec::new(),
         }));
         worker::spawn_history_worker(
             db_path.to_path_buf(),
             rx,
             agent_db_path,
             opencode_db_path,
-            Arc::clone(&agent_cache),
             agent_updates_tx,
             pinned_titles,
             known_models,
@@ -160,7 +159,6 @@ impl PromptHistory {
             draft_backup: None,
             db_path: Some(db_path.to_path_buf()),
             write_tx: Some(tx),
-            agent_cache,
             agent_updates_rx: Some(agent_updates_rx),
             deleted_ids,
             snapshot_tx,
@@ -176,6 +174,7 @@ impl PromptHistory {
         let (snapshot_tx, _snapshot_rx) = watch::channel(Arc::new(HistorySnapshot {
             version: 0,
             sessions: sessions.clone(),
+            agent_sessions: Vec::new(),
         }));
 
         Ok(Self {
@@ -185,7 +184,6 @@ impl PromptHistory {
             draft_backup: None,
             db_path: None,
             write_tx: None,
-            agent_cache: Arc::new(RwLock::new(Vec::new())),
             agent_updates_rx: None,
             deleted_ids: HashSet::new(),
             snapshot_tx,
@@ -243,14 +241,25 @@ impl PromptHistory {
         self.snapshot_tx.borrow().clone()
     }
 
-    pub(super) fn publish_in_memory_snapshot(&self) {
-        if self.write_tx.is_none() {
-            let next_ver = self.snapshot_tx.borrow().version.saturating_add(1);
-            let _ = self.snapshot_tx.send(Arc::new(HistorySnapshot {
+    pub(super) fn publish_local_snapshot(&self) {
+        self.publish_local_snapshot_with(|_| {});
+    }
+
+    pub(super) fn publish_local_snapshot_with(
+        &self,
+        mutate_agents: impl FnOnce(&mut Vec<SessionRecord>),
+    ) {
+        let sessions = self.sessions.clone();
+        self.snapshot_tx.send_modify(|cur| {
+            let mut agent_sessions = cur.agent_sessions.clone();
+            mutate_agents(&mut agent_sessions);
+            let next_ver = cur.version.saturating_add(1);
+            *cur = Arc::new(HistorySnapshot {
                 version: next_ver,
-                sessions: self.sessions.clone(),
-            }));
-        }
+                sessions,
+                agent_sessions,
+            });
+        });
     }
 
     pub fn subscribe(&self) -> watch::Receiver<Arc<HistorySnapshot>> {

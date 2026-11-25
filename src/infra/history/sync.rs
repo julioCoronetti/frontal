@@ -116,7 +116,7 @@ pub(super) fn handle_record_session(
              title = CASE
                  WHEN excluded.custom_title != 0 AND excluded.title IS NOT NULL THEN excluded.title
                  WHEN sessions.custom_title != 0 THEN sessions.title
-                 WHEN excluded.title IS NOT NULL AND excluded.title_source > sessions.title_source THEN excluded.title
+                 WHEN excluded.title IS NOT NULL AND excluded.title_source >= sessions.title_source THEN excluded.title
                  ELSE COALESCE(sessions.title, excluded.title)
              END,
              title_source = MAX(sessions.title_source, excluded.title_source),
@@ -158,7 +158,10 @@ pub(super) fn handle_refresh_agent(
     match maybe_cid {
         Some(raw_cid) => {
             let cid = raw_cid.strip_prefix("ext-").unwrap_or(&raw_cid).to_string();
-            if cid.is_empty() || super::sessions::is_deleted_key(deleted_ids, &raw_cid) {
+            if cid.is_empty()
+                || super::sessions::is_deleted_key(deleted_ids, &raw_cid)
+                || super::sessions::is_deleted_key(deleted_ids, &cid)
+            {
                 return;
             }
             let pinned = pinned_titles.get(&cid).cloned();
