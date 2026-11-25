@@ -68,13 +68,13 @@ impl SessionManager {
         effort: Option<String>,
         mode: Option<String>,
     ) {
-        let config = SessionConfig {
+        let config = SessionConfig(EngineConfig {
             conversation_id,
             model,
             mode,
             effort,
-            ..SessionConfig::default()
-        };
+            ..EngineConfig::default()
+        });
         let metadata = config.to_metadata(session_id.clone(), 0, None, SessionStatus::Ready);
         let replay = FixtureReplayEngine::from_lines(
             session_id.clone(),
@@ -132,11 +132,11 @@ impl SessionManager {
         session_id: SessionId,
         mut replay: FixtureReplayEngine,
     ) -> Result<SessionId, EngineError> {
-        let config = SessionConfig {
+        let config = SessionConfig(EngineConfig {
             model: Some("replay-mock".to_string()),
             mode: Some("replay".to_string()),
-            ..SessionConfig::default()
-        };
+            ..EngineConfig::default()
+        });
         let metadata = config.to_metadata(session_id.clone(), 0, None, SessionStatus::Ready);
         replay.start().await?;
         self.sessions.insert(

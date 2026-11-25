@@ -1,8 +1,7 @@
-use std::path::PathBuf;
+use std::ops::{Deref, DerefMut};
 
-use crate::config::BackendKind;
 use crate::protocol::SessionId;
-use crate::transport::{resolve_opencode_binary, EngineConfig};
+use crate::transport::EngineConfig;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SessionStatus {
@@ -13,52 +12,16 @@ pub enum SessionStatus {
     Closed,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SessionConfig {
-    pub agy_bin: PathBuf,
-    pub opencode_bin: PathBuf,
-    pub backend: BackendKind,
-    pub conversation_id: Option<String>,
-    pub project: Option<String>,
-    pub model: Option<String>,
-    pub mode: Option<String>,
-    pub effort: Option<String>,
-    pub cwd: Option<PathBuf>,
-    pub dangerously_skip_permissions: bool,
-    pub extra_args: Vec<String>,
-}
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SessionConfig(pub EngineConfig);
 
 impl SessionConfig {
     pub fn from_engine(config: &EngineConfig) -> Self {
-        Self {
-            agy_bin: config.agy_bin.clone(),
-            opencode_bin: config.opencode_bin.clone(),
-            backend: config.backend,
-            conversation_id: config.conversation_id.clone(),
-            project: config.project.clone(),
-            model: config.model.clone(),
-            mode: config.mode.clone(),
-            effort: config.effort.clone(),
-            cwd: config.cwd.clone(),
-            dangerously_skip_permissions: config.dangerously_skip_permissions,
-            extra_args: config.extra_args.clone(),
-        }
+        Self(config.clone())
     }
 
     pub fn to_engine_config(&self) -> EngineConfig {
-        EngineConfig {
-            agy_bin: self.agy_bin.clone(),
-            opencode_bin: self.opencode_bin.clone(),
-            backend: self.backend,
-            conversation_id: self.conversation_id.clone(),
-            project: self.project.clone(),
-            model: self.model.clone(),
-            mode: self.mode.clone(),
-            effort: self.effort.clone(),
-            cwd: self.cwd.clone(),
-            dangerously_skip_permissions: self.dangerously_skip_permissions,
-            extra_args: self.extra_args.clone(),
-        }
+        self.0.clone()
     }
 
     pub fn to_metadata(
@@ -70,10 +33,10 @@ impl SessionConfig {
     ) -> SessionMetadata {
         SessionMetadata {
             session_id,
-            conversation_id: self.conversation_id.clone(),
-            model: self.model.clone(),
-            mode: self.mode.clone(),
-            effort: self.effort.clone(),
+            conversation_id: self.0.conversation_id.clone(),
+            model: self.0.model.clone(),
+            mode: self.0.mode.clone(),
+            effort: self.0.effort.clone(),
             turns,
             last_prompt,
             status,
@@ -81,33 +44,17 @@ impl SessionConfig {
     }
 }
 
-impl Default for SessionConfig {
-    fn default() -> Self {
-        Self {
-            agy_bin: EngineConfig::resolve_agy_binary(),
-            opencode_bin: resolve_opencode_binary(),
-            backend: BackendKind::Agy,
-            conversation_id: None,
-            project: None,
-            model: None,
-            mode: None,
-            effort: None,
-            cwd: None,
-            dangerously_skip_permissions: true,
-            extra_args: Vec::new(),
-        }
+impl Deref for SessionConfig {
+    type Target = EngineConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
-impl From<&EngineConfig> for SessionConfig {
-    fn from(config: &EngineConfig) -> Self {
-        Self::from_engine(config)
-    }
-}
-
-impl From<&SessionConfig> for EngineConfig {
-    fn from(config: &SessionConfig) -> Self {
-        config.to_engine_config()
+impl DerefMut for SessionConfig {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
