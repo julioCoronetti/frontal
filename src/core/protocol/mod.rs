@@ -4,10 +4,14 @@ mod events;
 pub mod opencode;
 
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map::RandomState;
 use std::fmt;
-use std::fs;
-use std::io::Read;
+use std::hash::{BuildHasher, Hasher};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+static NEXT_SESSION_SEQ: AtomicU64 = AtomicU64::new(1);
 
 pub use agy::{format_user_message, format_user_payload, parse_stream_line, AgyStreamParser};
 pub use events::*;
@@ -192,26 +196,23 @@ pub struct SessionId(pub String);
 
 impl SessionId {
     pub fn new() -> Self {
-        if let Ok(content) = fs::read_to_string("/proc/sys/kernel/random/uuid") {
-            let trimmed = content.trim();
-            if !trimmed.is_empty() {
-                return Self(trimmed.to_string());
-            }
-        }
-        let fallback_path = Path::new("/dev/urandom");
-        if let Ok(mut file) = fs::File::open(fallback_path) {
-            let mut b = [0u8; 16];
-            if file.read_exact(&mut b).is_ok() {
-                b[6] = (b[6] & 0x0f) | 0x40;
-                b[8] = (b[8] & 0x3f) | 0x80;
-                let formatted = format!(
-                    "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-                    b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]
-                );
-                return Self(formatted);
-            }
-        }
-        Self("00000000-0000-4000-8000-000000000000".to_string())
+        let seq = NEXT_SESSION_SEQ.fetch_add(1, Ordering::Relaxed);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
+        let h1 = RandomState::new().build_hasher().finish() ^ nanos;
+        let h2 = RandomState::new().build_hasher().finish().wrapping_add(seq);
+        let mut b = [0u8; 16];
+        b[..8].copy_from_slice(&h1.to_le_bytes());
+        b[8..].copy_from_slice(&h2.to_le_bytes());
+        b[6] = (b[6] & 0x0f) | 0x40;
+        b[8] = (b[8] & 0x3f) | 0x80;
+        let formatted = format!(
+            "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+            b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]
+        );
+        Self(formatted)
     }
 
     pub fn as_str(&self) -> &str {

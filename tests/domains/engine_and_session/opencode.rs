@@ -301,7 +301,6 @@ async fn test_opencode_engine_reports_non_zero_exit_as_error() {
 
 #[test]
 fn test_model_catalog_resolution_from_opencode_database() {
-    use frontal::model_catalog::ModelCatalog;
     use frontal::model_spec::{ContextWindowSource, ModelSpec};
 
     let guard = crate::common::TempDirGuard::new("model_catalog");
@@ -335,7 +334,8 @@ fn test_model_catalog_resolution_from_opencode_database() {
         .unwrap();
     drop(connection);
 
-    let catalog = ModelCatalog::load_from_path(&db_path).expect("catalog expected");
+    let catalog =
+        frontal::infra::model_catalog::load_from_path(&db_path).expect("catalog expected");
     let resolved = ModelSpec::resolve_with_catalog(
         &["opencode-go/deepseek-v4.1-flash"],
         None,
@@ -373,13 +373,16 @@ fn test_model_catalog_missing_or_corrupt_database_degrades() {
     use frontal::model_catalog::ModelCatalog;
 
     assert!(
-        ModelCatalog::load_from_path(std::path::Path::new("/nonexistent/opencode.db")).is_none()
+        frontal::infra::model_catalog::load_from_path(std::path::Path::new(
+            "/nonexistent/opencode.db"
+        ))
+        .is_none()
     );
 
     let guard = crate::common::TempDirGuard::new("model_catalog_corrupt");
     let db_path = guard.path().join("opencode.db");
     std::fs::write(&db_path, "not a sqlite database").unwrap();
-    assert!(ModelCatalog::load_from_path(&db_path).is_none());
+    assert!(frontal::infra::model_catalog::load_from_path(&db_path).is_none());
     assert!(ModelCatalog::parse_catalog("{\"body\":\"not json\"}").is_none());
     assert!(ModelCatalog::parse_catalog("{}").is_none());
 }

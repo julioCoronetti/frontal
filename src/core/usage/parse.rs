@@ -1,5 +1,75 @@
-use super::fetch::{clean_text, format_reset_time};
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use super::{QuotaBucket, QuotaGroup, UsagePlanInfo, UsageSummary};
+
+pub fn clean_text(raw: &str) -> String {
+    raw.chars().filter(|c| !c.is_control()).collect()
+}
+
+pub fn is_valid_calendar(d: &[i64], t: &[i64]) -> bool {
+    if d.len() < 3 || t.len() < 2 {
+        return false;
+    }
+    let sec = t.get(2).copied().unwrap_or(0);
+    (1970..=9999).contains(&d[0])
+        && (1..=12).contains(&d[1])
+        && (1..=31).contains(&d[2])
+        && (0..=23).contains(&t[0])
+        && (0..=59).contains(&t[1])
+        && (0..=60).contains(&sec)
+}
+
+pub fn civil_to_days(mut y: i64, m: u64, d: u64) -> i64 {
+    y -= (m <= 2) as i64;
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = (y - era * 400) as u64;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    era * 146097 + (yoe * 365 + yoe / 4 - yoe / 100 + doy) as i64 - 719468
+}
+
+pub fn parse_iso_ymd_hms(iso: &str) -> Option<([i64; 3], [i64; 3])> {
+    let (d_str, rest) = iso.split_once('T')?;
+    let t_str = rest.trim_end_matches('Z');
+    let d_parts: Vec<&str> = d_str.split('-').collect();
+    let t_parts: Vec<&str> = t_str.split(':').collect();
+    if d_parts.len() != 3 || !(2..=3).contains(&t_parts.len()) {
+        return None;
+    }
+    let d: Vec<i64> = d_parts.iter().filter_map(|s| s.parse().ok()).collect();
+    let t: Vec<i64> = t_parts
+        .iter()
+        .filter_map(|s| s.split('.').next()?.parse().ok())
+        .collect();
+    if d.len() != 3 || t.len() != t_parts.len() || !is_valid_calendar(&d, &t) {
+        return None;
+    }
+    Some((
+        [d[0], d[1], d[2]],
+        [t[0], t[1], t.get(2).copied().unwrap_or(0)],
+    ))
+}
+
+pub fn format_reset_time(iso: &str) -> String {
+    let Some((d, t)) = parse_iso_ymd_hms(iso) else {
+        return "Resets periodically".to_string();
+    };
+    let target =
+        civil_to_days(d[0], d[1] as u64, d[2] as u64) * 86400 + t[0] * 3600 + t[1] * 60 + t[2];
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|dur| dur.as_secs() as i64)
+        .unwrap_or(0);
+    let diff = target - now;
+    if diff <= 0 {
+        return "Quota available".to_string();
+    }
+    let (h, m) = (diff / 3600, (diff % 3600) / 60);
+    if h > 0 {
+        format!("Refreshes in {}h {}m", h, m)
+    } else {
+        format!("Refreshes in {}m", m.max(1))
+    }
+}
 
 pub fn parse_plan_info(val: Option<&serde_json::Value>, email: Option<String>) -> UsagePlanInfo {
     let clean_email = email.map(|e| clean_text(&e));

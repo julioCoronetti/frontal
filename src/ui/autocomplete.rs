@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
-use std::thread;
 
+use crate::infra::fs_search::{self, FileSearchIndex};
 use crate::ui::editor::TriggerKind;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -136,55 +135,43 @@ impl Default for AutocompletePopover {
 
 #[derive(Clone)]
 pub struct FileSearchWorker {
-    cached_files: Arc<RwLock<Vec<String>>>,
+    index: FileSearchIndex,
 }
 
 impl FileSearchWorker {
     pub fn new() -> Self {
         Self {
-            cached_files: Arc::new(RwLock::new(Vec::new())),
+            index: FileSearchIndex::new(),
         }
     }
 
     pub fn set_cached_files(&mut self, files: Vec<String>) {
-        if let Ok(mut lock) = self.cached_files.write() {
-            *lock = files;
-        }
+        self.index.set_files(files);
     }
 
     pub fn cached_files(&self) -> Vec<String> {
-        self.cached_files
-            .read()
-            .map(|f| f.clone())
-            .unwrap_or_default()
+        self.index.snapshot().as_ref().clone()
     }
 
     pub fn start_background_scan(&self, root: PathBuf, max_entries: usize) {
-        let target = self.cached_files.clone();
-        thread::spawn(move || {
-            let files = Self::scan_dir(&root, max_entries);
-            if let Ok(mut lock) = target.write() {
-                *lock = files;
-            }
-        });
+        self.index.start_background_scan(root, max_entries);
     }
 
     pub fn search(&self, query: &str, limit: usize) -> Vec<AutocompleteItem> {
         let q = query.trim_start_matches('@').to_lowercase();
         let mut results = Vec::new();
+        let files = self.index.snapshot();
 
-        if let Ok(files) = self.cached_files.read() {
-            for file in files.iter() {
-                if q.is_empty() || file.to_lowercase().contains(&q) {
-                    results.push(AutocompleteItem {
-                        label: file.clone(),
-                        insert_text: format!("@{} ", file),
-                        description: None,
-                        kind: TriggerKind::File,
-                    });
-                    if results.len() >= limit {
-                        break;
-                    }
+        for file in files.iter() {
+            if q.is_empty() || file.to_lowercase().contains(&q) {
+                results.push(AutocompleteItem {
+                    label: file.clone(),
+                    insert_text: format!("@{} ", file),
+                    description: None,
+                    kind: TriggerKind::File,
+                });
+                if results.len() >= limit {
+                    break;
                 }
             }
         }
@@ -193,43 +180,7 @@ impl FileSearchWorker {
     }
 
     pub fn scan_dir(root: &Path, max_entries: usize) -> Vec<String> {
-        let mut result = Vec::new();
-        let mut stack = vec![root.to_path_buf()];
-
-        while let Some(current) = stack.pop() {
-            if result.len() >= max_entries {
-                break;
-            }
-
-            let entries = match std::fs::read_dir(&current) {
-                Ok(e) => e,
-                Err(_) => continue,
-            };
-
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let file_name = entry.file_name();
-                let name = file_name.to_string_lossy();
-
-                if name.starts_with('.') || name == "target" || name == "node_modules" {
-                    continue;
-                }
-
-                if path.is_dir() {
-                    stack.push(path);
-                } else if path.is_file() {
-                    if let Ok(rel) = path.strip_prefix(root) {
-                        result.push(rel.to_string_lossy().to_string());
-                    }
-                    if result.len() >= max_entries {
-                        break;
-                    }
-                }
-            }
-        }
-
-        result.sort();
-        result
+        fs_search::scan_dir(root, max_entries)
     }
 }
 

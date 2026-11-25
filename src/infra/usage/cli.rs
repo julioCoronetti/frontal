@@ -1,10 +1,10 @@
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use super::{UsagePlanInfo, UsageSummary};
+use crate::core::usage::{clean_text, parse_quota_summary_groups, UsagePlanInfo, UsageSummary};
 use crate::transport::EngineConfig;
 
-pub(super) fn run_bounded_command(
+pub fn run_bounded_command(
     mut cmd: Command,
     stdin_data: Option<Vec<u8>>,
     timeout: Duration,
@@ -21,6 +21,10 @@ pub(super) fn run_bounded_command(
         crate::engine::spawn_std_isolated(&mut cmd).map_err(|e| e.to_string())?;
     let guard = std::sync::Arc::new(std::sync::Mutex::new(Some(guard)));
     let thread_guard = std::sync::Arc::clone(&guard);
+    #[cfg(not(unix))]
+    let timed_out = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    #[cfg(not(unix))]
+    let thread_timed_out = std::sync::Arc::clone(&timed_out);
 
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -41,6 +45,23 @@ pub(super) fn run_bounded_command(
                 return;
             }
         }
+        #[cfg(not(unix))]
+        let out = {
+            loop {
+                match child.try_wait() {
+                    Ok(Some(_)) => break child.wait_with_output(),
+                    Ok(None) => {
+                        if thread_timed_out.load(std::sync::atomic::Ordering::Acquire) {
+                            let _ = child.kill();
+                            break child.wait_with_output();
+                        }
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(e) => break Err(e),
+                }
+            }
+        };
+        #[cfg(unix)]
         let out = child.wait_with_output();
         if let Some(mut guard) = thread_guard
             .lock()
@@ -58,6 +79,8 @@ pub(super) fn run_bounded_command(
             if let Ok(res) = rx.try_recv() {
                 return res.map_err(|e| e.to_string());
             }
+            #[cfg(not(unix))]
+            timed_out.store(true, std::sync::atomic::Ordering::Release);
             if let Some(ref g) = *guard.lock().unwrap_or_else(|e| e.into_inner()) {
                 g.signal(libc::SIGTERM);
             }
@@ -97,7 +120,7 @@ pub fn fetch_agy_cli_quota() -> Result<UsageSummary, String> {
     let val: serde_json::Value =
         serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
 
-    let groups = super::fetch::parse_quota_summary_groups(&val);
+    let groups = parse_quota_summary_groups(&val);
     if groups.len() < 3 {
         return Err("agy /usage returned incomplete groups".to_string());
     }
@@ -120,11 +143,11 @@ fn read_oauth_email() -> Option<String> {
     let val: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
     val.get("id_token_email")
         .and_then(|e| e.as_str())
-        .map(super::fetch::clean_text)
+        .map(clean_text)
         .filter(|s| !s.is_empty())
 }
 
-pub(super) fn post_endpoint(
+pub fn post_endpoint(
     url: &str,
     token: &str,
     user_agent: Option<&str>,

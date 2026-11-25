@@ -70,7 +70,7 @@ pub struct EngineConfig {
 impl EngineConfig {
     pub fn new() -> Self {
         let bin = Self::resolve_agy_binary();
-        let user_config = crate::config::UserConfig::load();
+        let user_config = crate::infra::config_store::load();
         Self {
             agy_bin: bin,
             opencode_bin: resolve_opencode_binary(),

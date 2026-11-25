@@ -1,5 +1,9 @@
 pub mod clipboard;
+pub mod config_store;
 pub mod engine;
+pub mod fs_search;
 pub mod history;
+pub mod model_catalog;
 pub mod session;
 pub mod transport;
+pub mod usage;

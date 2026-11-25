@@ -2,9 +2,10 @@ use std::os::unix::fs::PermissionsExt;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use frontal::infra::usage::UsageService;
 use frontal::protocol::TokenUsage;
 use frontal::ui::modal::usage::{
-    build_stats_lines, parse_opencode_stats_json, StatsState, UsagePage, OPENCODE_STATS_CACHE,
+    build_stats_lines, parse_opencode_stats_json, StatsState, UsagePage,
 };
 use frontal::ui::modal::{ModalAction, UsageModal};
 use ratatui::backend::TestBackend;
@@ -16,23 +17,13 @@ use crate::common::{TempDirGuard, PGID_TEST_LOCK};
 struct EnvRestore {
     key: &'static str,
     prev: Option<String>,
-    clear_stats_cache: bool,
 }
 
 impl EnvRestore {
-    fn set(key: &'static str, val: &std::path::Path, clear_stats_cache: bool) -> Self {
+    fn set(key: &'static str, val: &std::path::Path) -> Self {
         let prev = std::env::var(key).ok();
         std::env::set_var(key, val);
-        if clear_stats_cache {
-            if let Ok(mut cache) = OPENCODE_STATS_CACHE.lock() {
-                *cache = None;
-            }
-        }
-        Self {
-            key,
-            prev,
-            clear_stats_cache,
-        }
+        Self { key, prev }
     }
 }
 
@@ -41,11 +32,6 @@ impl Drop for EnvRestore {
         match &self.prev {
             Some(v) => std::env::set_var(self.key, v),
             None => std::env::remove_var(self.key),
-        }
-        if self.clear_stats_cache {
-            if let Ok(mut cache) = OPENCODE_STATS_CACHE.lock() {
-                *cache = None;
-            }
         }
     }
 }
@@ -176,9 +162,6 @@ fn test_parse_opencode_stats_json_and_build_lines() {
 #[tokio::test]
 async fn test_opencode_usage_modal_subpage_navigation_and_refresh() {
     let _lock = PGID_TEST_LOCK.lock().await;
-    if let Ok(mut cache) = OPENCODE_STATS_CACHE.lock() {
-        *cache = None;
-    }
 
     let dir = TempDirGuard::new("opencode_stats_bin");
     let count_file = dir.path().join("invocations.txt");
@@ -192,7 +175,7 @@ async fn test_opencode_usage_modal_subpage_navigation_and_refresh() {
     perms.set_mode(0o755);
     std::fs::set_permissions(&script_path, perms).unwrap();
 
-    let _env_guard = EnvRestore::set("FRONTAL_OPENCODE_BIN", &script_path, true);
+    let _env_guard = EnvRestore::set("FRONTAL_OPENCODE_BIN", &script_path);
 
     let mut agy_modal = UsageModal::offline_fallback();
     assert!(!agy_modal.is_opencode);
@@ -259,9 +242,6 @@ async fn test_opencode_usage_modal_subpage_navigation_and_refresh() {
 #[tokio::test]
 async fn test_opencode_stats_error_and_command_timeout() {
     let _lock = PGID_TEST_LOCK.lock().await;
-    if let Ok(mut cache) = OPENCODE_STATS_CACHE.lock() {
-        *cache = None;
-    }
 
     let dir = TempDirGuard::new("opencode_stats_err");
     let fail_script = dir.path().join("opencode_fail");
@@ -274,7 +254,7 @@ async fn test_opencode_stats_error_and_command_timeout() {
     perms.set_mode(0o755);
     std::fs::set_permissions(&fail_script, perms).unwrap();
 
-    let _env_guard = EnvRestore::set("FRONTAL_OPENCODE_BIN", &fail_script, true);
+    let _env_guard = EnvRestore::set("FRONTAL_OPENCODE_BIN", &fail_script);
 
     let mut modal = UsageModal::for_opencode(
         "opencode-go/deepseek-v4.1-flash",
@@ -297,7 +277,7 @@ async fn test_opencode_stats_error_and_command_timeout() {
     let mut perms = std::fs::metadata(&hang_script).unwrap().permissions();
     perms.set_mode(0o755);
     std::fs::set_permissions(&hang_script, perms).unwrap();
-    let _hang_env = EnvRestore::set("FRONTAL_OPENCODE_BIN", &hang_script, true);
+    let _hang_env = EnvRestore::set("FRONTAL_OPENCODE_BIN", &hang_script);
 
     let res =
         frontal::transport::run_opencode_command(&["stats", "--json"], Duration::from_millis(150));
@@ -319,7 +299,7 @@ fn test_usage_modal_for_opencode_enables_stats_cli_by_default_and_validates_toke
     let offline_state = offline.stats_state.lock().unwrap().clone();
     assert!(matches!(offline_state, StatsState::Unavailable(ref msg) if msg == "Offline mode"));
 
-    let bad_tok = frontal::ui::modal::usage::opencode_api::fetch_go_usage("bad\"token\nheader");
+    let bad_tok = frontal::infra::usage::opencode_api::fetch_go_usage("bad\"token\nheader");
     assert!(bad_tok.is_err());
     assert!(bad_tok.unwrap_err().contains("invalid credential token"));
     assert!(
@@ -334,10 +314,7 @@ fn test_usage_modal_for_opencode_enables_stats_cli_by_default_and_validates_toke
 #[tokio::test]
 async fn test_stats_fetch_async_coalesces_concurrent_waiters() {
     let _lock = PGID_TEST_LOCK.lock().await;
-    {
-        let mut cache = OPENCODE_STATS_CACHE.lock().unwrap();
-        *cache = None;
-    }
+    let service = UsageService::new();
     let dir = TempDirGuard::new("stats_coalesce");
     let script = dir.path().join("opencode");
     let body = r#"{"models":{"opencode-go/deepseek-v4.1-flash":{"requests":12,"input":100,"output":50,"cacheRead":25,"cost":0.1}}}"#;
@@ -346,15 +323,17 @@ async fn test_stats_fetch_async_coalesces_concurrent_waiters() {
     let mut perms = std::fs::metadata(&script).unwrap().permissions();
     perms.set_mode(0o755);
     std::fs::set_permissions(&script, perms).unwrap();
-    let _env_guard = EnvRestore::set("FRONTAL_OPENCODE_BIN", &script, true);
+    let _env_guard = EnvRestore::set("FRONTAL_OPENCODE_BIN", &script);
 
     let (tx1, rx1) = std::sync::mpsc::channel();
     let (tx2, rx2) = std::sync::mpsc::channel();
-    frontal::ui::modal::usage::stats::fetch_stats_async(tx1);
-    frontal::ui::modal::usage::stats::fetch_stats_async(tx2);
+    service.fetch_stats_async(1, tx1);
+    service.fetch_stats_async(2, tx2);
 
-    let s1 = rx1.recv_timeout(Duration::from_secs(3)).unwrap();
-    let s2 = rx2.recv_timeout(Duration::from_secs(3)).unwrap();
+    let (id1, s1) = rx1.recv_timeout(Duration::from_secs(3)).unwrap();
+    let (id2, s2) = rx2.recv_timeout(Duration::from_secs(3)).unwrap();
+    assert_eq!(id1, 1);
+    assert_eq!(id2, 2);
     assert!(matches!(s1, StatsState::Ready(_)));
     assert!(matches!(s2, StatsState::Ready(_)));
 }

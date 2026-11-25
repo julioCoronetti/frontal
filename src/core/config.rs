@@ -1,8 +1,3 @@
-use std::env;
-use std::fs;
-use std::io;
-use std::path::PathBuf;
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BackendKind {
     #[default]
@@ -54,6 +49,24 @@ impl BackendKind {
                 .iter()
                 .any(|(id, _)| *id == canonical)
         })
+    }
+
+    pub fn supported_efforts(&self) -> &'static [&'static str] {
+        match self {
+            Self::Agy | Self::OpenCode => &["low", "medium", "high", "xhigh", "max"],
+        }
+    }
+
+    pub fn sanitize_effort(&self, raw: &str) -> Option<String> {
+        let token = raw
+            .trim()
+            .trim_matches(|ch: char| !ch.is_ascii_alphanumeric())
+            .to_ascii_lowercase();
+        self.supported_efforts()
+            .iter()
+            .copied()
+            .find(|&effort| effort == token)
+            .map(str::to_string)
     }
 }
 
@@ -114,7 +127,7 @@ pub fn sanitize_model_id(raw: &str) -> String {
 
 impl Default for UserConfig {
     fn default() -> Self {
-        Self::load()
+        Self::default_config()
     }
 }
 
@@ -143,27 +156,9 @@ impl UserConfig {
         }
     }
 
-    pub fn config_path() -> Option<PathBuf> {
-        env::var("HOME")
-            .ok()
-            .map(|h| PathBuf::from(h).join(".frontal").join("config.toml"))
-    }
-
-    pub fn load() -> Self {
-        let mut config = Self::default_config();
-        if let Some(path) = Self::config_path() {
-            if let Ok(content) = fs::read_to_string(&path) {
-                config.parse_content(&content);
-                if config.needs_repair {
-                    let _ = config.save();
-                }
-            }
-        }
-        config
-    }
-
     pub fn parse_content(&mut self, content: &str) {
         let mut section: Option<String> = None;
+        let mut raw_effort: Option<String> = None;
         for line in content.lines() {
             let trimmed = strip_comment(line).trim();
             if trimmed.is_empty() {
@@ -198,15 +193,7 @@ impl UserConfig {
                     }
                 }
                 "effort" if !v.is_empty() => {
-                    let sanitized = sanitize_config_token(v);
-                    if !sanitized.is_empty() {
-                        if sanitized != v {
-                            self.needs_repair = true;
-                        }
-                        self.effort = sanitized;
-                    } else {
-                        self.needs_repair = true;
-                    }
+                    raw_effort = Some(v.to_string());
                 }
                 "mode" if !v.is_empty() => {
                     let sanitized = BackendKind::normalize_mode(v)
@@ -225,6 +212,17 @@ impl UserConfig {
                     self.backend = BackendKind::parse(v);
                 }
                 _ => {}
+            }
+        }
+        if let Some(raw) = raw_effort {
+            if let Some(clean) = self.backend.sanitize_effort(&raw) {
+                if clean != raw {
+                    self.needs_repair = true;
+                }
+                self.effort = clean;
+            } else {
+                self.needs_repair = true;
+                self.effort = DEFAULT_EFFORT.to_string();
             }
         }
     }
@@ -247,7 +245,10 @@ impl UserConfig {
 
     pub fn to_toml(&self) -> String {
         let model = sanitize_model_id(&self.model);
-        let effort = sanitize_config_token(&self.effort);
+        let effort = self
+            .backend
+            .sanitize_effort(&self.effort)
+            .unwrap_or_else(|| DEFAULT_EFFORT.to_string());
         let mode = BackendKind::normalize_mode(&self.mode)
             .map(str::to_string)
             .unwrap_or_else(|| sanitize_config_token(&self.mode));
@@ -265,19 +266,6 @@ impl UserConfig {
             }
         }
         payload
-    }
-
-    pub fn save(&self) -> io::Result<()> {
-        if self.isolated {
-            return Ok(());
-        }
-        if let Some(path) = Self::config_path() {
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent)?;
-            }
-            fs::write(path, self.to_toml())?;
-        }
-        Ok(())
     }
 }
 
@@ -303,4 +291,49 @@ fn parse_token_count(value: &str) -> Option<u64> {
         .filter(|ch| *ch != '_' && *ch != ',')
         .collect();
     cleaned.parse::<u64>().ok().filter(|tokens| *tokens > 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BackendKind;
+
+    #[test]
+    fn sanitize_effort_normalizes_valid_and_rejects_invalid_tokens() {
+        use super::DEFAULT_EFFORT;
+        for backend in [BackendKind::Agy, BackendKind::OpenCode] {
+            assert_eq!(backend.sanitize_effort("low"), Some("low".to_string()));
+            assert_eq!(backend.sanitize_effort(" HIGH "), Some("high".to_string()));
+            assert_eq!(backend.sanitize_effort("xhigh!"), Some("xhigh".to_string()));
+            assert_eq!(backend.sanitize_effort("Max"), Some("max".to_string()));
+            assert_eq!(backend.sanitize_effort(""), None);
+            assert_eq!(backend.sanitize_effort("minimal"), None);
+            assert_eq!(backend.sanitize_effort("h/igh"), None);
+            assert_eq!(backend.sanitize_effort("medium/bad"), None);
+            assert_eq!(backend.sanitize_effort("!!!"), None);
+        }
+
+        let mut parsed = super::UserConfig::new_isolated();
+        parsed.parse_content("effort = \"xhigh!\"\nbackend = \"opencode\"\n");
+        assert_eq!(parsed.backend, BackendKind::OpenCode);
+        assert_eq!(parsed.effort, "xhigh");
+        assert!(parsed.needs_repair);
+
+        let mut bad = super::UserConfig::new_isolated();
+        bad.parse_content("effort = \"h/igh\"\nbackend = \"opencode\"\n");
+        assert_eq!(bad.backend, BackendKind::OpenCode);
+        assert_eq!(bad.effort, DEFAULT_EFFORT);
+        assert!(bad.needs_repair);
+
+        let mut dirty_mem = super::UserConfig::new_isolated();
+        dirty_mem.backend = BackendKind::OpenCode;
+        dirty_mem.effort = "h/igh".to_string();
+        let rendered = dirty_mem.to_toml();
+        assert!(rendered.contains(&format!("effort = \"{}\"\n", DEFAULT_EFFORT)));
+
+        let mut dirty_valid = super::UserConfig::new_isolated();
+        dirty_valid.backend = BackendKind::OpenCode;
+        dirty_valid.effort = " XHIGH! ".to_string();
+        let rendered_valid = dirty_valid.to_toml();
+        assert!(rendered_valid.contains("effort = \"xhigh\"\n"));
+    }
 }

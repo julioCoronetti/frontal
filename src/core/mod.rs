@@ -4,3 +4,4 @@ pub mod model_catalog;
 pub mod model_spec;
 pub mod protocol;
 pub mod security;
+pub mod usage;

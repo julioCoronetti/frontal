@@ -216,7 +216,7 @@ fn test_user_config_defaults_and_parsing() {
     assert_eq!(config.effort, "low");
     assert_eq!(config.mode, "ask");
 
-    assert!(config.save().is_ok());
+    assert!(frontal::infra::config_store::save(&config).is_ok());
 }
 
 #[test]

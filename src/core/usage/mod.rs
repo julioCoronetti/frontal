@@ -1,8 +1,14 @@
-use std::sync::Mutex;
-use std::time::Instant;
+pub mod opencode_parse;
+pub mod parse;
 
-pub static USAGE_CACHE: Mutex<Option<(Instant, UsageSummary)>> = Mutex::new(None);
-pub static OPENCODE_USAGE_CACHE: Mutex<Option<(Instant, UsageSummary)>> = Mutex::new(None);
+pub use opencode_parse::{
+    format_reset_epoch, parse_credential_value, parse_go_usage, parse_iso_ms,
+    parse_opencode_stats_json, strip_ansi, summary_from_go, GoUsage, GoWindow,
+};
+pub use parse::{
+    build_usage_summary, civil_to_days, clean_text, format_reset_time, is_valid_calendar,
+    parse_available_models, parse_iso_ymd_hms, parse_plan_info, parse_quota_summary_groups,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UsagePlanInfo {
@@ -40,7 +46,66 @@ pub enum UsageState {
     Unavailable(String),
 }
 
-pub(super) fn offline_summary() -> UsageSummary {
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum UsagePage {
+    #[default]
+    Main,
+    OpenCodeStats,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct OpenCodeModelStat {
+    pub id: String,
+    pub provider_id: String,
+    pub variant: Option<String>,
+    pub steps: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub reasoning_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cost: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct OpenCodeToolStat {
+    pub name: String,
+    pub calls: u64,
+    pub succeeded: u64,
+    pub failed: u64,
+    pub duration_p50_ms: Option<f64>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OpenCodeStats {
+    pub sessions: u64,
+    pub subagents: u64,
+    pub prompts: u64,
+    pub steps: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub reasoning_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub cost: f64,
+    pub active_days: u64,
+    pub streak: u64,
+    pub tool_calls: u64,
+    pub tool_succeeded: u64,
+    pub tool_failed: u64,
+    pub tool_unfinished: u64,
+    pub models: Vec<OpenCodeModelStat>,
+    pub tools: Vec<OpenCodeToolStat>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum StatsState {
+    Idle,
+    Loading,
+    Ready(OpenCodeStats),
+    Unavailable(String),
+}
+
+pub fn offline_summary() -> UsageSummary {
     UsageSummary {
         plan: UsagePlanInfo {
             tier_name: "Google AI Pro".to_string(),
