@@ -1,6 +1,6 @@
 use serde_json::json;
 use std::collections::{HashSet, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 use tokio::process::{Child, ChildStdin};
@@ -10,12 +10,13 @@ use super::super::process::{shutdown_isolated_child, ProcessGroupGuard};
 use super::setup::spawn_stdin_writer;
 use super::{AcpCommand, WireEvent};
 use crate::protocol::acp::{
-    format_method_not_found, format_permission_response, parse_session_update,
+    encode_base64, format_method_not_found, format_permission_response, parse_session_update,
     select_permission_option_id, AcpContentBlock, AcpIncoming, AcpNotification, AcpRequest,
     AcpStreamState,
 };
 use crate::protocol::{
-    EngineEvent, ResultData, ResultEvent, ResultStatus, SessionEnvelope, SessionId, StreamEvent,
+    media_uri_to_path, EngineEvent, PromptPayload, ResultData, ResultEvent, ResultStatus,
+    SessionEnvelope, SessionId, StreamEvent,
 };
 use crate::transport::EngineConfig;
 
@@ -199,27 +200,34 @@ impl CoordinatorCtx {
         self.send_stream_event(err_result).await;
     }
 
-    async fn handle_unexpected_eof(&mut self) {
+    async fn handle_unexpected_eof(&mut self, pending_builds: usize) {
         if self.shutting_down.load(Ordering::Acquire) {
             return;
         }
-        if matches!(
-            self.phase,
+        let err_msg = match self.phase {
             HandshakePhase::InitSent(_)
-                | HandshakePhase::LoadSent(_)
-                | HandshakePhase::NewSent(_)
-                | HandshakePhase::SetupPending(_)
-        ) {
-            self.fail_handshake("ACP process exited before handshake completed".to_string())
-                .await;
-        } else {
-            if self.active_prompt_id.take().is_some() {
-                self.emit_error_result("ACP process exited mid-turn").await;
+            | HandshakePhase::LoadSent(_)
+            | HandshakePhase::NewSent(_)
+            | HandshakePhase::SetupPending(_) => {
+                let msg = "ACP process exited before handshake completed";
+                self.fail_handshake(msg.to_string()).await;
+                msg
             }
-            while self.queued_prompts.pop_front().is_some() {
-                self.emit_error_result("ACP process exited mid-turn").await;
+            HandshakePhase::Ready => {
+                let msg = "ACP process exited mid-turn";
+                if self.active_prompt_id.take().is_some() {
+                    self.emit_error_result(msg).await;
+                }
+                while self.queued_prompts.pop_front().is_some() {
+                    self.emit_error_result(msg).await;
+                }
+                self.phase = HandshakePhase::Failed;
+                msg
             }
-            self.phase = HandshakePhase::Failed;
+            HandshakePhase::Failed => "ACP session failed to initialize",
+        };
+        for _ in 0..pending_builds {
+            self.emit_error_result(err_msg).await;
         }
 
         if let Some(mut child) = self.child.lock().await.take() {
@@ -292,37 +300,57 @@ pub(super) async fn run_coordinator(
         }),
     );
     if !ctx.write_request(&init_req) {
-        ctx.handle_unexpected_eof().await;
+        ctx.handle_unexpected_eof(0).await;
         return;
     }
 
+    let (prep_tx, mut prep_rx) = mpsc::channel::<(u64, PromptPayload)>(64);
+    let (built_tx, mut built_rx) = mpsc::channel::<(u64, Result<Vec<AcpContentBlock>, String>)>(64);
+    let cancel_gen = Arc::new(AtomicU64::new(0));
+    let worker_cancel_gen = cancel_gen.clone();
+    let mut pending_builds: usize = 0;
+    let mut built_open = true;
+    let prep_worker = tokio::spawn(async move {
+        while let Some((gen_id, payload)) = prep_rx.recv().await {
+            if worker_cancel_gen.load(Ordering::Acquire) != gen_id {
+                continue;
+            }
+            let built = build_acp_blocks(gen_id, &worker_cancel_gen, payload).await;
+            if worker_cancel_gen.load(Ordering::Acquire) != gen_id {
+                continue;
+            }
+            if built_tx.send((gen_id, built)).await.is_err() {
+                break;
+            }
+        }
+    });
+
     loop {
         tokio::select! {
-            Some(cmd) = cmd_rx.recv() => {
+            cmd = cmd_rx.recv() => {
                 match cmd {
-                    AcpCommand::SendPrompt(blocks) => {
+                    Some(AcpCommand::SendPrompt(payload)) => {
                         if matches!(ctx.phase, HandshakePhase::Failed) {
-                            let err_result = StreamEvent::Result(ResultEvent {
-                                conversation_id: ctx.acp_session_id.clone(),
-                                result: Some(ResultData {
-                                    conversation_id: ctx.acp_session_id.clone(),
-                                    status: Some(ResultStatus::Error),
-                                    error: Some("ACP session failed to initialize".to_string()),
-                                    model: ctx.served_model.clone(),
-                                    context_window: ctx.stream_state.context_window_hint,
-                                    ..Default::default()
-                                }),
-                            });
-                            let _ = ctx.sender.send(SessionEnvelope {
-                                session_id: ctx.session_id.clone(),
-                                event: EngineEvent::Stream(Box::new(err_result)),
-                            }).await;
+                            ctx.emit_error_result("ACP session failed to initialize").await;
                         } else {
-                            ctx.queued_prompts.push_back(blocks);
-                            ctx.dispatch_next_prompt();
+                            let cur_gen = cancel_gen.load(Ordering::Acquire);
+                            match prep_tx.try_send((cur_gen, payload)) {
+                                Ok(()) => {
+                                    pending_builds += 1;
+                                }
+                                Err(mpsc::error::TrySendError::Full(_)) => {
+                                    ctx.emit_error_result("ACP prompt queue saturated").await;
+                                }
+                                Err(mpsc::error::TrySendError::Closed(_)) => {
+                                    ctx.emit_error_result("ACP prompt builder exited unexpectedly")
+                                        .await;
+                                }
+                            }
                         }
                     }
-                    AcpCommand::CancelTurn => {
+                    Some(AcpCommand::CancelTurn) => {
+                        cancel_gen.fetch_add(1, Ordering::AcqRel);
+                        pending_builds = 0;
                         ctx.queued_prompts.clear();
                         if let Some(sid) = ctx.acp_session_id.clone() {
                             let notif = AcpNotification::new("session/cancel", json!({ "sessionId": sid }));
@@ -333,30 +361,93 @@ pub(super) async fn run_coordinator(
                             g.signal(libc::SIGINT);
                         }
                     }
-                    AcpCommand::CloseStdin => {
+                    Some(AcpCommand::CloseStdin) | None => {
                         ctx.stdin_tx.take();
                         break;
                     }
                 }
             }
-            Some(wire) = wire_rx.recv() => {
+            built_msg = built_rx.recv(), if built_open => {
+                match built_msg {
+                    Some((gen_id, built)) => {
+                        if gen_id == cancel_gen.load(Ordering::Acquire) {
+                            pending_builds = pending_builds.saturating_sub(1);
+                            if matches!(ctx.phase, HandshakePhase::Failed) {
+                                ctx.emit_error_result("ACP session failed to initialize").await;
+                            } else {
+                                match built {
+                                    Ok(blocks) => {
+                                        ctx.queued_prompts.push_back(blocks);
+                                        ctx.dispatch_next_prompt();
+                                    }
+                                    Err(msg) => {
+                                        ctx.emit_error_result(&msg).await;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        built_open = false;
+                        while pending_builds > 0 {
+                            pending_builds -= 1;
+                            ctx.emit_error_result("ACP prompt builder exited unexpectedly")
+                                .await;
+                        }
+                    }
+                }
+            }
+            wire = wire_rx.recv() => {
                 match wire {
-                    WireEvent::Incoming(incoming) => {
+                    Some(WireEvent::Incoming(incoming)) => {
                         ctx.handle_incoming(incoming).await;
                     }
-                    WireEvent::ProtocolError { message, raw_preview } => {
+                    Some(WireEvent::ProtocolError { message, raw_preview }) => {
                         let _ = ctx.sender.send(SessionEnvelope {
                             session_id: ctx.session_id.clone(),
                             event: EngineEvent::ProtocolError { message, raw_preview },
                         }).await;
                     }
-                    WireEvent::Eof => {
-                        ctx.handle_unexpected_eof().await;
+                    Some(WireEvent::Eof) | None => {
+                        prep_worker.abort();
+                        ctx.handle_unexpected_eof(pending_builds).await;
                         break;
                     }
                 }
             }
-            else => break,
         }
     }
+    prep_worker.abort();
+}
+
+async fn build_acp_blocks(
+    gen_id: u64,
+    cancel_gen: &Arc<AtomicU64>,
+    payload: PromptPayload,
+) -> Result<Vec<AcpContentBlock>, String> {
+    let mut blocks = Vec::with_capacity(1 + payload.media.len());
+    if !payload.text.trim().is_empty() {
+        blocks.push(AcpContentBlock::Text { text: payload.text });
+    }
+    for item in payload.media {
+        if cancel_gen.load(Ordering::Acquire) != gen_id {
+            return Ok(Vec::new());
+        }
+        let path = media_uri_to_path(&item.uri);
+        let bytes = tokio::fs::read(&path)
+            .await
+            .map_err(|e| format!("Failed to read media {}: {}", path, e))?;
+        if cancel_gen.load(Ordering::Acquire) != gen_id {
+            return Ok(Vec::new());
+        }
+        let data = tokio::task::spawn_blocking(move || encode_base64(&bytes))
+            .await
+            .map_err(|e| format!("Failed to encode media {}: {}", path, e))?;
+        blocks.push(AcpContentBlock::Image {
+            data,
+            mime_type: item.mime_type,
+            uri: None,
+        });
+    }
+    Ok(blocks)
 }

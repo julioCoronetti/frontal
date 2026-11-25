@@ -1,8 +1,10 @@
-use std::collections::{HashSet, VecDeque};
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashSet, VecDeque};
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::process::{Child, ChildStderr, Command};
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::timeout;
@@ -13,15 +15,136 @@ use futures_util::StreamExt;
 use crate::protocol::{EngineEvent, SessionEnvelope, SessionId};
 use crate::transport::EngineError;
 
+enum ReaperCmd {
+    Schedule {
+        pgid: i32,
+        deadline: Instant,
+    },
+    Drain {
+        done: std::sync::mpsc::SyncSender<bool>,
+    },
+    EscalatePending(std::sync::mpsc::SyncSender<()>),
+    Wake,
+}
+
+type ReaperEntry = (u64, std::sync::mpsc::Sender<ReaperCmd>);
+type ReaperCell = StdMutex<Option<ReaperEntry>>;
+
 static ACTIVE_CHILD_PGIDS: OnceLock<StdMutex<HashSet<i32>>> = OnceLock::new();
-static REAPER_TX: OnceLock<StdMutex<Option<mpsc::UnboundedSender<i32>>>> = OnceLock::new();
+static REAPER_TX: OnceLock<ReaperCell> = OnceLock::new();
+static NEXT_REAPER_GEN: AtomicU64 = AtomicU64::new(1);
+static HAS_DRAIN_WAITERS: AtomicBool = AtomicBool::new(false);
 
 fn active_pgids() -> &'static StdMutex<HashSet<i32>> {
     ACTIVE_CHILD_PGIDS.get_or_init(|| StdMutex::new(HashSet::new()))
 }
 
-fn reaper_slot() -> &'static StdMutex<Option<mpsc::UnboundedSender<i32>>> {
+fn reaper_cell() -> &'static ReaperCell {
     REAPER_TX.get_or_init(|| StdMutex::new(None))
+}
+
+fn existing_reaper_sender() -> Option<ReaperEntry> {
+    REAPER_TX
+        .get()
+        .and_then(|cell| cell.lock().ok())
+        .and_then(|guard| guard.clone())
+}
+
+fn clear_reaper_sender(gen_id: u64) {
+    if let Some(cell) = REAPER_TX.get() {
+        if let Ok(mut guard) = cell.lock() {
+            if matches!(guard.as_ref(), Some((cur, _)) if *cur == gen_id) {
+                *guard = None;
+            }
+        }
+    }
+}
+
+fn reaper_sender() -> Option<ReaperEntry> {
+    let mut guard = reaper_cell().lock().ok()?;
+    if let Some(entry) = guard.as_ref() {
+        return Some(entry.clone());
+    }
+    let (tx, rx) = std::sync::mpsc::channel::<ReaperCmd>();
+    let gen_id = NEXT_REAPER_GEN.fetch_add(1, Ordering::Relaxed);
+    match std::thread::Builder::new()
+        .name(String::from("frontal-pgid-reaper"))
+        .spawn(move || run_pgid_reaper(rx))
+    {
+        Ok(_) => {
+            *guard = Some((gen_id, tx.clone()));
+            Some((gen_id, tx))
+        }
+        Err(_) => None,
+    }
+}
+
+fn reaper_drained(queue: &mut BinaryHeap<Reverse<(Instant, i32)>>) -> bool {
+    active_pgids().lock().is_ok_and(|set| {
+        queue.retain(|Reverse((_, pgid))| set.contains(pgid));
+        queue.is_empty() && set.is_empty()
+    })
+}
+
+fn run_pgid_reaper(rx: std::sync::mpsc::Receiver<ReaperCmd>) {
+    let mut queue: BinaryHeap<Reverse<(Instant, i32)>> = BinaryHeap::new();
+    let mut drain_waiters: Vec<std::sync::mpsc::SyncSender<bool>> = Vec::new();
+    loop {
+        let now = Instant::now();
+        while let Some(&Reverse((deadline, _))) = queue.peek() {
+            if deadline > now {
+                break;
+            }
+            if let Some(Reverse((_, pgid))) = queue.pop() {
+                if take_registered_pgid(pgid) {
+                    unsafe {
+                        libc::killpg(pgid, libc::SIGKILL);
+                    }
+                }
+            }
+        }
+        if !drain_waiters.is_empty() && reaper_drained(&mut queue) {
+            HAS_DRAIN_WAITERS.store(false, Ordering::Release);
+            for waiter in drain_waiters.drain(..) {
+                let _ = waiter.send(true);
+            }
+        }
+        let msg = if let Some(&Reverse((deadline, _))) = queue.peek() {
+            let wait = deadline.saturating_duration_since(Instant::now());
+            match rx.recv_timeout(wait) {
+                Ok(cmd) => Ok(cmd),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        } else {
+            rx.recv().map_err(|_| ())
+        };
+        match msg {
+            Ok(ReaperCmd::Schedule { pgid, deadline }) => {
+                queue.push(Reverse((deadline, pgid)));
+            }
+            Ok(ReaperCmd::Drain { done }) => {
+                if reaper_drained(&mut queue) {
+                    let _ = done.send(true);
+                } else {
+                    drain_waiters.push(done);
+                    HAS_DRAIN_WAITERS.store(true, Ordering::Release);
+                }
+            }
+            Ok(ReaperCmd::EscalatePending(ack)) => {
+                queue.clear();
+                drain_and_sigkill_active_pgids();
+                HAS_DRAIN_WAITERS.store(false, Ordering::Release);
+                for waiter in drain_waiters.drain(..) {
+                    let _ = waiter.send(false);
+                }
+                let _ = ack.send(());
+            }
+            Ok(ReaperCmd::Wake) => {}
+            Err(()) => break,
+        }
+    }
+    HAS_DRAIN_WAITERS.store(false, Ordering::Release);
 }
 
 pub fn register_child_pgid(pgid: i32) {
@@ -34,8 +157,15 @@ pub fn register_child_pgid(pgid: i32) {
 
 pub fn unregister_child_pgid(pgid: i32) {
     if pgid > 0 {
-        if let Ok(mut set) = active_pgids().lock() {
-            set.remove(&pgid);
+        let became_empty = if let Ok(mut set) = active_pgids().lock() {
+            set.remove(&pgid) && set.is_empty()
+        } else {
+            false
+        };
+        if became_empty && HAS_DRAIN_WAITERS.load(Ordering::Acquire) {
+            if let Some((_, tx)) = existing_reaper_sender() {
+                let _ = tx.send(ReaperCmd::Wake);
+            }
         }
     }
 }
@@ -49,42 +179,76 @@ fn take_registered_pgid(pgid: i32) -> bool {
     false
 }
 
-pub fn kill_registered_subprocesses() {
-    let pgids: Vec<i32> = match active_pgids().lock() {
-        Ok(set) => set.iter().copied().filter(|&p| p > 0).collect(),
-        Err(_) => return,
-    };
+fn signal_pgids(pgids: Vec<i32>, sig: i32) {
     for pgid in pgids {
-        unsafe {
-            libc::killpg(pgid, libc::SIGTERM);
+        if pgid > 0 {
+            unsafe {
+                libc::killpg(pgid, sig);
+            }
         }
     }
 }
 
-pub fn init_pgid_reaper() {
-    let Ok(mut slot) = reaper_slot().lock() else {
-        return;
-    };
-    if slot.as_ref().is_some_and(|tx| !tx.is_closed()) {
-        return;
+pub fn kill_registered_subprocesses() {
+    let pgids = active_pgids()
+        .lock()
+        .ok()
+        .map(|set| set.iter().copied().collect());
+    if let Some(pgids) = pgids {
+        signal_pgids(pgids, libc::SIGTERM);
     }
-    let Ok(handle) = tokio::runtime::Handle::try_current() else {
-        return;
-    };
-    let (tx, mut rx) = mpsc::unbounded_channel::<i32>();
-    *slot = Some(tx);
-    handle.spawn(async move {
-        while let Some(pgid) = rx.recv().await {
-            tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(250)).await;
-                if take_registered_pgid(pgid) {
-                    unsafe {
-                        libc::killpg(pgid, libc::SIGKILL);
-                    }
-                }
-            });
+}
+
+fn drain_and_sigkill_active_pgids() {
+    if let Ok(mut set) = active_pgids().lock() {
+        let pgids: Vec<i32> = set.drain().collect();
+        drop(set);
+        signal_pgids(pgids, libc::SIGKILL);
+    }
+}
+
+pub fn init_pgid_reaper() {
+    let _ = reaper_sender();
+}
+
+pub fn drain_pgid_reaper(wait: Duration) -> bool {
+    let Some((gen_id, tx)) = existing_reaper_sender() else {
+        let Ok(pgids) = active_pgids()
+            .lock()
+            .map(|mut set| set.drain().collect::<Vec<i32>>())
+        else {
+            return false;
+        };
+        if pgids.is_empty() {
+            return true;
         }
-    });
+        signal_pgids(pgids, libc::SIGKILL);
+        return false;
+    };
+    let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+    if tx.send(ReaperCmd::Drain { done: done_tx }).is_err() {
+        clear_reaper_sender(gen_id);
+        drain_and_sigkill_active_pgids();
+        return false;
+    }
+    match done_rx.recv_timeout(wait) {
+        Ok(drained) => drained,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            let (ack_tx, ack_rx) = std::sync::mpsc::sync_channel(1);
+            let escalated_ok = tx.send(ReaperCmd::EscalatePending(ack_tx)).is_ok()
+                && ack_rx.recv_timeout(Duration::from_millis(200)).is_ok();
+            if !escalated_ok {
+                clear_reaper_sender(gen_id);
+                drain_and_sigkill_active_pgids();
+            }
+            false
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            clear_reaper_sender(gen_id);
+            drain_and_sigkill_active_pgids();
+            false
+        }
+    }
 }
 
 pub struct ProcessGroupGuard {
@@ -144,13 +308,18 @@ impl Drop for ProcessGroupGuard {
         unsafe {
             libc::killpg(self.pgid, libc::SIGTERM);
         }
-        init_pgid_reaper();
-        if let Ok(slot) = reaper_slot().lock() {
-            if let Some(tx) = slot.as_ref() {
-                if tx.send(self.pgid).is_ok() {
-                    return;
-                }
+        let deadline = Instant::now() + Duration::from_millis(250);
+        if let Some((gen_id, tx)) = reaper_sender() {
+            if tx
+                .send(ReaperCmd::Schedule {
+                    pgid: self.pgid,
+                    deadline,
+                })
+                .is_ok()
+            {
+                return;
             }
+            clear_reaper_sender(gen_id);
         }
         if take_registered_pgid(self.pgid) {
             unsafe {
@@ -324,3 +493,7 @@ pub(crate) async fn shutdown_isolated_child(
 
     Ok(exit_status)
 }
+
+#[cfg(test)]
+#[path = "process_tests.rs"]
+mod tests;

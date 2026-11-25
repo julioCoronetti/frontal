@@ -115,10 +115,7 @@ impl FixtureReplayEngine {
         Ok(())
     }
 
-    pub async fn send_prompt(
-        &mut self,
-        prompt: impl Into<PromptPayload>,
-    ) -> Result<(), EngineError> {
+    pub fn try_send_prompt(&mut self, prompt: impl Into<PromptPayload>) -> Result<(), EngineError> {
         let payload = prompt.into();
         let _ = format_user_payload(&payload)?;
         self.turn_gen += 1;
@@ -163,6 +160,13 @@ impl FixtureReplayEngine {
             }
         });
         Ok(())
+    }
+
+    pub async fn send_prompt(
+        &mut self,
+        prompt: impl Into<PromptPayload>,
+    ) -> Result<(), EngineError> {
+        self.try_send_prompt(prompt)
     }
 
     pub fn interrupt(&mut self) -> Result<(), EngineError> {

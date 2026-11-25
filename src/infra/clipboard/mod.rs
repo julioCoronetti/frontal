@@ -39,6 +39,7 @@ struct ClipboardState {
 pub struct SystemClipboard {
     internal: Arc<Mutex<ClipboardState>>,
     next_seq: AtomicU64,
+    last_applied_seq: Arc<AtomicU64>,
     emit_osc52: bool,
     isolated_image: Option<(u32, u32, Vec<u8>)>,
     media_cache_dir: Option<PathBuf>,
@@ -46,6 +47,7 @@ pub struct SystemClipboard {
 
 fn try_write_clipboard(
     internal: &Mutex<ClipboardState>,
+    last_applied_seq: &AtomicU64,
     seq: u64,
     text: &str,
     is_isolated: bool,
@@ -55,6 +57,7 @@ fn try_write_clipboard(
         return true;
     }
     guard.last_seq = seq;
+    last_applied_seq.fetch_max(seq, Ordering::AcqRel);
     if is_isolated {
         guard.isolated_buffer = Some(text.to_string());
         return true;
@@ -75,6 +78,7 @@ impl SystemClipboard {
                 isolated_buffer: None,
             })),
             next_seq: AtomicU64::new(1),
+            last_applied_seq: Arc::new(AtomicU64::new(0)),
             emit_osc52: true,
             isolated_image: None,
             media_cache_dir: default_media_cache_dir(),
@@ -89,6 +93,7 @@ impl SystemClipboard {
                 isolated_buffer: None,
             })),
             next_seq: AtomicU64::new(1),
+            last_applied_seq: Arc::new(AtomicU64::new(0)),
             emit_osc52: false,
             isolated_image: None,
             media_cache_dir: None,
@@ -103,6 +108,7 @@ impl SystemClipboard {
                 isolated_buffer: None,
             })),
             next_seq: AtomicU64::new(1),
+            last_applied_seq: Arc::new(AtomicU64::new(0)),
             emit_osc52: false,
             isolated_image: None,
             media_cache_dir: Some(dir),
@@ -182,7 +188,14 @@ impl SystemClipboard {
     pub fn set_text(&mut self, text: &str) -> Result<(), String> {
         let seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
         let is_isolated = self.is_isolated();
-        if !try_write_clipboard(&self.internal, seq, text, is_isolated) && self.emit_osc52 {
+        if !try_write_clipboard(
+            &self.internal,
+            &self.last_applied_seq,
+            seq,
+            text,
+            is_isolated,
+        ) && self.emit_osc52
+        {
             Self::write_osc52_stdout(text);
         }
         Ok(())
@@ -193,10 +206,11 @@ impl SystemClipboard {
     ) -> (u64, impl FnOnce(String) -> Option<String> + Send + 'static) {
         let seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
         let internal = Arc::clone(&self.internal);
+        let last_applied_seq = Arc::clone(&self.last_applied_seq);
         let emit_osc52 = self.emit_osc52;
         let is_isolated = self.is_isolated();
         let write_fn = move |text: String| {
-            let ok = try_write_clipboard(&internal, seq, &text, is_isolated);
+            let ok = try_write_clipboard(&internal, &last_applied_seq, seq, &text, is_isolated);
             if !ok && emit_osc52 {
                 Some(text)
             } else {
@@ -207,10 +221,7 @@ impl SystemClipboard {
     }
 
     pub fn last_applied_seq(&self) -> u64 {
-        self.internal
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .last_seq
+        self.last_applied_seq.load(Ordering::Acquire)
     }
 
     pub fn write_osc52_stdout(text: &str) {

@@ -16,16 +16,14 @@ use futures_util::StreamExt;
 use super::process::{
     shutdown_isolated_child, spawn_piped_isolated, spawn_stderr_tail_task, ProcessGroupGuard,
 };
-use crate::protocol::acp::{encode_base64, parse_acp_line, AcpContentBlock, AcpIncoming};
-use crate::protocol::{
-    media_uri_to_path, PromptPayload, ProtocolError, SessionEnvelope, SessionId,
-};
+use crate::protocol::acp::{parse_acp_line, AcpIncoming};
+use crate::protocol::{PromptPayload, ProtocolError, SessionEnvelope, SessionId};
 use crate::transport::{EngineConfig, EngineError};
 
 use coordinator::{run_coordinator, CoordinatorCtx};
 
 pub(super) enum AcpCommand {
-    SendPrompt(Vec<AcpContentBlock>),
+    SendPrompt(PromptPayload),
     CancelTurn,
     CloseStdin,
 }
@@ -136,6 +134,24 @@ impl AcpEngine {
         &self.config
     }
 
+    pub fn try_send_prompt(&mut self, prompt: impl Into<PromptPayload>) -> Result<(), EngineError> {
+        let payload = prompt.into();
+        if payload.is_empty() {
+            return Err(ProtocolError::EmptyPrompt.into());
+        }
+        match self.cmd_tx.try_send(AcpCommand::SendPrompt(payload)) {
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(cmd)) => {
+                let tx = self.cmd_tx.clone();
+                tokio::spawn(async move {
+                    let _ = tx.send(cmd).await;
+                });
+                Ok(())
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => Err(EngineError::ProcessNotRunning),
+        }
+    }
+
     pub async fn send_prompt(
         &mut self,
         prompt: impl Into<PromptPayload>,
@@ -144,21 +160,8 @@ impl AcpEngine {
         if payload.is_empty() {
             return Err(ProtocolError::EmptyPrompt.into());
         }
-        let mut blocks = Vec::with_capacity(1 + payload.media.len());
-        if !payload.text.trim().is_empty() {
-            blocks.push(AcpContentBlock::Text { text: payload.text });
-        }
-        for item in payload.media {
-            let path = media_uri_to_path(&item.uri);
-            let bytes = tokio::fs::read(&path).await?;
-            blocks.push(AcpContentBlock::Image {
-                data: encode_base64(&bytes),
-                mime_type: item.mime_type,
-                uri: None,
-            });
-        }
         self.cmd_tx
-            .send(AcpCommand::SendPrompt(blocks))
+            .send(AcpCommand::SendPrompt(payload))
             .await
             .map_err(|_| EngineError::ProcessNotRunning)
     }
