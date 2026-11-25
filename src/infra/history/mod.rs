@@ -1,7 +1,7 @@
 use rusqlite::{params, Connection};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -67,21 +67,82 @@ pub enum HistoryCommand {
     DeleteSession {
         keys: Vec<String>,
     },
+    LoadEntries {
+        done_tx: SyncSender<Vec<String>>,
+    },
+    LoadHydration {
+        conv_id: String,
+        done_tx: SyncSender<HydrationData>,
+    },
     Flush {
         wait_external: bool,
         done_tx: Sender<()>,
     },
 }
 
+#[derive(Clone)]
+pub struct HydrationClient {
+    write_tx: Option<Sender<HistoryCommand>>,
+    db_path: Option<PathBuf>,
+}
+
+impl HydrationClient {
+    pub fn load(&self, conv_id: &str) -> HydrationData {
+        if let Some(ref tx) = self.write_tx {
+            let (done_tx, done_rx) = sync_channel(1);
+            if tx
+                .send(HistoryCommand::LoadHydration {
+                    conv_id: conv_id.to_string(),
+                    done_tx,
+                })
+                .is_ok()
+            {
+                if let Ok(data) = done_rx.recv_timeout(Duration::from_secs(5)) {
+                    return data;
+                }
+            }
+        }
+        load_hydration_data(conv_id, self.db_path.as_deref())
+    }
+}
+
+pub(super) struct InMemoryStore {
+    pub(super) sessions: Vec<SessionRecord>,
+    pub(super) deleted_ids: HashSet<String>,
+}
+
+impl InMemoryStore {
+    pub(super) fn publish(&self, snapshot_tx: &watch::Sender<Arc<HistorySnapshot>>) {
+        let deleted = &self.deleted_ids;
+        let sessions: Vec<SessionRecord> = self
+            .sessions
+            .iter()
+            .filter(|s| !sessions::is_deleted_record(s, deleted))
+            .cloned()
+            .collect();
+        snapshot_tx.send_modify(|cur| {
+            let mut agent_sessions = cur.agent_sessions.clone();
+            agent_sessions.retain(|s| !sessions::is_deleted_record(s, deleted));
+            let next_ver = cur.version.saturating_add(1);
+            *cur = Arc::new(HistorySnapshot {
+                version: next_ver,
+                sessions,
+                agent_sessions,
+            });
+        });
+    }
+}
+
 pub struct PromptHistory {
     entries: Vec<String>,
-    sessions: Vec<SessionRecord>,
+    entries_loaded: bool,
+    entries_rx: Option<watch::Receiver<(bool, Vec<String>)>>,
     history_idx: Option<usize>,
     draft_backup: Option<String>,
     db_path: Option<PathBuf>,
     write_tx: Option<Sender<HistoryCommand>>,
     agent_updates_rx: Option<Receiver<(String, String)>>,
-    deleted_ids: HashSet<String>,
+    in_memory: Option<InMemoryStore>,
     snapshot_tx: watch::Sender<Arc<HistorySnapshot>>,
     _snapshot_rx: watch::Receiver<Arc<HistorySnapshot>>,
 }
@@ -107,37 +168,12 @@ impl PromptHistory {
         agent_db_path: Option<PathBuf>,
         opencode_db_path: Option<PathBuf>,
     ) -> Result<Self, rusqlite::Error> {
-        if let Some(parent) = db_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-
-        let conn = Connection::open(db_path)?;
-        worker::init_connection(&conn)?;
-        let entries = Self::load_recent_entries(&conn, 500)?;
-        let deleted_ids = Self::load_deleted_ids(&conn);
-        let mut sessions = Self::load_recent_sessions(&conn, 500)?;
-        sessions.retain(|s| !sessions::is_deleted_record(s, &deleted_ids));
-        drop(conn);
-
         let (tx, rx) = channel::<HistoryCommand>();
         let (agent_updates_tx, agent_updates_rx) = channel::<(String, String)>();
-        let mut pinned_titles = std::collections::HashMap::new();
-        let mut known_models = std::collections::HashMap::new();
-        for s in &sessions {
-            if let Some(ref cid) = s.conversation_id {
-                if s.title_source == TitleSource::Custom {
-                    if let Some(ref t) = s.title {
-                        pinned_titles.insert(cid.clone(), t.clone());
-                    }
-                }
-                if s.model.is_some() {
-                    known_models.insert(cid.clone(), (s.model.clone(), s.effort.clone()));
-                }
-            }
-        }
+        let (entries_tx, entries_rx) = watch::channel((false, Vec::new()));
         let (snapshot_tx, _snapshot_rx) = watch::channel(Arc::new(HistorySnapshot {
             version: 0,
-            sessions: sessions.clone(),
+            sessions: Vec::new(),
             agent_sessions: Vec::new(),
         }));
         worker::spawn_history_worker(
@@ -146,21 +182,20 @@ impl PromptHistory {
             agent_db_path,
             opencode_db_path,
             agent_updates_tx,
-            pinned_titles,
-            known_models,
-            deleted_ids.clone(),
+            entries_tx,
             snapshot_tx.clone(),
         );
 
         Ok(Self {
-            entries,
-            sessions,
+            entries: Vec::new(),
+            entries_loaded: false,
+            entries_rx: Some(entries_rx),
             history_idx: None,
             draft_backup: None,
             db_path: Some(db_path.to_path_buf()),
             write_tx: Some(tx),
             agent_updates_rx: Some(agent_updates_rx),
-            deleted_ids,
+            in_memory: None,
             snapshot_tx,
             _snapshot_rx,
         })
@@ -179,19 +214,23 @@ impl PromptHistory {
 
         Ok(Self {
             entries,
-            sessions,
+            entries_loaded: true,
+            entries_rx: None,
             history_idx: None,
             draft_backup: None,
             db_path: None,
             write_tx: None,
             agent_updates_rx: None,
-            deleted_ids: HashSet::new(),
+            in_memory: Some(InMemoryStore {
+                sessions,
+                deleted_ids: HashSet::new(),
+            }),
             snapshot_tx,
             _snapshot_rx,
         })
     }
 
-    fn load_deleted_ids(conn: &Connection) -> HashSet<String> {
+    pub(super) fn load_deleted_ids(conn: &Connection) -> HashSet<String> {
         let mut deleted = HashSet::new();
         if let Ok(mut stmt) = conn.prepare("SELECT conversation_id FROM deleted_sessions") {
             if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
@@ -203,7 +242,7 @@ impl PromptHistory {
         deleted
     }
 
-    fn load_recent_entries(
+    pub(super) fn load_recent_entries(
         conn: &Connection,
         limit: usize,
     ) -> Result<Vec<String>, rusqlite::Error> {
@@ -218,6 +257,38 @@ impl PromptHistory {
         }
         result.reverse();
         Ok(result)
+    }
+
+    fn merge_entries(mut loaded: Vec<String>, local: &[String]) -> Vec<String> {
+        for item in local {
+            if loaded.last().map(|s| s.as_str()) != Some(item.as_str()) {
+                loaded.push(item.clone());
+            }
+        }
+        loaded
+    }
+
+    fn ensure_entries_loaded(&mut self) {
+        if self.entries_loaded {
+            return;
+        }
+        if let Some(ref rx) = self.entries_rx {
+            let guard = rx.borrow();
+            if guard.0 {
+                self.entries = Self::merge_entries(guard.1.clone(), &self.entries);
+                self.entries_loaded = true;
+                return;
+            }
+        }
+        if let Some(ref tx) = self.write_tx {
+            let (done_tx, done_rx) = sync_channel(1);
+            if tx.send(HistoryCommand::LoadEntries { done_tx }).is_ok() {
+                if let Ok(loaded) = done_rx.recv_timeout(Duration::from_millis(2000)) {
+                    self.entries = Self::merge_entries(loaded, &self.entries);
+                    self.entries_loaded = true;
+                }
+            }
+        }
     }
 
     pub fn record_prompt(&mut self, prompt: &str) {
@@ -236,34 +307,48 @@ impl PromptHistory {
         self.history_idx = None;
         self.draft_backup = None;
     }
+}
 
+impl HydrationClient {
+    pub fn flush_with_timeout(&self, timeout: Duration) -> bool {
+        send_flush_timeout(self.write_tx.as_ref(), true, timeout)
+    }
+}
+
+fn send_flush_timeout(
+    write_tx: Option<&Sender<HistoryCommand>>,
+    wait_external: bool,
+    timeout: Duration,
+) -> bool {
+    if let Some(tx) = write_tx {
+        let (done_tx, done_rx) = channel();
+        if tx
+            .send(HistoryCommand::Flush {
+                wait_external,
+                done_tx,
+            })
+            .is_ok()
+        {
+            return done_rx.recv_timeout(timeout).is_ok();
+        }
+    }
+    true
+}
+
+impl PromptHistory {
     pub fn snapshot(&self) -> Arc<HistorySnapshot> {
         self.snapshot_tx.borrow().clone()
     }
 
-    pub(super) fn publish_local_snapshot(&self) {
-        self.publish_local_snapshot_with(|_| {});
-    }
-
-    pub(super) fn publish_local_snapshot_with(
-        &self,
-        mutate_agents: impl FnOnce(&mut Vec<SessionRecord>),
-    ) {
-        let sessions = self.sessions.clone();
-        self.snapshot_tx.send_modify(|cur| {
-            let mut agent_sessions = cur.agent_sessions.clone();
-            mutate_agents(&mut agent_sessions);
-            let next_ver = cur.version.saturating_add(1);
-            *cur = Arc::new(HistorySnapshot {
-                version: next_ver,
-                sessions,
-                agent_sessions,
-            });
-        });
-    }
-
     pub fn subscribe(&self) -> watch::Receiver<Arc<HistorySnapshot>> {
         self.snapshot_tx.subscribe()
+    }
+
+    pub fn hydration_client(&self) -> HydrationClient {
+        HydrationClient {
+            write_tx: self.write_tx.clone(),
+            db_path: self.db_path.clone(),
+        }
     }
 
     pub fn flush(&self) {
@@ -278,20 +363,8 @@ impl PromptHistory {
         let _ = self.send_flush_timeout(false, Duration::from_millis(500));
     }
 
-    fn send_flush_timeout(&self, wait_external: bool, timeout: Duration) -> bool {
-        if let Some(ref tx) = self.write_tx {
-            let (done_tx, done_rx) = channel();
-            if tx
-                .send(HistoryCommand::Flush {
-                    wait_external,
-                    done_tx,
-                })
-                .is_ok()
-            {
-                return done_rx.recv_timeout(timeout).is_ok();
-            }
-        }
-        true
+    pub(super) fn send_flush_timeout(&self, wait_external: bool, timeout: Duration) -> bool {
+        send_flush_timeout(self.write_tx.as_ref(), wait_external, timeout)
     }
 
     pub fn path(&self) -> Option<&Path> {
@@ -308,6 +381,7 @@ impl PromptHistory {
     }
 
     pub fn prev_history(&mut self, current_draft: &str) -> Option<String> {
+        self.ensure_entries_loaded();
         if self.entries.is_empty() {
             return None;
         }
@@ -345,8 +419,25 @@ impl PromptHistory {
         }
     }
 
-    pub fn entries(&self) -> &[String] {
-        &self.entries
+    pub fn entries(&self) -> Vec<String> {
+        if self.entries_loaded {
+            return self.entries.clone();
+        }
+        if let Some(ref rx) = self.entries_rx {
+            let guard = rx.borrow();
+            if guard.0 {
+                return Self::merge_entries(guard.1.clone(), &self.entries);
+            }
+        }
+        if let Some(ref tx) = self.write_tx {
+            let (done_tx, done_rx) = sync_channel(1);
+            if tx.send(HistoryCommand::LoadEntries { done_tx }).is_ok() {
+                if let Ok(loaded) = done_rx.recv_timeout(Duration::from_millis(2000)) {
+                    return Self::merge_entries(loaded, &self.entries);
+                }
+            }
+        }
+        self.entries.clone()
     }
 
     pub fn is_navigating(&self) -> bool {

@@ -1,6 +1,7 @@
 use frontal::infra::history::StoredMessage;
+use frontal::infra::history::{PromptHistory, SessionRecord};
 use frontal::ui::cache::RenderCache;
-use frontal::ui::history::{hydrate_conversation, PromptHistory, SessionRecord};
+use frontal::ui::history::hydrate_conversation;
 
 use crate::common::TempDirGuard;
 
@@ -79,7 +80,7 @@ fn test_conversation_title_fallback_from_store() {
     history.flush();
 
     assert_eq!(
-        frontal::ui::history::conversation_title("ses_title", Some(db.as_path())).as_deref(),
+        frontal::infra::history::conversation_title("ses_title", Some(db.as_path())).as_deref(),
         Some("Titulo persistido")
     );
 }
@@ -203,7 +204,8 @@ fn test_resolve_session_telemetry_prefers_newer_transcript_steps_over_stale_loca
     std::fs::write(logs_dir.join("transcript.jsonl"), transcript).unwrap();
 
     let resolved =
-        frontal::ui::history::resolve_session_telemetry(conv_id, Some(db_path.as_path())).unwrap();
+        frontal::infra::history::resolve_session_telemetry(conv_id, Some(db_path.as_path()))
+            .unwrap();
     assert_eq!(resolved.steps, 2);
     assert_eq!(resolved.turns, 2);
     assert_eq!(resolved.last.effective_total(), 7300);

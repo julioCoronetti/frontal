@@ -6,7 +6,7 @@ use frontal::engine::{
 };
 use frontal::protocol::{EngineEvent, SessionId, StreamEvent};
 use frontal::session::{SessionManager, SessionStatus};
-use frontal::transport::{EngineConfig, FixtureReplayEngine, ReplayMode};
+use frontal::transport::{EngineConfig, EngineError, FixtureReplayEngine, ReplayMode};
 
 use crate::common::{TempFileGuard, PGID_TEST_LOCK};
 
@@ -308,7 +308,7 @@ fn test_dormant_metadata_lifecycle() {
         conversation_id: Some("conv-dormant".to_string()),
         ..Default::default()
     };
-    manager.save_dormant_metadata(sid.clone(), meta, cfg);
+    assert!(manager.save_dormant_metadata(sid.clone(), meta, cfg));
     assert!(manager.is_dormant(&sid));
     assert!(!manager.is_replay_session(&sid));
     assert_eq!(
@@ -326,4 +326,85 @@ fn test_dormant_metadata_lifecycle() {
     manager.remove_dormant_metadata(&sid);
     assert!(!manager.is_dormant(&sid));
     assert!(manager.get_metadata(&sid).is_none());
+}
+
+#[test]
+fn test_session_handle_drop_and_collision_outside_tokio_runtime() {
+    let mut manager = SessionManager::new();
+    let sid = SessionId::new();
+    let meta = frontal::infra::session::SessionMetadata {
+        session_id: sid.clone(),
+        conversation_id: Some("conv-sync-drop".to_string()),
+        model: None,
+        mode: None,
+        effort: None,
+        turns: 0,
+        last_prompt: None,
+        status: SessionStatus::Ready,
+    };
+    assert!(manager.save_dormant_metadata(sid.clone(), meta, EngineConfig::default()));
+    assert!(manager.is_dormant(&sid));
+    manager.register_mock_session(sid.clone());
+    assert!(!manager.is_dormant(&sid));
+    manager.register_mock_session(sid.clone());
+    drop(manager);
+}
+
+#[tokio::test]
+async fn test_closed_session_rejects_prompt_and_preserves_metadata() {
+    let mut manager = SessionManager::new();
+    let sid = SessionId::new();
+    manager.register_mock_session(sid.clone());
+    manager.set_session_status(&sid, SessionStatus::Closed);
+
+    assert!(matches!(
+        manager.dispatch_prompt_sync(&sid, "hello sync"),
+        Err(EngineError::ProcessNotRunning)
+    ));
+    assert!(matches!(
+        manager.send_prompt(&sid, "hello async").await,
+        Err(EngineError::ProcessNotRunning)
+    ));
+    let meta = manager.get_metadata(&sid).expect("metadata exists");
+    assert_eq!(meta.status, SessionStatus::Closed);
+    assert_eq!(meta.last_prompt, None);
+
+    manager
+        .shutdown_all(Duration::from_millis(50))
+        .await
+        .expect("shutdown_all");
+}
+
+#[tokio::test]
+async fn test_attach_engine_collision_clears_dormant_and_commits_prompt_on_ok() {
+    let mut manager = SessionManager::new();
+    let sid = SessionId::new();
+    let meta = frontal::infra::session::SessionMetadata {
+        session_id: sid.clone(),
+        conversation_id: Some("conv-collide".to_string()),
+        model: None,
+        mode: None,
+        effort: None,
+        turns: 0,
+        last_prompt: None,
+        status: SessionStatus::Closed,
+    };
+    assert!(manager.save_dormant_metadata(sid.clone(), meta, EngineConfig::default()));
+    assert!(manager.is_dormant(&sid));
+
+    manager.register_mock_session(sid.clone());
+    assert!(!manager.is_dormant(&sid));
+
+    manager
+        .dispatch_prompt_sync(&sid, "first prompt")
+        .expect("ready mock accepts prompt");
+    let updated = manager.get_metadata(&sid).expect("metadata exists");
+    assert_eq!(updated.status, SessionStatus::RunningTurn);
+    assert_eq!(updated.last_prompt.as_deref(), Some("first prompt"));
+
+    manager.register_mock_session(sid.clone());
+    manager
+        .shutdown_all(Duration::from_millis(50))
+        .await
+        .expect("shutdown_all drains overwritten handle");
 }

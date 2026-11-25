@@ -25,6 +25,19 @@ pub(super) fn load_pinned_titles(conn: &Connection) -> HashMap<String, String> {
     .unwrap_or_default()
 }
 
+struct ExistingSessionRow {
+    id: String,
+    conversation_id: Option<String>,
+    backend: Option<String>,
+    model: Option<String>,
+    mode: Option<String>,
+    effort: Option<String>,
+    title: Option<String>,
+    title_source: i64,
+    custom_title: i64,
+    created_at: i64,
+}
+
 pub(super) fn handle_record_session(
     conn: &Connection,
     mut record: SessionRecord,
@@ -32,25 +45,87 @@ pub(super) fn handle_record_session(
     agent_db_path: Option<&Path>,
     opencode_db_path: Option<&Path>,
 ) {
-    if record.created_at <= 0 {
-        if let Some(ref cid) = record.conversation_id {
-            if !cid.trim().is_empty() {
-                let external_ts = if cid.starts_with("ses_") {
-                    opencode_db_path.and_then(|odb| opencode::query_opencode_timestamp_at(odb, cid))
-                } else {
-                    agent_db_path
-                        .and_then(|adb| agent::query_agent_conversation_timestamp_at(adb, cid))
-                };
-                if let Some(ts) = external_ts {
-                    record.created_at = ts;
-                }
-            }
-        }
+    if record.id.trim().is_empty() {
+        return;
     }
     if conn.execute_batch("BEGIN IMMEDIATE;").is_err() {
         return;
     }
+
+    let existing_row: Option<ExistingSessionRow> = conn
+        .query_row(
+            "SELECT id, conversation_id, backend, model, mode, effort, title, title_source, custom_title, created_at
+             FROM sessions
+             WHERE id = ?1 OR (?2 IS NOT NULL AND ?2 != '' AND conversation_id = ?2)
+             ORDER BY (id = ?1) DESC, created_at DESC
+             LIMIT 1",
+            params![record.id, record.conversation_id],
+            |row| {
+                Ok(ExistingSessionRow {
+                    id: row.get(0)?,
+                    conversation_id: row.get(1)?,
+                    backend: row.get(2)?,
+                    model: row.get(3)?,
+                    mode: row.get(4)?,
+                    effort: row.get(5)?,
+                    title: row.get(6)?,
+                    title_source: row.get(7)?,
+                    custom_title: row.get(8)?,
+                    created_at: row.get(9)?,
+                })
+            },
+        )
+        .ok();
+
     let mut is_custom = record.title_source == TitleSource::Custom;
+    record.title_source = normalize_title_source(&record.title, record.title_source);
+    let mut existing_created_at = 0i64;
+
+    if let Some(ex) = existing_row {
+        record.id = ex.id;
+        if record.conversation_id.is_none() {
+            record.conversation_id = ex.conversation_id;
+        }
+        if record.backend.is_none() {
+            record.backend = ex
+                .backend
+                .as_deref()
+                .map(str::trim)
+                .filter(|b| !b.is_empty())
+                .map(crate::config::BackendKind::parse);
+        }
+        if record.model.is_none() {
+            record.model = ex.model;
+        }
+        if record.mode.is_none() {
+            record.mode = ex.mode;
+        }
+        if record.effort.is_none() {
+            record.effort = ex.effort;
+        }
+        let ex_src = if ex.custom_title != 0 {
+            TitleSource::Custom
+        } else {
+            normalize_title_source(&ex.title, TitleSource::from_i64(ex.title_source))
+        };
+        if ex_src == TitleSource::Custom {
+            is_custom = true;
+            if record.title_source != TitleSource::Custom || record.title.is_none() {
+                record.title = ex.title;
+                record.title_source = TitleSource::Custom;
+            }
+        } else if !is_custom
+            && ex.title.is_some()
+            && (!record.title_source.can_override(ex_src)
+                || ex_src == record.title_source
+                || record.title.is_none())
+        {
+            record.title = ex.title;
+            record.title_source = ex_src;
+        }
+        existing_created_at = ex.created_at;
+    }
+
     if let Some(ref cid) = record.conversation_id {
         if !cid.trim().is_empty() {
             if let Some(pinned) = pinned_titles
@@ -61,19 +136,22 @@ pub(super) fn handle_record_session(
                 pinned_titles.insert(cid.clone(), pinned.clone());
                 is_custom = true;
                 record.title = Some(pinned);
-            } else if let Ok(mut stmt) = conn.prepare(
-                "SELECT title FROM sessions
-                 WHERE (conversation_id = ?1 OR id = ?2) AND custom_title != 0
-                 LIMIT 1",
-            ) {
-                if let Ok(existing_title) = stmt.query_row(params![cid, record.id], |row| {
-                    row.get::<_, Option<String>>(0)
-                }) {
-                    is_custom = true;
-                    if let Some(t) = existing_title.filter(|t| !t.trim().is_empty()) {
+            } else if is_custom {
+                if let Some(ref t) = record.title {
+                    if !t.trim().is_empty() {
                         pinned_titles.insert(cid.clone(), t.clone());
-                        record.title = Some(t);
                     }
+                }
+            }
+            if record.created_at <= 0 {
+                let external_ts = if cid.starts_with("ses_") {
+                    opencode_db_path.and_then(|odb| opencode::query_opencode_timestamp_at(odb, cid))
+                } else {
+                    agent_db_path
+                        .and_then(|adb| agent::query_agent_conversation_timestamp_at(adb, cid))
+                };
+                if let Some(ts) = external_ts {
+                    record.created_at = ts;
                 }
             }
             if conn
@@ -87,6 +165,16 @@ pub(super) fn handle_record_session(
                 return;
             }
         }
+    }
+
+    if record.created_at <= 0 && existing_created_at > 0 {
+        record.created_at = existing_created_at;
+    }
+    if record.created_at <= 0 {
+        record.created_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
     }
     let title_source = if is_custom {
         TitleSource::Custom
@@ -169,31 +257,31 @@ pub(super) fn handle_refresh_agent(
                 let Some(odb) = opencode_db_path else {
                     return;
                 };
+                let (queried_title, ts) = opencode::query_opencode_summary_at(odb, &cid);
                 let t = if pinned.is_some() {
                     None
                 } else {
-                    opencode::query_opencode_title_at(odb, &cid)
+                    queried_title
                 };
                 let src = if t.is_some() {
                     TitleSource::Semantic
                 } else {
                     TitleSource::Default
                 };
-                let ts = opencode::query_opencode_timestamp_at(odb, &cid).unwrap_or(0);
                 (t, src, ts)
             } else {
                 let Some(adb) = agent_db_path else {
                     return;
                 };
+                let (queried_title, ts) = agent::query_agent_summary_at(adb, &cid);
                 let (t, src) = if pinned.is_some() {
                     (None, TitleSource::Custom)
                 } else {
-                    match agent::query_agent_conversation_title_with_source_at(adb, &cid) {
+                    match queried_title {
                         Some((title, source)) => (Some(title), source),
                         None => (None, TitleSource::Default),
                     }
                 };
-                let ts = agent::query_agent_conversation_timestamp_at(adb, &cid).unwrap_or(0);
                 (t, src, ts)
             };
             let cache_title = pinned.clone().or_else(|| title.clone());

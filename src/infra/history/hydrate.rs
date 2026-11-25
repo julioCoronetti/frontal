@@ -1,11 +1,14 @@
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
+use std::time::Duration;
+
+use rusqlite::{Connection, OpenFlags};
 
 use super::{
-    agent, conversation_messages_at, conversation_title_at, opencode,
-    query_agent_conversation_title, query_agent_conversation_title_with_source_at, telemetry,
-    transcript, StoredMessage, TelemetrySnapshot, TitleSource, TranscriptBlock,
+    agent, conversation_title_at, messages, opencode, query_agent_conversation_title,
+    query_agent_conversation_title_with_source_at, telemetry, transcript, StoredMessage,
+    TelemetrySnapshot, TitleSource, TranscriptBlock,
 };
 
 pub struct HydrationData {
@@ -115,19 +118,41 @@ pub fn load_transcript_blocks_and_usage(
 }
 
 pub fn load_hydration_data(conv_id: &str, db_path: Option<&Path>) -> HydrationData {
-    let (blocks, transcript_usage) = if !conv_id.starts_with("ses_") {
+    let conn = db_path
+        .filter(|path| path.is_file())
+        .and_then(|path| Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).ok())
+        .inspect(|c| {
+            let _ = c.busy_timeout(Duration::from_millis(300));
+        });
+    load_hydration_data_with_conn(conn.as_ref(), conv_id)
+}
+
+pub(super) fn load_hydration_data_with_conn(
+    conn: Option<&Connection>,
+    conv_id: &str,
+) -> HydrationData {
+    let is_ses = conv_id.starts_with("ses_");
+    let (blocks, transcript_usage) = if !is_ses {
         load_transcript_blocks_and_usage(conv_id)
     } else {
         (Vec::new(), None)
     };
+    let oc = if is_ses {
+        Some(opencode::load_opencode_hydration(
+            conv_id,
+            blocks.is_empty(),
+        ))
+    } else {
+        None
+    };
+
     let stored_messages = if blocks.is_empty() {
-        let local_messages = db_path
-            .map(|path| conversation_messages_at(path, conv_id))
+        let local_messages = conn
+            .and_then(|c| messages::conversation_messages_from_conn(c, conv_id).ok())
             .unwrap_or_default();
-        if conv_id.starts_with("ses_") {
-            let opencode_messages = opencode::load_opencode_messages(conv_id);
-            if opencode_messages.len() > local_messages.len() {
-                opencode_messages
+        if let Some(ref oc_data) = oc {
+            if oc_data.messages.len() > local_messages.len() {
+                oc_data.messages.clone()
             } else {
                 local_messages
             }
@@ -138,49 +163,68 @@ pub fn load_hydration_data(conv_id: &str, db_path: Option<&Path>) -> HydrationDa
         Vec::new()
     };
 
-    let is_custom_title = db_path
-        .map(|path| super::messages::is_custom_title_at(path, conv_id))
+    let is_custom_title = conn
+        .and_then(|c| messages::is_custom_title_from_conn(c, conv_id).ok())
         .unwrap_or(false);
+    let local_title = conn.and_then(|c| {
+        messages::conversation_title_from_conn(c, conv_id)
+            .ok()
+            .flatten()
+    });
     let (title, title_source) = if is_custom_title {
-        let t = db_path
-            .and_then(|path| conversation_title_at(path, conv_id))
-            .or_else(|| conversation_title(conv_id, db_path));
+        let t = local_title.or_else(|| {
+            if let Some(ref oc_data) = oc {
+                oc_data.title.clone()
+            } else {
+                query_agent_conversation_title(conv_id)
+            }
+        });
         (t, TitleSource::Custom)
-    } else if conv_id.starts_with("ses_") {
-        if let Some(t) = opencode::query_opencode_title(conv_id) {
+    } else if let Some(ref oc_data) = oc {
+        if let Some(t) = oc_data.title.clone() {
             (Some(t), TitleSource::Semantic)
         } else {
-            let t = db_path.and_then(|path| conversation_title_at(path, conv_id));
-            let src = if t.is_some() {
+            let src = if local_title.is_some() {
                 TitleSource::Provisional
             } else {
                 TitleSource::Default
             };
-            (t, src)
+            (local_title, src)
         }
     } else if let Some((t, src)) = agent::default_agent_db_path()
         .and_then(|path| query_agent_conversation_title_with_source_at(&path, conv_id))
     {
         (Some(t), src)
     } else {
-        let t = db_path.and_then(|path| conversation_title_at(path, conv_id));
-        let src = if t.is_some() {
+        let src = if local_title.is_some() {
             TitleSource::Provisional
         } else {
             TitleSource::Default
         };
-        (t, src)
+        (local_title, src)
     };
 
-    let mut telemetry = if conv_id.starts_with("ses_") {
-        resolve_session_telemetry(conv_id, db_path)
+    let local_telemetry = conn.and_then(|c| telemetry::load_from_conn(c, conv_id));
+    let mut telemetry = if let Some(ref oc_data) = oc {
+        let fallback = oc_data
+            .usage
+            .clone()
+            .map(|(usage, model, duration_millis)| TelemetrySnapshot {
+                last: usage,
+                accumulated: usage,
+                steps: 0,
+                turns: 0,
+                duration_millis,
+                context_window: None,
+                model,
+            });
+        merge_session_telemetry(conv_id, local_telemetry, fallback)
     } else {
-        let local = db_path.and_then(|path| telemetry::load(path, conv_id));
-        merge_session_telemetry(conv_id, local, transcript_usage)
+        merge_session_telemetry(conv_id, local_telemetry, transcript_usage)
     };
 
-    let effort = if conv_id.starts_with("ses_") {
-        let (oc_model, oc_effort) = opencode::query_opencode_model(conv_id);
+    let effort = if let Some(oc_data) = oc {
+        let (oc_model, oc_effort) = oc_data.model;
         if let Some(ref mut snap) = telemetry {
             if snap
                 .model

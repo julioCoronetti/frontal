@@ -75,6 +75,10 @@ pub fn query_agent_conversation_title_with_source_at(
     let conn =
         Connection::open_with_flags(db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
     let _ = conn.busy_timeout(AGENT_READ_BUSY_TIMEOUT);
+    query_agent_title_from_conn(&conn, conv_id)
+}
+
+fn query_agent_title_from_conn(conn: &Connection, conv_id: &str) -> Option<(String, TitleSource)> {
     let mut stmt = conn
         .prepare("SELECT title, preview FROM conversation_summaries WHERE conversation_id = ?1")
         .ok()?;
@@ -106,6 +110,10 @@ pub fn query_agent_conversation_timestamp_at(db_path: &Path, conv_id: &str) -> O
     let conn =
         Connection::open_with_flags(db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
     let _ = conn.busy_timeout(AGENT_READ_BUSY_TIMEOUT);
+    query_agent_timestamp_from_conn(&conn, conv_id)
+}
+
+fn query_agent_timestamp_from_conn(conn: &Connection, conv_id: &str) -> Option<i64> {
     let mut stmt = conn
         .prepare("SELECT CAST(strftime('%s', last_modified_time) AS INTEGER) FROM conversation_summaries WHERE conversation_id = ?1")
         .ok()?;
@@ -117,6 +125,21 @@ pub fn query_agent_conversation_timestamp_at(db_path: &Path, conv_id: &str) -> O
         }
     }
     None
+}
+
+pub fn query_agent_summary_at(
+    db_path: &Path,
+    conv_id: &str,
+) -> (Option<(String, TitleSource)>, i64) {
+    let Some(conn) =
+        Connection::open_with_flags(db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()
+    else {
+        return (None, 0);
+    };
+    let _ = conn.busy_timeout(AGENT_READ_BUSY_TIMEOUT);
+    let title = query_agent_title_from_conn(&conn, conv_id);
+    let ts = query_agent_timestamp_from_conn(&conn, conv_id).unwrap_or(0);
+    (title, ts)
 }
 
 pub fn update_agent_conversation_title(conv_id: &str, new_title: &str) -> Option<()> {

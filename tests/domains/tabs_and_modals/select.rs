@@ -264,7 +264,7 @@ fn test_dialog_select_adversarial_dimensions_and_multibyte_utf8() {
 
 #[test]
 fn test_prompt_history_session_persistence_and_deduplication() {
-    use frontal::ui::history::{PromptHistory, SessionRecord};
+    use frontal::infra::history::{PromptHistory, SessionRecord};
     let dir = crate::common::TempDirGuard::new("resume_history_test");
     let db_path = dir.path().join("history.db");
 
@@ -346,8 +346,8 @@ fn test_prompt_history_session_persistence_and_deduplication() {
 #[test]
 fn test_resume_modal_dialog_select_selection_and_respawn_action() {
     use crate::common::test_app;
+    use frontal::infra::history::SessionRecord;
     use frontal::ui::app::AppAction;
-    use frontal::ui::history::SessionRecord;
 
     let (mut app, _) = test_app();
     app.history.record_session(SessionRecord {
@@ -394,7 +394,7 @@ fn test_resume_modal_dialog_select_selection_and_respawn_action() {
 
 #[test]
 fn test_relative_time_and_resume_dialog_rendering() {
-    use frontal::ui::history::format_relative_time;
+    use frontal::infra::history::format_relative_time;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -408,7 +408,7 @@ fn test_relative_time_and_resume_dialog_rendering() {
 
     let (mut app, _) = crate::common::test_app();
     app.history
-        .record_session(frontal::ui::history::SessionRecord {
+        .record_session(frontal::infra::history::SessionRecord {
             id: "sess-vis".to_string(),
             conversation_id: Some("conv-vis-1".to_string()),
             model: Some("gemini-3.8-flash-high".to_string()),
@@ -467,7 +467,7 @@ fn test_relative_time_and_resume_dialog_rendering() {
     let (mut app_long, _) = crate::common::test_app();
     app_long
         .history
-        .record_session(frontal::ui::history::SessionRecord {
+        .record_session(frontal::infra::history::SessionRecord {
             id: "sess-long".to_string(),
             conversation_id: Some("conv-vis-2".to_string()),
             model: Some("gemini-3.8-flash-high".to_string()),

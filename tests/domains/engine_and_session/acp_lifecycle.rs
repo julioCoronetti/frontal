@@ -54,7 +54,7 @@ fn dormant_metadata_mutators_update_status_metadata_and_prompt() {
         turns: 0,
         last_prompt: None,
     };
-    manager.save_dormant_metadata(sid.clone(), meta, EngineConfig::default());
+    assert!(manager.save_dormant_metadata(sid.clone(), meta, EngineConfig::default()));
     manager.set_session_status(&sid, SessionStatus::Closed);
     manager.set_session_metadata(
         &sid,

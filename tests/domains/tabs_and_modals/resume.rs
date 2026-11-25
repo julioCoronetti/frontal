@@ -2,12 +2,13 @@ use std::io::Cursor;
 
 use rusqlite::Connection;
 
+use frontal::infra::history::{
+    clean_user_prompt, query_agent_conversation_timestamp, query_agent_conversation_title,
+    PromptHistory, SessionRecord,
+};
 use frontal::protocol::{SessionId, StepState};
 use frontal::ui::cache::{BlockKind, RenderCache};
-use frontal::ui::history::{
-    clean_user_prompt, hydrate_cache_from_reader, query_agent_conversation_timestamp,
-    query_agent_conversation_title, PromptHistory, SessionRecord,
-};
+use frontal::ui::history::hydrate_cache_from_reader;
 use frontal::ui::modal::{Modal, ModalAction, ModelEffortModal};
 
 use crate::common::{test_app, TempDirGuard, PGID_TEST_LOCK};

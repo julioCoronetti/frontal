@@ -21,7 +21,41 @@ pub enum FrontalEngine {
 pub struct SessionHandle {
     pub config: SessionConfig,
     pub metadata: SessionMetadata,
-    pub engine: FrontalEngine,
+    engine: Option<FrontalEngine>,
+}
+
+impl Drop for SessionHandle {
+    fn drop(&mut self) {
+        let Some(mut engine) = self.engine.take() else {
+            return;
+        };
+        match &mut engine {
+            FrontalEngine::Acp(e) => {
+                let _ = e.interrupt();
+            }
+            FrontalEngine::OpenCode(e) => {
+                let _ = e.interrupt();
+            }
+            FrontalEngine::Replay(e) => {
+                let _ = e.shutdown();
+                return;
+            }
+        }
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                let grace = std::time::Duration::from_millis(250);
+                match &mut engine {
+                    FrontalEngine::Acp(e) => {
+                        let _ = e.shutdown(grace).await;
+                    }
+                    FrontalEngine::OpenCode(e) => {
+                        let _ = e.shutdown(grace).await;
+                    }
+                    FrontalEngine::Replay(_) => {}
+                }
+            });
+        }
+    }
 }
 
 pub struct SessionManager {
@@ -82,49 +116,76 @@ impl SessionManager {
             ReplayMode::TurnGated,
             self.tx.clone(),
         );
-        self.sessions.insert(
-            session_id.clone(),
+        self.insert_session_handle(
+            session_id,
             SessionHandle {
                 config,
                 metadata,
-                engine: FrontalEngine::Replay(replay),
+                engine: Some(FrontalEngine::Replay(replay)),
             },
+            false,
         );
-        if self.active_session_id.is_none() {
-            self.active_session_id = Some(session_id);
-        }
     }
 
-    pub async fn create_subprocess_session(
-        &mut self,
+    pub async fn spawn_engine_detached(
         config: EngineConfig,
-    ) -> Result<SessionId, EngineError> {
+        tx: mpsc::Sender<SessionEnvelope>,
+    ) -> Result<(SessionId, SessionHandle), EngineError> {
         let session_id = SessionId::new();
         let session_config = SessionConfig::from_engine(&config);
         let metadata =
             session_config.to_metadata(session_id.clone(), 0, None, SessionStatus::Initializing);
         let engine = match config.backend {
             BackendKind::Agy => FrontalEngine::Acp(Box::new(
-                AcpEngine::spawn(session_id.clone(), config, self.tx.clone()).await?,
+                AcpEngine::spawn(session_id.clone(), config, tx).await?,
             )),
             BackendKind::OpenCode => FrontalEngine::OpenCode(Box::new(OpenCodeEngine::new(
                 session_id.clone(),
                 config,
-                self.tx.clone(),
+                tx,
             ))),
         };
-        self.sessions.insert(
-            session_id.clone(),
+        Ok((
+            session_id,
             SessionHandle {
                 config: session_config,
                 metadata,
-                engine,
+                engine: Some(engine),
             },
-        );
-        if self.active_session_id.is_none() {
+        ))
+    }
+
+    fn insert_session_handle(
+        &mut self,
+        session_id: SessionId,
+        handle: SessionHandle,
+        make_active: bool,
+    ) -> SessionId {
+        self.dormant_metadata.remove(&session_id);
+        if let Some(old_handle) = self.sessions.insert(session_id.clone(), handle) {
+            self.push_closing_handle(old_handle, std::time::Duration::from_millis(500));
+        }
+        if make_active || self.active_session_id.is_none() {
             self.active_session_id = Some(session_id.clone());
         }
-        Ok(session_id)
+        session_id
+    }
+
+    pub fn attach_engine(
+        &mut self,
+        session_id: SessionId,
+        handle: SessionHandle,
+        make_active: bool,
+    ) -> SessionId {
+        self.insert_session_handle(session_id, handle, make_active)
+    }
+
+    pub async fn create_subprocess_session(
+        &mut self,
+        config: EngineConfig,
+    ) -> Result<SessionId, EngineError> {
+        let (session_id, handle) = Self::spawn_engine_detached(config, self.tx.clone()).await?;
+        Ok(self.attach_engine(session_id, handle, false))
     }
 
     async fn insert_replay_engine(
@@ -139,18 +200,16 @@ impl SessionManager {
         });
         let metadata = config.to_metadata(session_id.clone(), 0, None, SessionStatus::Ready);
         replay.start().await?;
-        self.sessions.insert(
-            session_id.clone(),
+        let sid = self.insert_session_handle(
+            session_id,
             SessionHandle {
                 config,
                 metadata,
-                engine: FrontalEngine::Replay(replay),
+                engine: Some(FrontalEngine::Replay(replay)),
             },
+            false,
         );
-        if self.active_session_id.is_none() {
-            self.active_session_id = Some(session_id.clone());
-        }
-        Ok(session_id)
+        Ok(sid)
     }
 
     pub async fn create_replay_session(
@@ -191,8 +250,7 @@ impl SessionManager {
     pub fn is_replay_session(&self, session_id: &SessionId) -> bool {
         self.sessions
             .get(session_id)
-            .map(|h| matches!(h.engine, FrontalEngine::Replay(_)))
-            .unwrap_or(false)
+            .is_some_and(|h| matches!(h.engine.as_ref(), Some(FrontalEngine::Replay(_))))
     }
 
     pub fn get_session_config(&self, session_id: &SessionId) -> Option<SessionConfig> {
@@ -209,9 +267,9 @@ impl SessionManager {
     pub fn get_engine_config(&self, session_id: &SessionId) -> Option<EngineConfig> {
         self.sessions
             .get(session_id)
-            .and_then(|h| match &h.engine {
-                FrontalEngine::Replay(_) => None,
-                _ => Some(h.config.to_engine_config()),
+            .and_then(|h| match h.engine.as_ref() {
+                Some(FrontalEngine::Replay(_)) | None => None,
+                Some(_) => Some(h.config.to_engine_config()),
             })
             .or_else(|| {
                 self.dormant_metadata
@@ -227,12 +285,16 @@ impl SessionManager {
             .or_else(|| self.dormant_metadata.get(session_id).map(|(m, _)| m))
     }
 
+    #[must_use]
     pub fn save_dormant_metadata(
         &mut self,
         session_id: SessionId,
         meta: SessionMetadata,
         config: EngineConfig,
-    ) {
+    ) -> bool {
+        if self.sessions.contains_key(&session_id) {
+            return false;
+        }
         let session_cfg = SessionConfig::from_engine(&config);
         let projected = session_cfg.to_metadata(
             session_id.clone(),
@@ -242,6 +304,7 @@ impl SessionManager {
         );
         self.dormant_metadata
             .insert(session_id, (projected, session_cfg));
+        true
     }
 
     pub fn remove_dormant_metadata(&mut self, session_id: &SessionId) {

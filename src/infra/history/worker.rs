@@ -10,34 +10,54 @@ use tokio::sync::watch;
 
 use super::sessions::{is_deleted_key, is_deleted_record};
 use super::{
-    agent, external, messages, migrations, sync, telemetry, HistoryCommand, HistorySnapshot,
-    PromptHistory, SessionRecord, TitleSource,
+    agent, external, hydrate, messages, migrations, sync, telemetry, HistoryCommand,
+    HistorySnapshot, PromptHistory, SessionRecord, TitleSource,
 };
 
 pub(super) fn init_connection(conn: &Connection) -> Result<(), rusqlite::Error> {
     migrations::migrate(conn)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn spawn_history_worker(
     bg_path: PathBuf,
     rx: Receiver<HistoryCommand>,
     agent_db_path: Option<PathBuf>,
     opencode_db_path: Option<PathBuf>,
     agent_updates_tx: Sender<(String, String)>,
-    mut pinned_titles: std::collections::HashMap<String, String>,
-    known_models: std::collections::HashMap<String, (Option<String>, Option<String>)>,
-    mut deleted_ids: HashSet<String>,
+    entries_tx: watch::Sender<(bool, Vec<String>)>,
     snapshot_tx: watch::Sender<Arc<HistorySnapshot>>,
 ) {
     thread::spawn(move || {
+        if let Some(parent) = bg_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         let Ok(bg_conn) = Connection::open(&bg_path) else {
             return;
         };
-        let _ = bg_conn.busy_timeout(Duration::from_millis(5000));
-        let _ = bg_conn.execute_batch("PRAGMA synchronous = NORMAL;");
+        if init_connection(&bg_conn).is_err() {
+            return;
+        }
+        let initial_entries = PromptHistory::load_recent_entries(&bg_conn, 500).unwrap_or_default();
+        let _ = entries_tx.send((true, initial_entries));
+        let mut deleted_ids = PromptHistory::load_deleted_ids(&bg_conn);
+        let mut sessions = PromptHistory::load_recent_sessions(&bg_conn, 500).unwrap_or_default();
+        sessions.retain(|s| !is_deleted_record(s, &deleted_ids));
+        let mut pinned_titles = std::collections::HashMap::new();
+        let mut known_models = std::collections::HashMap::new();
+        for s in &sessions {
+            if let Some(ref cid) = s.conversation_id {
+                if s.title_source == TitleSource::Custom {
+                    if let Some(ref t) = s.title {
+                        pinned_titles.insert(cid.clone(), t.clone());
+                    }
+                }
+                if s.model.is_some() {
+                    known_models.insert(cid.clone(), (s.model.clone(), s.effort.clone()));
+                }
+            }
+        }
         let agent_cache = Arc::new(RwLock::new(Vec::new()));
-        let publish_snapshot = |conn: &Connection, deleted: &HashSet<String>| {
+        let publish_snapshot = |conn: &Connection, deleted: &HashSet<String>, bump: bool| {
             if let Ok(mut list) = PromptHistory::load_recent_sessions(conn, 500) {
                 list.retain(|s| !is_deleted_record(s, deleted));
                 let agent_sessions: Vec<SessionRecord> = agent_cache
@@ -50,7 +70,11 @@ pub(super) fn spawn_history_worker(
                     })
                     .unwrap_or_default();
                 snapshot_tx.send_modify(|cur| {
-                    let next_ver = cur.version.saturating_add(1);
+                    let next_ver = if bump {
+                        cur.version.saturating_add(1)
+                    } else {
+                        cur.version
+                    };
                     *cur = Arc::new(HistorySnapshot {
                         version: next_ver,
                         sessions: list,
@@ -72,7 +96,9 @@ pub(super) fn spawn_history_worker(
             if let Ok(mut guard) = agent_cache.write() {
                 *guard = records;
             }
-            publish_snapshot(&bg_conn, &deleted_ids);
+            publish_snapshot(&bg_conn, &deleted_ids, true);
+        } else if !sessions.is_empty() {
+            publish_snapshot(&bg_conn, &deleted_ids, false);
         }
         let mut pending_deletes: Vec<thread::JoinHandle<()>> = Vec::new();
         while let Ok(cmd) = rx.recv() {
@@ -99,14 +125,14 @@ pub(super) fn spawn_history_worker(
                         agent_db_path.as_deref(),
                         opencode_db_path.as_deref(),
                     );
-                    publish_snapshot(&bg_conn, &deleted_ids);
+                    publish_snapshot(&bg_conn, &deleted_ids, true);
                 }
                 HistoryCommand::TouchSession { id, timestamp } => {
                     let _ = bg_conn.execute(
                         "UPDATE sessions SET created_at = ?1 WHERE id = ?2 OR conversation_id = ?2",
                         params![timestamp, id],
                     );
-                    publish_snapshot(&bg_conn, &deleted_ids);
+                    publish_snapshot(&bg_conn, &deleted_ids, true);
                 }
                 HistoryCommand::RenameSession { id, title, source } => {
                     let norm = id.strip_prefix("ext-").unwrap_or(&id);
@@ -158,7 +184,7 @@ pub(super) fn spawn_history_worker(
                             params![title, source.as_i64(), id, norm],
                         );
                     }
-                    publish_snapshot(&bg_conn, &deleted_ids);
+                    publish_snapshot(&bg_conn, &deleted_ids, true);
                 }
                 HistoryCommand::RenameAgentTitle { conv_id, title } => {
                     let cid = conv_id.strip_prefix("ext-").unwrap_or(&conv_id).to_string();
@@ -201,7 +227,7 @@ pub(super) fn spawn_history_worker(
                         TitleSource::Custom,
                         0,
                     );
-                    publish_snapshot(&bg_conn, &deleted_ids);
+                    publish_snapshot(&bg_conn, &deleted_ids, true);
                 }
                 HistoryCommand::RefreshAgent(maybe_cid) => {
                     sync::handle_refresh_agent(
@@ -215,7 +241,7 @@ pub(super) fn spawn_history_worker(
                         &agent_updates_tx,
                         &mut probed_empty,
                     );
-                    publish_snapshot(&bg_conn, &deleted_ids);
+                    publish_snapshot(&bg_conn, &deleted_ids, true);
                 }
                 HistoryCommand::AppendMessages {
                     conversation_id,
@@ -243,7 +269,16 @@ pub(super) fn spawn_history_worker(
                         opencode_db_path.is_some(),
                         &mut pending_deletes,
                     );
-                    publish_snapshot(&bg_conn, &deleted_ids);
+                    publish_snapshot(&bg_conn, &deleted_ids, true);
+                }
+                HistoryCommand::LoadEntries { done_tx } => {
+                    let entries =
+                        PromptHistory::load_recent_entries(&bg_conn, 500).unwrap_or_default();
+                    let _ = done_tx.send(entries);
+                }
+                HistoryCommand::LoadHydration { conv_id, done_tx } => {
+                    let data = hydrate::load_hydration_data_with_conn(Some(&bg_conn), &conv_id);
+                    let _ = done_tx.send(data);
                 }
                 HistoryCommand::Flush {
                     wait_external,

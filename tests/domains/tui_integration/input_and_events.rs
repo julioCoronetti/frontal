@@ -378,7 +378,7 @@ fn test_autocomplete_popover_scrolling_window_for_large_item_lists() {
 fn test_resume_command_opens_dialog_select_and_filters_query() {
     let (mut app, _) = test_app();
     app.history
-        .record_session(frontal::ui::history::SessionRecord {
+        .record_session(frontal::infra::history::SessionRecord {
             id: "s1".to_string(),
             conversation_id: Some("conv-111".to_string()),
             model: Some("gemini-3.8-flash-high".to_string()),
@@ -388,7 +388,7 @@ fn test_resume_command_opens_dialog_select_and_filters_query() {
             ..Default::default()
         });
     app.history
-        .record_session(frontal::ui::history::SessionRecord {
+        .record_session(frontal::infra::history::SessionRecord {
             id: "s2".to_string(),
             conversation_id: Some("conv-222".to_string()),
             model: Some("claude-sonnet".to_string()),

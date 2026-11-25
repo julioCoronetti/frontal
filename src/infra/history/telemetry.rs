@@ -58,6 +58,16 @@ pub fn load(path: &Path, conversation_id: &str) -> Option<TelemetrySnapshot> {
         Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
     conn.busy_timeout(std::time::Duration::from_millis(300))
         .ok()?;
+    load_from_conn(&conn, conversation_id)
+}
+
+pub(crate) fn load_from_conn(
+    conn: &Connection,
+    conversation_id: &str,
+) -> Option<TelemetrySnapshot> {
+    if conversation_id.trim().is_empty() {
+        return None;
+    }
     let payload: String = conn
         .query_row(
             "SELECT payload FROM conversation_telemetry WHERE conversation_id = ?1",

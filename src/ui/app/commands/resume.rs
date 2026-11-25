@@ -61,7 +61,7 @@ impl App {
             } else if let Some(prompt_title) = meta
                 .last_prompt
                 .as_deref()
-                .map(crate::ui::history::clean_session_title)
+                .map(crate::infra::history::clean_session_title)
             {
                 (Some(prompt_title), TitleSource::Provisional)
             } else if let Some(prov) = provisional_agent {
@@ -98,7 +98,7 @@ impl App {
                 .map(|s| s.created_at)
                 .unwrap_or(0);
 
-            let record = crate::ui::history::SessionRecord {
+            let record = crate::infra::history::SessionRecord {
                 id: session_id.as_str().to_string(),
                 conversation_id: meta.conversation_id.clone(),
                 backend,
@@ -169,6 +169,13 @@ impl App {
                 .find(|s| {
                     s.id == tab.session_id.as_str()
                         || (tab_conv.is_some() && s.conversation_id == tab_conv)
+                })
+                .filter(|s| s.created_at > 0)
+                .or_else(|| {
+                    snap.agent_sessions
+                        .iter()
+                        .find(|s| tab_conv.is_some() && s.conversation_id == tab_conv)
+                        .filter(|s| s.created_at > 0)
                 })
                 .map(|s| s.relative_time())
                 .unwrap_or_else(|| String::from("just now"));
@@ -255,7 +262,7 @@ impl App {
                 .map(|t| t.trim())
                 .filter(|t| !t.is_empty() && *t != conv_id);
             let title = match valid_title {
-                Some(t) => crate::ui::history::clamp_display_title(t, 42),
+                Some(t) => crate::infra::history::clamp_display_title(t, 42),
                 None => continue,
             };
             let rel_time = s.relative_time();

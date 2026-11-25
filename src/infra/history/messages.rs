@@ -20,59 +20,71 @@ pub fn default_history_path() -> Option<PathBuf> {
 }
 
 pub fn conversation_messages_at(path: &Path, conv_id: &str) -> Vec<StoredMessage> {
-    read_connection(path, |conn| {
-        let mut stmt = conn.prepare(
-            "SELECT role, content, tool_name, tool_args, step_index, turn_meta
-             FROM messages WHERE conversation_id = ?1 ORDER BY id ASC",
-        )?;
-        let rows = stmt.query_map(params![conv_id], |row| {
-            Ok(StoredMessage {
-                role: row.get(0)?,
-                content: row.get(1)?,
-                tool_name: row.get(2)?,
-                tool_args: row.get(3)?,
-                step_index: row.get::<_, Option<i64>>(4)?.map(|value| value as u64),
-                turn_meta: row.get(5)?,
-            })
-        })?;
-        Ok(rows.filter_map(Result::ok).collect())
-    })
-    .unwrap_or_default()
+    read_connection(path, |conn| conversation_messages_from_conn(conn, conv_id)).unwrap_or_default()
+}
+
+pub(crate) fn conversation_messages_from_conn(
+    conn: &Connection,
+    conv_id: &str,
+) -> Result<Vec<StoredMessage>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT role, content, tool_name, tool_args, step_index, turn_meta
+         FROM messages WHERE conversation_id = ?1 ORDER BY id ASC",
+    )?;
+    let rows = stmt.query_map(params![conv_id], |row| {
+        Ok(StoredMessage {
+            role: row.get(0)?,
+            content: row.get(1)?,
+            tool_name: row.get(2)?,
+            tool_args: row.get(3)?,
+            step_index: row.get::<_, Option<i64>>(4)?.map(|value| value as u64),
+            turn_meta: row.get(5)?,
+        })
+    })?;
+    Ok(rows.filter_map(Result::ok).collect())
 }
 
 pub fn conversation_title_at(path: &Path, conv_id: &str) -> Option<String> {
-    read_connection(path, |conn| {
-        let mut stmt = conn.prepare(
-            "SELECT title FROM sessions
-             WHERE conversation_id = ?1 AND title IS NOT NULL AND title != ''
-             ORDER BY created_at DESC LIMIT 1",
-        )?;
-        let mut rows = stmt.query(params![conv_id])?;
-        let Some(row) = rows.next()? else {
-            return Ok(None);
-        };
-        let title: String = row.get(0).unwrap_or_default();
-        let trimmed = title.trim();
-        Ok((!trimmed.is_empty()).then(|| trimmed.to_string()))
-    })
-    .flatten()
+    read_connection(path, |conn| conversation_title_from_conn(conn, conv_id)).flatten()
+}
+
+pub(crate) fn conversation_title_from_conn(
+    conn: &Connection,
+    conv_id: &str,
+) -> Result<Option<String>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT title FROM sessions
+         WHERE conversation_id = ?1 AND title IS NOT NULL AND title != ''
+         ORDER BY created_at DESC LIMIT 1",
+    )?;
+    let mut rows = stmt.query(params![conv_id])?;
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+    let title: String = row.get(0).unwrap_or_default();
+    let trimmed = title.trim();
+    Ok((!trimmed.is_empty()).then(|| trimmed.to_string()))
 }
 
 pub fn is_custom_title_at(path: &Path, conv_id: &str) -> bool {
-    read_connection(path, |conn| {
-        let mut stmt = conn.prepare(
-            "SELECT custom_title FROM sessions
-             WHERE conversation_id = ?1
-             ORDER BY created_at DESC LIMIT 1",
-        )?;
-        let mut rows = stmt.query(params![conv_id])?;
-        let Some(row) = rows.next()? else {
-            return Ok(false);
-        };
-        let flag: i64 = row.get(0).unwrap_or(0);
-        Ok(flag != 0)
-    })
-    .unwrap_or(false)
+    read_connection(path, |conn| is_custom_title_from_conn(conn, conv_id)).unwrap_or(false)
+}
+
+pub(crate) fn is_custom_title_from_conn(
+    conn: &Connection,
+    conv_id: &str,
+) -> Result<bool, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT custom_title FROM sessions
+         WHERE conversation_id = ?1
+         ORDER BY created_at DESC LIMIT 1",
+    )?;
+    let mut rows = stmt.query(params![conv_id])?;
+    let Some(row) = rows.next()? else {
+        return Ok(false);
+    };
+    let flag: i64 = row.get(0).unwrap_or(0);
+    Ok(flag != 0)
 }
 
 fn read_connection<T>(

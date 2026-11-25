@@ -284,7 +284,8 @@ fn test_approve_danger_enqueues_pending_engine_prompts_and_reject_clears_state()
     assert_eq!(app.pending_engine_prompts[0].0, sid);
 
     app.active_tab_mut().in_flight_usage = Some(frontal::protocol::TokenUsage::default());
-    app.active_tab_mut().turn_started_at = Some(std::time::Instant::now());
+    app.active_tab_mut()
+        .transition_turn(frontal::ui::tab::TurnEvent::Submit);
     app.active_tab_mut()
         .queued_prompts
         .push_back(frontal::protocol::PromptPayload::from_text("queued-2"));
@@ -294,7 +295,7 @@ fn test_approve_danger_enqueues_pending_engine_prompts_and_reject_clears_state()
         app.apply_sync_action(&act);
     }
     assert!(app.active_tab().in_flight_usage.is_none());
-    assert!(app.active_tab().turn_started_at.is_none());
+    assert!(app.active_tab().turn_started_at().is_none());
     assert!(app.active_tab().queued_prompts.is_empty());
     assert_eq!(
         app.session_manager.get_metadata(&sid).unwrap().status,

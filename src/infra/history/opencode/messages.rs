@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use rusqlite::params;
+use rusqlite::{params, Connection};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -30,6 +30,16 @@ pub fn load_opencode_messages_at(path: &Path, session_id: &str) -> Vec<StoredMes
     let Some(conn) = open_readonly(path) else {
         return Vec::new();
     };
+    load_opencode_messages_from_conn(&conn, session_id)
+}
+
+pub(super) fn load_opencode_messages_from_conn(
+    conn: &Connection,
+    session_id: &str,
+) -> Vec<StoredMessage> {
+    if !session_id.starts_with("ses_") {
+        return Vec::new();
+    }
     let mut stmt = match conn.prepare(
         "SELECT type, data FROM session_message
          WHERE session_id = ?1

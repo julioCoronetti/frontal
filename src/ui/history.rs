@@ -1,7 +1,10 @@
 use std::io::BufRead;
 use std::path::Path;
 
-pub use crate::infra::history::*;
+use crate::infra::history::{
+    load_hydration_data, load_transcript_blocks_and_usage, parse_transcript_reader,
+    HydrationClient, HydrationData, StoredMessage, TelemetrySnapshot, TitleSource, TranscriptBlock,
+};
 use crate::ui::cache::RenderCache;
 
 pub struct HydratedSession {
@@ -14,8 +17,7 @@ pub struct HydratedSession {
     pub telemetry: Option<TelemetrySnapshot>,
 }
 
-pub fn hydrate_session_blocking(conv_id: &str, db_path: Option<&Path>) -> HydratedSession {
-    let data = load_hydration_data(conv_id, db_path);
+pub fn hydrate_session_from_data(data: HydrationData) -> HydratedSession {
     let mut cache = RenderCache::new();
     let hydrated = if !data.blocks.is_empty() {
         push_transcript_blocks(data.blocks, &mut cache) > 0
@@ -34,6 +36,14 @@ pub fn hydrate_session_blocking(conv_id: &str, db_path: Option<&Path>) -> Hydrat
         effort: data.effort,
         telemetry: data.telemetry,
     }
+}
+
+pub fn hydrate_session_with_client(conv_id: &str, client: &HydrationClient) -> HydratedSession {
+    hydrate_session_from_data(client.load(conv_id))
+}
+
+pub fn hydrate_session_blocking(conv_id: &str, db_path: Option<&Path>) -> HydratedSession {
+    hydrate_session_from_data(load_hydration_data(conv_id, db_path))
 }
 
 fn push_transcript_blocks(blocks: Vec<TranscriptBlock>, cache: &mut RenderCache) -> usize {

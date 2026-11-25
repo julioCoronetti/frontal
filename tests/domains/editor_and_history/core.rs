@@ -1,9 +1,9 @@
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
+use frontal::infra::history::PromptHistory;
 use frontal::ui::autocomplete::{AutocompletePopover, FileSearchWorker};
 use frontal::ui::editor::{ExtmarkKind, PromptEditor, TriggerKind};
-use frontal::ui::history::PromptHistory;
 
 use crate::common::{test_app, TempDirGuard};
 

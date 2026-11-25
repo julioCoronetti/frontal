@@ -84,7 +84,7 @@ impl MessageModel {
 }
 
 pub fn default_path() -> Option<PathBuf> {
-    crate::model_catalog::ModelCatalog::default_path()
+    crate::infra::model_catalog::default_path()
 }
 
 pub fn normalize_timestamp_secs(raw: i64) -> i64 {
@@ -122,6 +122,16 @@ pub fn load_usage_at(
         return None;
     }
     let connection = open_readonly(path)?;
+    load_usage_from_conn(&connection, session_id)
+}
+
+pub(super) fn load_usage_from_conn(
+    connection: &Connection,
+    session_id: &str,
+) -> Option<(TokenUsage, Option<String>, Option<u64>)> {
+    if !session_id.starts_with("ses_") {
+        return None;
+    }
     let payload: String = connection
         .query_row(
             "SELECT data FROM session_message
@@ -220,8 +230,19 @@ fn query_session_col<T: rusqlite::types::FromSql>(
     if !session_id.starts_with("ses_") {
         return None;
     }
-    open_readonly(path)?
-        .query_row(sql, params![session_id], |row| row.get(0))
+    let conn = open_readonly(path)?;
+    query_session_col_from_conn(&conn, session_id, sql)
+}
+
+fn query_session_col_from_conn<T: rusqlite::types::FromSql>(
+    conn: &Connection,
+    session_id: &str,
+    sql: &str,
+) -> Option<T> {
+    if !session_id.starts_with("ses_") {
+        return None;
+    }
+    conn.query_row(sql, params![session_id], |row| row.get(0))
         .ok()
 }
 
@@ -232,6 +253,15 @@ pub fn query_opencode_title(session_id: &str) -> Option<String> {
 pub fn query_opencode_title_at(path: &Path, session_id: &str) -> Option<String> {
     let title: Option<String> = query_session_col(
         path,
+        session_id,
+        "SELECT title FROM session_v2 WHERE id = ?1",
+    )?;
+    clean_opencode_title(title)
+}
+
+fn query_opencode_title_from_conn(conn: &Connection, session_id: &str) -> Option<String> {
+    let title: Option<String> = query_session_col_from_conn(
+        conn,
         session_id,
         "SELECT title FROM session_v2 WHERE id = ?1",
     )?;
@@ -264,6 +294,25 @@ pub fn query_opencode_timestamp_at(path: &Path, session_id: &str) -> Option<i64>
     (normalized > 0).then_some(normalized)
 }
 
+fn query_opencode_timestamp_from_conn(conn: &Connection, session_id: &str) -> Option<i64> {
+    let raw_ts: i64 = query_session_col_from_conn(
+        conn,
+        session_id,
+        "SELECT COALESCE(time_updated, time_created, 0) FROM session_v2 WHERE id = ?1",
+    )?;
+    let normalized = normalize_timestamp_secs(raw_ts);
+    (normalized > 0).then_some(normalized)
+}
+
+pub fn query_opencode_summary_at(path: &Path, session_id: &str) -> (Option<String>, i64) {
+    let Some(conn) = open_readonly(path) else {
+        return (None, 0);
+    };
+    let title = query_opencode_title_from_conn(&conn, session_id);
+    let ts = query_opencode_timestamp_from_conn(&conn, session_id).unwrap_or(0);
+    (title, ts)
+}
+
 pub fn query_opencode_model(session_id: &str) -> (Option<String>, Option<String>) {
     default_path()
         .map(|path| query_opencode_model_at(&path, session_id))
@@ -280,6 +329,63 @@ pub fn query_opencode_model_at(path: &Path, session_id: &str) -> (Option<String>
     raw.as_deref()
         .map(parse_opencode_model_json)
         .unwrap_or((None, None))
+}
+
+fn query_opencode_model_from_conn(
+    conn: &Connection,
+    session_id: &str,
+) -> (Option<String>, Option<String>) {
+    let raw: Option<String> = query_session_col_from_conn(
+        conn,
+        session_id,
+        "SELECT model FROM session_v2 WHERE id = ?1",
+    )
+    .flatten();
+    raw.as_deref()
+        .map(parse_opencode_model_json)
+        .unwrap_or((None, None))
+}
+
+#[derive(Default)]
+pub(crate) struct OpenCodeHydration {
+    pub messages: Vec<crate::infra::history::StoredMessage>,
+    pub title: Option<String>,
+    pub usage: Option<(TokenUsage, Option<String>, Option<u64>)>,
+    pub model: (Option<String>, Option<String>),
+}
+
+pub(crate) fn load_opencode_hydration(session_id: &str, load_messages: bool) -> OpenCodeHydration {
+    let Some(path) = default_path() else {
+        return OpenCodeHydration::default();
+    };
+    load_opencode_hydration_at(&path, session_id, load_messages)
+}
+
+pub(crate) fn load_opencode_hydration_at(
+    path: &Path,
+    session_id: &str,
+    load_messages: bool,
+) -> OpenCodeHydration {
+    if !session_id.starts_with("ses_") {
+        return OpenCodeHydration::default();
+    }
+    let Some(conn) = open_readonly(path) else {
+        return OpenCodeHydration::default();
+    };
+    let messages = if load_messages {
+        messages::load_opencode_messages_from_conn(&conn, session_id)
+    } else {
+        Vec::new()
+    };
+    let title = query_opencode_title_from_conn(&conn, session_id);
+    let usage = load_usage_from_conn(&conn, session_id);
+    let model = query_opencode_model_from_conn(&conn, session_id);
+    OpenCodeHydration {
+        messages,
+        title,
+        usage,
+        model,
+    }
 }
 
 fn open_readonly(path: &Path) -> Option<Connection> {
