@@ -184,10 +184,9 @@ impl OpenCodeEngine {
             }
 
             let exit_status = child.wait().await;
-            if let Ok(mut g) = pgid_guard.lock() {
-                if let Some(mut guard) = g.take() {
-                    guard.disarm();
-                }
+            if let Some(mut guard) = pgid_guard.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                guard.signal(libc::SIGTERM);
+                guard.disarm();
             }
             let cleared = active_pgid
                 .compare_exchange(pgid, 0, Ordering::Release, Ordering::Relaxed)
@@ -234,11 +233,9 @@ impl OpenCodeEngine {
     }
 
     pub fn interrupt(&mut self) -> Result<(), EngineError> {
-        let pgid = self.active_pgid.load(Ordering::Acquire);
-        if pgid > 0 {
-            unsafe {
-                libc::killpg(pgid, libc::SIGINT);
-            }
+        let guard = self.pgid_guard.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(ref g) = *guard {
+            g.signal(libc::SIGINT);
             Ok(())
         } else {
             Err(EngineError::ProcessNotRunning)
@@ -248,19 +245,27 @@ impl OpenCodeEngine {
     pub async fn shutdown(&mut self, grace: Duration) -> Result<Option<i32>, EngineError> {
         let pgid = self.active_pgid.load(Ordering::Acquire);
         if pgid > 0 {
-            unsafe {
-                libc::killpg(pgid, libc::SIGTERM);
+            if let Some(ref g) = *self.pgid_guard.lock().unwrap_or_else(|e| e.into_inner()) {
+                g.signal(libc::SIGTERM);
             }
             if !self.wait_for_pgid_clear(grace).await {
-                unsafe {
-                    libc::killpg(pgid, libc::SIGKILL);
+                if let Some(mut g) = self
+                    .pgid_guard
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .take()
+                {
+                    g.kill_sigkill_and_disarm();
                 }
                 let _ = self.wait_for_pgid_clear(Duration::from_millis(500)).await;
             }
-            if let Ok(mut g) = self.pgid_guard.lock() {
-                if let Some(mut guard) = g.take() {
-                    guard.disarm();
-                }
+            if let Some(mut g) = self
+                .pgid_guard
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take()
+            {
+                g.disarm();
             }
             let _ =
                 self.active_pgid

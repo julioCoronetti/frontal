@@ -19,7 +19,6 @@ pub(super) fn run_bounded_command(
 
     let (mut child, guard) =
         crate::engine::spawn_std_isolated(&mut cmd).map_err(|e| e.to_string())?;
-    let pgid = guard.pgid();
     let guard = std::sync::Arc::new(std::sync::Mutex::new(Some(guard)));
     let thread_guard = std::sync::Arc::clone(&guard);
 
@@ -28,10 +27,12 @@ pub(super) fn run_bounded_command(
         if let (Some(bytes), Some(mut stdin)) = (stdin_data, child.stdin.take()) {
             use std::io::Write;
             if let Err(err) = stdin.write_all(&bytes) {
-                if let Ok(mut g) = thread_guard.lock() {
-                    if let Some(mut guard) = g.take() {
-                        guard.kill_sigkill_and_disarm();
-                    }
+                if let Some(mut guard) = thread_guard
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .take()
+                {
+                    guard.kill_sigkill_and_disarm();
                 }
                 #[cfg(not(unix))]
                 let _ = child.kill();
@@ -41,10 +42,12 @@ pub(super) fn run_bounded_command(
             }
         }
         let out = child.wait_with_output();
-        if let Ok(mut g) = thread_guard.lock() {
-            if let Some(mut guard) = g.take() {
-                guard.disarm();
-            }
+        if let Some(mut guard) = thread_guard
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
+            guard.disarm();
         }
         let _ = tx.send(out);
     });
@@ -55,27 +58,20 @@ pub(super) fn run_bounded_command(
             if let Ok(res) = rx.try_recv() {
                 return res.map_err(|e| e.to_string());
             }
-            #[cfg(unix)]
-            if pgid > 0 {
-                unsafe {
-                    libc::killpg(pgid, libc::SIGTERM);
+            if let Some(ref g) = *guard.lock().unwrap_or_else(|e| e.into_inner()) {
+                g.signal(libc::SIGTERM);
+            }
+            if rx.recv_timeout(Duration::from_millis(50)).is_err() {
+                if let Some(mut g) = guard.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                    g.kill_sigkill_and_disarm();
                 }
-                if rx.recv_timeout(Duration::from_millis(50)).is_err() {
-                    if let Ok(mut g) = guard.lock() {
-                        if let Some(mut guard) = g.take() {
-                            guard.kill_sigkill_and_disarm();
-                        }
-                    }
-                    let _ = rx.recv_timeout(Duration::from_millis(100));
-                }
+                let _ = rx.recv_timeout(Duration::from_millis(100));
             }
             Err("command timed out".to_string())
         }
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            if let Ok(mut g) = guard.lock() {
-                if let Some(mut guard) = g.take() {
-                    guard.disarm();
-                }
+            if let Some(mut g) = guard.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                g.disarm();
             }
             Err("command wait thread disconnected".to_string())
         }

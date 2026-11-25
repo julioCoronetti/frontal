@@ -327,11 +327,10 @@ pub(super) async fn run_coordinator(
                         if let Some(sid) = ctx.acp_session_id.clone() {
                             let notif = AcpNotification::new("session/cancel", json!({ "sessionId": sid }));
                             let _ = ctx.write_notification(&notif);
-                        } else {
-                            let pid = ctx.child_pid.load(Ordering::Acquire);
-                            if pid != 0 {
-                                unsafe { libc::killpg(pid as libc::pid_t, libc::SIGINT); }
-                            }
+                        } else if let Some(ref g) =
+                            *ctx.pgid_guard.lock().unwrap_or_else(|e| e.into_inner())
+                        {
+                            g.signal(libc::SIGINT);
                         }
                     }
                     AcpCommand::CloseStdin => {

@@ -167,11 +167,9 @@ impl AcpEngine {
         if self.cmd_tx.try_send(AcpCommand::CancelTurn).is_ok() {
             return Ok(());
         }
-        let pid = self.child_pid.load(Ordering::Acquire);
-        if pid != 0 {
-            unsafe {
-                libc::killpg(pid as libc::pid_t, libc::SIGINT);
-            }
+        let guard = self.pgid_guard.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(ref g) = *guard {
+            g.signal(libc::SIGINT);
             Ok(())
         } else {
             Err(EngineError::ProcessNotRunning)
@@ -215,18 +213,17 @@ impl AcpEngine {
         if final_config.conversation_id.is_none() {
             final_config.conversation_id = Some(current_conv_id);
         }
-        self.shutting_down.store(true, Ordering::Release);
         let new_engine =
             match Self::spawn(self.session_id.clone(), final_config, self.sender.clone()).await {
                 Ok(engine) => engine,
                 Err(err) => {
-                    self.shutting_down.store(false, Ordering::Release);
                     if self.cmd_tx.is_closed() {
                         let _ = self.shutdown(Duration::from_millis(200)).await;
                     }
                     return Err(err);
                 }
             };
+        self.shutting_down.store(true, Ordering::Release);
         let mut old_engine = std::mem::replace(self, new_engine);
         let (discard_tx, _discard_rx) = mpsc::channel(1);
         let _ = old_engine

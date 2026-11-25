@@ -26,6 +26,7 @@ fn run_command_bounded(program: &str, args: &[&str], max_bytes: usize) -> Option
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => {
+                guard.signal(libc::SIGTERM);
                 guard.disarm();
                 break status;
             }
