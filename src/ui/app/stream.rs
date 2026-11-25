@@ -52,9 +52,16 @@ impl App {
                             None,
                         );
                         self.sync_session_to_history(&envelope.session_id);
-                        if self.tabs[tab_idx].custom_title {
+                        if self.tabs[tab_idx].custom_title
+                            || self.tabs[tab_idx].title_source
+                                == crate::infra::history::TitleSource::Custom
+                        {
                             let custom = self.tabs[tab_idx].title.clone();
-                            self.history.rename_session(conv_id, &custom);
+                            self.history.rename_session_with_source(
+                                conv_id,
+                                &custom,
+                                crate::infra::history::TitleSource::Custom,
+                            );
                             if !self.history.is_in_memory() {
                                 self.history.rename_agent_title(conv_id, &custom);
                             }
@@ -137,8 +144,7 @@ impl App {
                         if let Some(next_prompt) = self.tabs[tab_idx].queued_prompts.pop_front() {
                             let chat_display = next_prompt.display_for_chat();
                             self.tabs[tab_idx].cache.push_user_message(&chat_display);
-                            self.tabs[tab_idx].waiting_for_response = true;
-                            self.tabs[tab_idx].turn_started_at = Some(std::time::Instant::now());
+                            self.tabs[tab_idx].transition_turn(crate::ui::tab::TurnEvent::Submit);
                             self.tabs[tab_idx].status_text = format!(
                                 "Processing queued prompt ({} left)",
                                 self.tabs[tab_idx].queued_prompts.len()

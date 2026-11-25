@@ -18,7 +18,8 @@ fn test_double_esc_arms_confirms_and_clears_active_turn() {
     app.active_tab_mut()
         .cache
         .push_user_message("run long task");
-    app.active_tab_mut().waiting_for_response = true;
+    app.active_tab_mut()
+        .transition_turn(frontal::ui::tab::TurnEvent::Submit);
     app.active_tab_mut().status_text = String::from("Thinking...");
     app.active_tab_mut()
         .queued_prompts
@@ -27,14 +28,14 @@ fn test_double_esc_arms_confirms_and_clears_active_turn() {
     let first = app.handle_terminal_event(esc.clone());
     assert_eq!(first, None);
     assert!(app.active_tab().is_interrupt_armed());
-    assert!(app.active_tab().waiting_for_response);
+    assert!(app.active_tab().is_waiting_for_response());
     assert_eq!(app.active_tab().status_text, "Thinking...");
     assert_eq!(app.active_tab().queued_prompts.len(), 1);
 
     let second = app.handle_terminal_event(esc);
     assert_eq!(second, Some(AppAction::Interrupt));
     assert!(!app.active_tab().is_interrupt_armed());
-    assert!(!app.active_tab().waiting_for_response);
+    assert!(!app.active_tab().is_waiting_for_response());
     assert!(app.active_tab().queued_prompts.is_empty());
     assert!(!app.is_turn_active());
     assert_eq!(app.active_tab().status_text, "Interrupted by user");
@@ -81,7 +82,8 @@ fn test_double_esc_disarmed_by_intervening_key_and_timeout_expiry() {
     let (mut app, _) = test_app();
     let esc = press_key(KeyCode::Esc, KeyModifiers::NONE);
 
-    app.active_tab_mut().waiting_for_response = true;
+    app.active_tab_mut()
+        .transition_turn(frontal::ui::tab::TurnEvent::Submit);
     assert_eq!(app.handle_terminal_event(esc.clone()), None);
     assert!(app.active_tab().is_interrupt_armed());
 
@@ -106,7 +108,8 @@ fn test_esc_precedence_and_natural_turn_completion_clear_arm() {
     let (mut app, _) = test_app();
     let esc = press_key(KeyCode::Esc, KeyModifiers::NONE);
 
-    app.active_tab_mut().waiting_for_response = true;
+    app.active_tab_mut()
+        .transition_turn(frontal::ui::tab::TurnEvent::Submit);
     app.handle_terminal_event(press_key(KeyCode::Char('/'), KeyModifiers::NONE));
     assert!(app.popover.is_visible());
 
@@ -140,7 +143,8 @@ fn test_thinking_line_renders_interrupt_hint_and_width_fallbacks() {
     let (mut app, _) = test_app();
     app.active_tab_mut().cache.push_user_message("hello");
     app.active_tab_mut().cache.consolidate_active_turn(None);
-    app.active_tab_mut().waiting_for_response = true;
+    app.active_tab_mut()
+        .transition_turn(frontal::ui::tab::TurnEvent::Submit);
 
     let (_, text_unarmed) = render_app(&mut app, 80, 24);
     assert!(text_unarmed.contains("Thinking..."));
@@ -160,7 +164,8 @@ fn test_thinking_line_renders_interrupt_hint_and_width_fallbacks() {
     });
     assert!(found_hint_color);
 
-    app.active_tab_mut().waiting_for_response = false;
+    app.active_tab_mut()
+        .transition_turn(frontal::ui::tab::TurnEvent::StreamActivity);
     app.active_tab_mut()
         .cache
         .append_streaming_delta(BlockKind::Assistant, "streaming delta");

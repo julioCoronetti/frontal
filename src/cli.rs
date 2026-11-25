@@ -194,9 +194,23 @@ pub async fn run_from_env() -> Result<(), Box<dyn std::error::Error>> {
 
     if !args.headless {
         let mut app = crate::ui::app::App::new(session_manager, session_id.clone());
-        for p in args.prompts {
-            let _ = app.session_manager.send_prompt(&session_id, &p).await;
-            app.active_tab_mut().cache.push_user_message(&p);
+        let mut prompts = args.prompts.into_iter();
+        if let Some(first) = prompts.next() {
+            match app.session_manager.send_prompt(&session_id, &first).await {
+                Ok(()) => {
+                    let tab = app.active_tab_mut();
+                    tab.cache.push_user_message(&first);
+                    tab.transition_turn(crate::ui::tab::TurnEvent::Submit);
+                }
+                Err(err) => {
+                    app.handle_prompt_failure(&session_id, &err.to_string());
+                }
+            }
+            for extra in prompts {
+                app.active_tab_mut()
+                    .queued_prompts
+                    .push_back(crate::protocol::PromptPayload::from_text(extra));
+            }
         }
         return crate::ui::run_tui(app).await;
     }

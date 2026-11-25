@@ -24,7 +24,7 @@ impl App {
             let total_lines = tab.cache.ensure_visual_lines(chat_area.width);
             let queued_count = tab.queued_prompts.len();
             let armed_interrupt = tab.is_interrupt_armed();
-            let show_turn_indicator = tab.waiting_for_response || armed_interrupt;
+            let show_turn_indicator = tab.is_waiting_for_response() || armed_interrupt;
             let total_with_spinner = total_lines
                 + if show_turn_indicator { 1 } else { 0 }
                 + if queued_count > 0 { 1 } else { 0 };

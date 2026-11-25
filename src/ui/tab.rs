@@ -42,7 +42,6 @@ pub struct TabState {
     pub editor: PromptEditor,
     pub draft_snapshot: Option<EditorSnapshot>,
     pub turn_state: TurnState,
-    pub waiting_for_response: bool,
     pub status_text: String,
     pub has_unread: bool,
     pub turn_started_at: Option<std::time::Instant>,
@@ -75,7 +74,6 @@ impl TabState {
             editor: PromptEditor::new(),
             draft_snapshot: None,
             turn_state: TurnState::Idle,
-            waiting_for_response: false,
             status_text: String::from("Ready"),
             has_unread: false,
             turn_started_at: None,
@@ -112,30 +110,32 @@ impl TabState {
         false
     }
 
+    pub fn is_waiting_for_response(&self) -> bool {
+        matches!(self.turn_state, TurnState::Submitting)
+    }
+
     pub fn transition_turn(&mut self, event: TurnEvent) {
         match event {
             TurnEvent::Submit => {
                 self.turn_state = TurnState::Submitting;
-                self.waiting_for_response = true;
                 self.turn_started_at = Some(std::time::Instant::now());
             }
-            TurnEvent::StreamActivity => {
-                self.waiting_for_response = false;
-                if matches!(self.turn_state, TurnState::Idle | TurnState::Submitting) {
+            TurnEvent::StreamActivity => match self.turn_state {
+                TurnState::Idle | TurnState::Submitting => {
                     let started_at = self.turn_started_at.unwrap_or_else(std::time::Instant::now);
                     self.turn_state = TurnState::Streaming { started_at };
                 }
-            }
+                TurnState::Streaming { .. } | TurnState::Interrupting => {}
+            },
             TurnEvent::TurnCompleted => {
                 self.turn_state = TurnState::Idle;
-                self.waiting_for_response = false;
                 self.turn_started_at = None;
+                self.in_flight_usage = None;
                 self.esc_armed_at = None;
                 self.last_step_index = None;
             }
             TurnEvent::StreamError => {
                 self.turn_state = TurnState::Idle;
-                self.waiting_for_response = false;
                 self.esc_armed_at = None;
                 self.turn_started_at = None;
                 self.in_flight_usage = None;
@@ -146,7 +146,6 @@ impl TabState {
             }
             TurnEvent::InterruptRequested => {
                 self.turn_state = TurnState::Interrupting;
-                self.waiting_for_response = false;
                 if self.last_turn_usage.is_none() {
                     self.last_turn_usage = self.in_flight_usage;
                 }
@@ -160,7 +159,6 @@ impl TabState {
             }
             TurnEvent::ProcessExited => {
                 self.turn_state = TurnState::Idle;
-                self.waiting_for_response = false;
                 self.turn_started_at = None;
                 self.pending_danger = None;
                 self.suspended_events.clear();
@@ -175,7 +173,6 @@ impl TabState {
             }
             TurnEvent::RespawnReset => {
                 self.turn_state = TurnState::Idle;
-                self.waiting_for_response = false;
                 self.pending_danger = None;
                 self.suspended_events.clear();
                 self.queued_prompts.clear();

@@ -298,7 +298,8 @@ fn test_interrupt_persists_streaming_usage_for_resume() {
         None,
         None,
     );
-    app.active_tab_mut().waiting_for_response = true;
+    app.active_tab_mut()
+        .transition_turn(frontal::ui::tab::TurnEvent::Submit);
     app.handle_engine_envelope(frontal::protocol::SessionEnvelope {
         session_id: sid,
         event: EngineEvent::Stream(Box::new(StreamEvent::StepUpdate(StepUpdateEvent {
@@ -316,7 +317,8 @@ fn test_interrupt_persists_streaming_usage_for_resume() {
             }),
         }))),
     });
-    app.active_tab_mut().waiting_for_response = true;
+    app.active_tab_mut()
+        .transition_turn(frontal::ui::tab::TurnEvent::Submit);
     app.handle_terminal_event(press_key(KeyCode::Esc, KeyModifiers::NONE));
     app.handle_terminal_event(press_key(KeyCode::Esc, KeyModifiers::NONE));
     app.history.flush();

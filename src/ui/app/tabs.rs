@@ -122,14 +122,12 @@ impl App {
         self.hovered_tab_index = None;
         self.hovered_new_tab = false;
 
-        if self.tabs[0].cache.blocks_count() == 0 && !self.tabs[0].waiting_for_response {
+        if self.tabs[0].cache.blocks_count() == 0 && !self.tabs[0].is_waiting_for_response() {
             self.tabs[0].title = String::from("New session");
             self.tabs[0].custom_title = false;
             self.tabs[0].title_source = crate::infra::history::TitleSource::Default;
             self.tabs[0].has_unread = false;
-            self.tabs[0].queued_prompts.clear();
-            self.tabs[0].pending_danger = None;
-            self.tabs[0].suspended_events.clear();
+            self.tabs[0].transition_turn(crate::ui::tab::TurnEvent::RespawnReset);
             self.tabs[0].editor.clear();
             self.tabs[0].draft_snapshot = None;
             self.tabs[0].status_text = String::from("Ready");
@@ -161,6 +159,7 @@ impl App {
             .shutdown_session(&old_id, std::time::Duration::from_millis(500))
             .await;
 
+        let mut spawn_err: Option<String> = None;
         let new_id = if was_replay {
             let id = SessionId::new();
             self.session_manager.register_mock_session(id.clone());
@@ -176,7 +175,8 @@ impl App {
             config.mode = mode.clone();
             match self.session_manager.create_subprocess_session(config).await {
                 Ok(id) => id,
-                Err(_) => {
+                Err(err) => {
+                    spawn_err = Some(err.to_string());
                     let id = SessionId::new();
                     self.session_manager.register_mock_session(id.clone());
                     self.session_manager
@@ -188,6 +188,12 @@ impl App {
 
         let mut fresh_tab = TabState::new(new_id.clone(), String::from("New session"));
         fresh_tab.backend = prev_backend;
+        if let Some(err) = spawn_err {
+            fresh_tab
+                .cache
+                .push_error(&format!("Failed to start session: {}", err));
+            fresh_tab.status_text = format!("Session error: {}", err);
+        }
         self.tabs[0] = fresh_tab;
         self.active_tab_index = 0;
         self.session_manager.set_active_session(new_id);

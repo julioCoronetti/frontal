@@ -76,7 +76,8 @@ fn test_spinner_visibility_when_total_lines_exceed_height() {
             .push_user_message(&format!("user line {}", i));
     }
     app.active_tab_mut().cache.consolidate_active_turn(None);
-    app.active_tab_mut().waiting_for_response = true;
+    app.active_tab_mut()
+        .transition_turn(frontal::ui::tab::TurnEvent::Submit);
 
     terminal.draw(|f| app.render(f)).unwrap();
     let buf = terminal.backend().buffer();
@@ -322,7 +323,8 @@ async fn test_markdown_headings_and_ui_refinements_on_test_backend() {
     assert!(rendered_text.contains("Subtitulo Secundario"));
 
     let initial_blocks = app.active_tab().cache.blocks_count();
-    app.active_tab_mut().waiting_for_response = true;
+    app.active_tab_mut()
+        .transition_turn(frontal::ui::tab::TurnEvent::Submit);
     app.spinner_tick = 8;
     terminal.draw(|f| app.render(f)).unwrap();
     let buffer2 = terminal.backend().buffer();

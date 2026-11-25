@@ -7,7 +7,7 @@ use crate::ui::modal::{Modal, ModelEffortModal};
 impl App {
     pub fn is_turn_active(&self) -> bool {
         let tab = self.active_tab();
-        tab.waiting_for_response
+        tab.is_waiting_for_response()
             || tab.cache.has_unconsolidated_blocks()
             || self
                 .session_manager
@@ -22,16 +22,13 @@ impl App {
         tab.viewport.clear_selection();
         tab.viewport.scroll_to_bottom();
         tab.last_turn_usage = None;
-        tab.in_flight_usage = None;
         tab.accumulated_usage = crate::protocol::TokenUsage::default();
         tab.served_model = None;
         tab.context_window_hint = None;
         tab.steps_seen = 0;
-        tab.last_step_index = None;
         tab.turns_completed = 0;
         tab.last_turn_duration_seconds = None;
-        tab.queued_prompts.clear();
-        tab.esc_armed_at = None;
+        tab.transition_turn(crate::ui::tab::TurnEvent::RespawnReset);
         tab.status_text = String::from("Cleared");
         self.dirty = true;
     }

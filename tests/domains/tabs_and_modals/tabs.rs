@@ -286,7 +286,7 @@ fn test_background_tab_protocol_error_and_stderr() {
     let id2 = SessionId::new();
     app.add_tab(id2.clone(), Some("Background Session".to_string()));
     app.switch_tab(0);
-    app.tabs[1].waiting_for_response = true;
+    app.tabs[1].transition_turn(frontal::ui::tab::TurnEvent::Submit);
 
     app.handle_engine_envelope(SessionEnvelope {
         session_id: id2.clone(),
@@ -296,7 +296,7 @@ fn test_background_tab_protocol_error_and_stderr() {
         },
     });
 
-    assert!(!app.tabs[1].waiting_for_response);
+    assert!(!app.tabs[1].is_waiting_for_response());
     assert!(app.tabs[1].has_unread);
     assert_eq!(app.tabs[1].cache.blocks_count(), 1);
     assert_eq!(app.tabs[1].status_text, "Protocol Error");

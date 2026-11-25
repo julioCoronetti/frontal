@@ -378,7 +378,8 @@ fn test_select_model_effort_persists_modal_backend() {
 #[test]
 fn test_prompt_failure_unwedges_tab() {
     let (mut app, session_id) = test_app();
-    app.active_tab_mut().waiting_for_response = true;
+    app.active_tab_mut()
+        .transition_turn(frontal::ui::tab::TurnEvent::Submit);
     app.active_tab_mut()
         .cache
         .append_streaming_delta(BlockKind::Assistant, "partial output");
@@ -389,7 +390,7 @@ fn test_prompt_failure_unwedges_tab() {
 
     app.handle_prompt_failure(&session_id, "opencode binary not found");
 
-    assert!(!app.active_tab().waiting_for_response);
+    assert!(!app.active_tab().is_waiting_for_response());
     assert!(app.active_tab().queued_prompts.is_empty());
     assert!(!app.active_tab().cache.has_unconsolidated_blocks());
     assert_eq!(app.active_tab().status_text, "Error received");

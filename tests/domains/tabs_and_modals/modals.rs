@@ -398,5 +398,5 @@ fn test_danger_modal_reject_aborts_command_and_records_security_block() {
     assert!(app.modals.is_empty());
     assert!(app.active_tab().pending_danger.is_none());
     assert_eq!(app.active_tab().status_text, "Blocked destructive command");
-    assert!(!app.active_tab().waiting_for_response);
+    assert!(!app.active_tab().is_waiting_for_response());
 }

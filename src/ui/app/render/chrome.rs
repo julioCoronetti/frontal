@@ -104,7 +104,7 @@ impl App {
             let is_hovered = self.hovered_tab_index == Some(i);
 
             let body_target_w = tab_width.saturating_sub(CLOSE_SLOT_WIDTH);
-            let is_running = tab.waiting_for_response || tab.cache.has_unconsolidated_blocks();
+            let is_running = tab.is_waiting_for_response() || tab.cache.has_unconsolidated_blocks();
             let spinner = if is_running {
                 format!("{} ", spinner_char)
             } else {

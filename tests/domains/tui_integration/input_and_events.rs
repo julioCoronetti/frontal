@@ -40,7 +40,7 @@ fn test_local_slash_commands_execution() {
     app.active_tab_mut().editor.insert_str("/model gemini");
     let act = app.handle_terminal_event(enter.clone());
     assert_eq!(act, None);
-    assert!(!app.active_tab().waiting_for_response);
+    assert!(!app.active_tab().is_waiting_for_response());
     assert!(!app.modals.is_empty());
     assert!(matches!(
         app.modals.top(),
@@ -251,7 +251,7 @@ fn test_contextual_ctrl_c_and_slash_commands_routing() {
     app.active_tab_mut().editor.insert_str("/unknown_cmd");
     app.handle_terminal_event(enter);
     assert_eq!(app.active_tab().cache.blocks_count(), 2);
-    assert!(!app.active_tab().waiting_for_response);
+    assert!(!app.active_tab().is_waiting_for_response());
 }
 
 #[test]

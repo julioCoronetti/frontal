@@ -116,7 +116,7 @@ async fn test_opencode_engine_multi_turn_session_persistence() {
 #[tokio::test]
 async fn test_error_event_unwedges_session_and_tab() {
     let mut tab = TabState::new(SessionId::new(), String::from("tab"));
-    tab.waiting_for_response = true;
+    tab.transition_turn(frontal::ui::tab::TurnEvent::Submit);
     tab.cache
         .append_streaming_delta(BlockKind::Assistant, "partial output");
     assert!(tab.cache.has_unconsolidated_blocks());
@@ -130,7 +130,7 @@ async fn test_error_event_unwedges_session_and_tab() {
         outcome,
         Some(StreamOutcome::TurnCompleted { is_result: false })
     );
-    assert!(!tab.waiting_for_response);
+    assert!(!tab.is_waiting_for_response());
     assert!(!tab.cache.has_unconsolidated_blocks());
 
     let mut manager = SessionManager::new();

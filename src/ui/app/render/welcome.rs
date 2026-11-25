@@ -137,7 +137,7 @@ impl App {
     pub(crate) fn is_hero_welcome_active(&self, area: Rect) -> bool {
         let tab = self.active_tab();
         tab.cache.blocks_count() == 0
-            && !tab.waiting_for_response
+            && !tab.is_waiting_for_response()
             && area.width >= 50
             && area.height >= 16
     }

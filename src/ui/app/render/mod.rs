@@ -40,7 +40,7 @@ impl App {
 
         let is_welcome = {
             let tab = self.active_tab();
-            tab.cache.blocks_count() == 0 && !tab.waiting_for_response
+            tab.cache.blocks_count() == 0 && !tab.is_waiting_for_response()
         };
         let show_sidebar = !is_welcome && self.sidebar_visible && padded_area.width >= 100;
         let main_width = if show_sidebar {

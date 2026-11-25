@@ -109,7 +109,8 @@ fn test_hero_welcome_transition_on_first_prompt_both_backends() {
         assert!(text_before.contains(&app.cwd_display));
 
         app.active_tab_mut().cache.push_user_message("first prompt");
-        app.active_tab_mut().waiting_for_response = true;
+        app.active_tab_mut()
+            .transition_turn(frontal::ui::tab::TurnEvent::Submit);
 
         let (term_after, text_after) = render_app(&mut app, 120, 30);
         let buf_after = term_after.backend().buffer();

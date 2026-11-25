@@ -58,7 +58,7 @@ fn reject_danger_consolidates_active_turn_blocks() {
     });
     app.dispatch_modal_action(ModalAction::RejectDanger);
     assert!(!app.active_tab().cache.has_unconsolidated_blocks());
-    assert!(!app.active_tab().waiting_for_response);
+    assert!(!app.active_tab().is_waiting_for_response());
 }
 
 #[test]
@@ -70,7 +70,8 @@ fn protocol_error_consolidates_active_turn_and_clears_telemetry() {
     app.active_tab_mut()
         .cache
         .append_streaming_delta(BlockKind::Assistant, "partial");
-    app.active_tab_mut().waiting_for_response = true;
+    app.active_tab_mut()
+        .transition_turn(frontal::ui::tab::TurnEvent::Submit);
     app.active_tab_mut().turn_started_at = Some(std::time::Instant::now());
 
     app.handle_engine_envelope(SessionEnvelope {
@@ -83,7 +84,7 @@ fn protocol_error_consolidates_active_turn_and_clears_telemetry() {
     assert!(!app.active_tab().cache.has_unconsolidated_blocks());
     assert!(app.active_tab().turn_started_at.is_none());
     assert!(app.active_tab().in_flight_usage.is_none());
-    assert!(!app.active_tab().waiting_for_response);
+    assert!(!app.active_tab().is_waiting_for_response());
 }
 
 #[tokio::test]
@@ -234,7 +235,7 @@ fn process_exited_and_prompt_failure_clear_turn_telemetry() {
     manager.register_mock_session(sid.clone());
     let mut app = App::new_isolated(manager, sid.clone());
 
-    app.tabs[0].waiting_for_response = true;
+    app.tabs[0].transition_turn(frontal::ui::tab::TurnEvent::Submit);
     app.tabs[0].turn_started_at = Some(std::time::Instant::now());
     app.tabs[0].in_flight_usage = Some(TokenUsage {
         input_tokens: 5,
@@ -249,9 +250,9 @@ fn process_exited_and_prompt_failure_clear_turn_telemetry() {
     });
     assert!(app.tabs[0].turn_started_at.is_none());
     assert!(app.tabs[0].in_flight_usage.is_none());
-    assert!(!app.tabs[0].waiting_for_response);
+    assert!(!app.tabs[0].is_waiting_for_response());
 
-    app.tabs[0].waiting_for_response = true;
+    app.tabs[0].transition_turn(frontal::ui::tab::TurnEvent::Submit);
     app.tabs[0].turn_started_at = Some(std::time::Instant::now());
     app.tabs[0].in_flight_usage = Some(TokenUsage {
         input_tokens: 10,
@@ -260,5 +261,5 @@ fn process_exited_and_prompt_failure_clear_turn_telemetry() {
     app.handle_prompt_failure(&sid, "boom");
     assert!(app.tabs[0].in_flight_usage.is_none());
     assert!(app.tabs[0].turn_started_at.is_none());
-    assert!(!app.tabs[0].waiting_for_response);
+    assert!(!app.tabs[0].is_waiting_for_response());
 }

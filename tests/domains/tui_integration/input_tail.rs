@@ -51,7 +51,7 @@ fn test_staging_queue_during_active_turn_and_auto_drain() {
         (sid, frontal::protocol::PromptPayload::from("pare"))
     );
     assert_eq!(app.active_tab().cache.blocks_count(), 2);
-    assert!(app.active_tab().waiting_for_response);
+    assert!(app.active_tab().is_waiting_for_response());
 }
 
 #[test]
@@ -60,7 +60,7 @@ fn test_unknown_slash_command_local_rejection() {
     app.active_tab_mut().editor.insert_str("/reusme");
     let act = app.handle_terminal_event(press_key(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(act, None);
-    assert!(!app.active_tab().waiting_for_response);
+    assert!(!app.active_tab().is_waiting_for_response());
     assert!(app
         .active_tab()
         .status_text
