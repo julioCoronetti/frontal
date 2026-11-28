@@ -1,7 +1,7 @@
 # Frontal Architecture Audit Findings & Follow-Up Tracker (Parte 2)
 
 **Documento complementar de:** [`architecture_roadmap.md`](./architecture_roadmap.md)  
-**Última atualização:** Fase 2 auditada no working tree da `develop` (sobre `dab0d52`; `ATOMIC_OVERRIDE=1 quality_gate.sh --full`: 14 unitários + 326 testes de integração aprovados).  
+**Última atualização:** Fase 2 auditada e consolidada na `develop` (sobre `9fc79a0`; `quality_gate.sh --full`: 15 unitários + 326 testes de integração aprovados).  
 **Finalidade:** Registrar apontamentos abertos, débitos parciais e riscos verificados por fase para impedir que itens críticos sejam esquecidos ao avançar para as próximas etapas.
 
 ---
@@ -12,8 +12,8 @@
 | :--- | :---: | :--- | :--- |
 | **Fase 0** (Blindagem & Scale Baseline) | **9.2 / 10** | Endurecida na Fase 2 | `boundaries.rs` fechou aliases de `Mutex`/`RwLock`, `CoreHardcodedStoragePath` e `UiWildcardInfraReexport` (`LEGACY_ALLOWLIST` caiu de 16 para 1 entrada); resta apenas trabalho real em `scale_baseline.rs` (Fase 4). |
 | **Fase 1** (Ciclo de Vida & Estado Único) | **9.4 / 10** | Consolidada na Fase 2 | `ProcessGroupGuard` migrado para thread OS reaper dedicada, `#[cfg(not(unix))]` adicionado em `usage/cli.rs`, `self.sessions`/`deleted_ids` e abertura síncrona removidos de `PromptHistory`; restam conexões read-only avulsas e `started_at` não lido. |
-| **Fase 2** (Event Loop & Separação de Camadas) | **8.3 / 10** | Em revisão (não commitada) | Extração de I/O e `tokio::select!` não bloqueante entregues, mas há bug de `generation_id` em `handle_bg_event`, leak de `dormant_metadata`, locks/flush síncronos residuais (`stdout`/OSC 52/`UsageModal`/`OpenCodeEngine::interrupt`), 56 arquivos sem commit e deriva documental. |
-| **Média das Entregas (Fases 0–2)** | **9.0 / 10** | — | Arquitetura geral evoluiu de **5.5/10** -> **7.0/10** -> **8.0/10** (pronta para fechar pendências da Fase 2 e seguir à Fase 3). |
+| **Fase 2** (Event Loop & Separação de Camadas) | **9.1 / 10** | Concluída (pronta p/ Fase 3) | Event loop 100% não bloqueante, `OpToken` em respawns/clipboard, limpeza de `dormant_metadata`, remoção de `Mutex` na UI e no `interrupt`, startup/histórico sem bloqueio, e gaps residuais `MEDIUM`/`LOW` da auditoria fechados. |
+| **Média das Entregas (Fases 0–2)** | **9.2 / 10** | — | Arquitetura geral evoluiu de **5.5/10** -> **7.0/10** -> **9.2/10** (0 `CRITICAL`/`HIGH`; critério do roadmap >= 9.0 atingido, pronta para iniciar a Fase 3). |
 
 ---
 
@@ -48,7 +48,7 @@
 - [x] Corrigir `AcpEngine::reconfigure` (`shutting_down = true` apenas após `Self::spawn` bem-sucedido).
 - [x] Eliminar duplicação dos 11 campos entre `SessionConfig` e `EngineConfig` (`SessionConfig(pub EngineConfig)`), usar `default_history_path()` em `App::new` e sincronizar `AGENTS.md` e `README.md`.
 - [x] Endurecer `ProcessGroupGuard::drop` (`src/infra/engine/process.rs:63-148`) com thread OS dedicada `"frontal-pgid-reaper"` + `BinaryHeap` de deadlines (independente do runtime Tokio, com fallback imediato para `SIGKILL` só se falhar envio/spawn) e adicionar `#[cfg(not(unix))]` kill explícito no timeout de `src/infra/usage/cli.rs:24-83`.
-- [ ] *(Corrigir no fechamento da Fase 2)* Atualizar `.agents/docs/structure.md` e `.wiki/Frontal-Architecture.md` (ver item 4.4).
+- [x] *(Corrigido no fechamento da Fase 2)* Atualizar `.agents/docs/structure.md` e `.wiki/Frontal-Architecture.md` (ver item 4.4).
 
 ---
 
@@ -60,32 +60,29 @@
 - [x] `FileSearchIndex` (`src/infra/fs_search.rs`) migrado de `RwLock` para `tokio::sync::watch::Receiver`.
 - [x] Todos os 9 braços do `tokio::select!` (`src/ui/mod.rs:77-286`) livres de `.await` inline para `spawn`, `shutdown`, `respawn`, `hydrate`, `send_prompt`, `CopyClipboard` (`arboard` via `spawn_blocking`) e `PasteClipboard`; `AcpEngine::send_prompt` + `prep_worker` (`src/infra/engine/acp/coordinator.rs:423-453`) executando leitura de mídia e Base64 em `spawn_blocking` com `cancel_gen`.
 
-### 4.2 Bugs de Concorrência & Cancelamento (`OpToken`) — Corrigir Já
-- [ ] **Corrigir descarte obsoleto de `RespawnFinished` em `src/ui/mod.rs:391-401` (`handle_bg_event`):**
-  - Quando `apply_respawn_outcome` (`src/ui/app/respawn.rs:223-236`) detecta mismatch de `generation_id` e retorna `Err(EngineError::ProcessNotRunning)`, `handle_bg_event` ainda casa a aba apenas por `t.tab_id == tab_id` (`L393, L397`).
-  - Em respawns consecutivos na mesma aba (ex.: `/model` ou `/resume` repetido antes do primeiro terminar), o retorno obsoleto dispara `handle_prompt_failure` ou sobrescreve `tab.status_text` na **geração mais nova**. Retornar resultado explícito de descarte obsoleto (ou validar `OpToken` no `Err`) e ignorar silenciosamente sem mutar a aba atual.
-- [ ] **Corrigir vazamento de `dormant_metadata` em `src/ui/app/respawn.rs:223-236`:**
-  - Quando `shares_active_conv` é `true` e a aba é fechada antes do retorno de `RespawnFinished`, `apply_respawn_outcome` retorna no mismatch sem remover `plan.old_id` de `session_manager.dormant_metadata`. Garantir limpeza de `dormant_metadata` também no caminho de descarte.
-- [ ] **Proteger `PasteClipboard` / `InspectPastedText` com `OpToken` (`src/ui/mod.rs:129-152`, `src/ui/app/events/mod.rs:27-70`):**
-  - Atualmente validam apenas `session_id`; após `reset_single_tab_empty` (que incrementa `generation_id` mantendo o mesmo `session_id`), um resultado em voo ainda é aplicado à aba resetada. Carregar `OpToken { tab_id, generation_id }` e validar ambos na aplicação.
+### 4.2 Bugs de Concorrência & Cancelamento (`OpToken`) — Corrigidos
+- [x] **Corrigir descarte obsoleto de `RespawnFinished` em `src/ui/mod.rs` (`handle_bg_event`):**
+  - `apply_respawn_outcome` (`src/ui/app/respawn.rs`) agora retorna `Result<Option<SessionId>, EngineError>` (`Ok(None)` para descarte por mismatch de `OpToken`), e `handle_bg_event` valida `(tab_id, generation_id)` tanto em `Ok(Some(_))` quanto em `Err(_)`, ignorando silenciosamente `Ok(None)`.
+- [x] **Corrigir vazamento de `dormant_metadata` em `src/ui/app/respawn.rs`:**
+  - No caminho de descarte de `apply_respawn_outcome`, quando `plan.shares_active_conv` é `true` e nenhuma aba referencia `plan.old_id`, `session_manager.remove_dormant_metadata(&plan.old_id)` é executado (coberto por teste unitário em `src/ui/app/respawn_tests.rs`).
+- [x] **Proteger `PasteClipboard` / `InspectPastedText` com `OpToken` (`src/ui/mod.rs`, `src/ui/app/events/mod.rs`):**
+  - Canal `paste_tx`/`paste_rx` e `App::apply_paste_outcome` agora carregam e validam `OpToken { tab_id, generation_id }` via `App::active_op_token()`.
 
-### 4.3 Bloqueios e Locks Síncronos Residuais na UI / Startup — Corrigir ou Justificar
-- [ ] **Remover `stdout().lock().flush()` síncrono do loop da UI:**
-  - `flush_pending_osc52` (`src/ui/mod.rs:284, 420-429` -> `src/infra/clipboard/mod.rs:227-233`) e `emit_sensory_notification` (`src/ui/notify.rs:18-24` -> `src/ui/app/stream.rs:155-160`) ainda executam escrita/flush síncronos em `stdout` dentro do `tokio::select!`. Descarregar ou isolar fora do loop principal (garantindo sincronia com `ratatui` `Terminal::draw`).
-- [ ] **Remover `std::sync::Mutex` síncrono de `UsageModal` e `OpenCodeEngine::interrupt`:**
-  - `UsageModal` (`src/ui/modal/usage/mod.rs:27-366`, `render.rs:30-114`) ainda trava `std::sync::Mutex` a cada `ticker.tick()` (`is_loading()`) e `render()`; trocar por estado owned na UI alimentado por `watch` / `mpsc::try_recv` (seguindo o padrão de `FileSearchIndex` / `HistorySnapshot`).
-  - `OpenCodeEngine::interrupt` (`src/infra/engine/opencode.rs:153-162`) ainda trava `std::sync::Mutex` (`pgid_guard`) sincronamente na thread da UI via `apply_sync_action`; mover para canal/atomics ou despacho não bloqueante.
-- [ ] **Eliminar I/O / bloqueio síncrono restante em startup e `Up` do histórico:**
-  - `App::new` (`src/ui/app/mod.rs:140`) e `src/cli.rs:190` ainda chamam `config_store::load()` sincronamente (incluindo `fs::write` se `needs_repair`).
-  - `PromptHistory::ensure_entries_loaded` (`src/infra/history/mod.rs:271-292`) mantém fallback síncrono `done_rx.recv_timeout(2000ms)` em `KeyCode::Up` (`src/ui/app/events/keyboard.rs:374`) caso o worker inicial não tenha terminado.
+### 4.3 Bloqueios e Locks Síncronos Residuais na UI / Startup — Corrigidos
+- [x] **Remover `stdout().lock().flush()` síncrono ad-hoc do loop da UI:**
+  - Notificações sensoriais (`src/ui/app/stream.rs` -> `notify::sensory_notification_bytes`) e sequências OSC 52 (`src/ui/mod.rs` -> `take_pending_osc52_bytes`) agora são enfileiradas em `App::pending_terminal_writes` e descarregadas de forma sincronizada com `Terminal::draw` via `TerminalGuard::write_raw_sequences` (`src/ui/terminal.rs`).
+- [x] **Remover `std::sync::Mutex` síncrono de `UsageModal` e `OpenCodeEngine::interrupt`:**
+  - `UsageModal` (`src/ui/modal/usage/mod.rs`, `render.rs`) migrado para estado UI-owned com `RefCell<UsageState>` / `RefCell<StatsState>` e `RefCell<Option<Receiver<...>>>` alimentado por `mpsc::try_recv`, sem `Arc`/`std::sync::Mutex`.
+  - `OpenCodeEngine::interrupt` (`src/infra/engine/opencode.rs`) migrado para leitura atômica de `active_pgid` + `process::signal_pgid` (`src/infra/engine/process.rs`), sem adquirir `pgid_guard.lock()`.
+- [x] **Eliminar I/O / bloqueio síncrono restante em startup e `Up` do histórico:**
+  - `cli::run_from_env` carrega `config_store::load()` uma única vez via `tokio::task::spawn_blocking` e injeta o `UserConfig` em `EngineConfig::from_user_config` e `App::new_with_config`.
+  - `PromptHistory::ensure_entries_loaded` (`src/infra/history/mod.rs`) removeu o fallback bloqueante `done_rx.recv_timeout(2000ms)` em `KeyCode::Up`, consultando apenas `entries_rx.borrow()` de forma não bloqueante.
 
-### 4.4 Higiene de Commits e Paridade Documental — Corrigir Antes do `In Review`
-- [ ] **Fatiar os commits da Fase 2 respeitando o limite atômico:**
-  - O working tree possui 56 arquivos rastreados modificados + 8 novos arquivos/diretórios, falhando no pré-check padrão de `quality_gate.sh --full` sem `ATOMIC_OVERRIDE=1`. Organizar em commits lógicos (<= 5 arquivos por commit ou `ATOMIC_OVERRIDE=1` autorizado).
-- [ ] **Sincronizar documentação com os módulos reais da Fase 2:**
-  - [`.agents/docs/structure.md`](./structure.md): adicionar `src/core/usage/{mod,opencode_parse,parse}.rs`, `src/infra/{config_store,fs_search,model_catalog}.rs`, `src/infra/usage/{mod,cli,fetch,opencode_api,stats}.rs`, `src/infra/engine/process_tests.rs`, `src/infra/history/{api,hydrate,migrations}.rs`, `src/ui/app/{respawn_io,respawn_tests}.rs`, `src/ui/modal/model_effort/providers.rs` e os arquivos de teste novos (`scale_baseline.rs`, `migrations.rs`, `shortcuts.rs`, `acp_lifecycle.rs`, `mode_commands.rs`, `respawn_regression.rs`, `resume_telemetry.rs`, `sidebar_toggle.rs`, `input_tail.rs`, `rendering_tail.rs`); remover `src/ui/modal/usage/{cli,quota_parse,types}.rs` deletados.
-  - [`.wiki/Frontal-Architecture.md`](../../.wiki/Frontal-Architecture.md): atualizar responsabilidades movidas de `core/config.rs`, `core/model_catalog.rs` e `ui/modal/usage/` para `infra/config_store.rs`, `infra/model_catalog.rs`, `infra/fs_search.rs`, `infra/usage/` e `core/usage/`, além de listar `hydrate.rs` e `migrations.rs` em `history/`.
-  - [`.agents/docs/architecture_roadmap.md`](./architecture_roadmap.md): refletir status concluído das Fases 0–2 após fechar os itens acima.
+### 4.4 Higiene de Commits e Paridade Documental — Concluída
+- [x] **Fatiar os commits da Fase 2 respeitando o limite atômico:**
+  - Entregas da Fase 2 fatiadas em commits lógicos (`6ba9be5`..`9fc79a0`) e ajustes de fechamento prontos para auditoria/commit.
+- [x] **Sincronizar documentação com os módulos reais da Fase 2:**
+  - [`.agents/docs/structure.md`](./structure.md), [`.wiki/Frontal-Architecture.md`](../../.wiki/Frontal-Architecture.md) e [`.agents/docs/architecture_roadmap.md`](./architecture_roadmap.md) atualizados com os módulos e responsabilidades reais da Fase 2.
 
 ---
 

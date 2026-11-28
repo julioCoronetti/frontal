@@ -37,7 +37,7 @@ A premissa original é **tecnicamente sólida e não requer reescrita**. A eros�
 
 ## 3. Roadmap Consolidado para Nota 10 / 10
 
-### Fase 0 — Blindagem Mecânica de Fronteiras e Baseline de Escala
+### Fase 0 — Blindagem Mecânica de Fronteiras e Baseline de Escala *(Concluída)*
 *Pré-requisito para evitar novas regressões estruturais durante as refatorações.*
 
 1. **Matriz de fronteiras de camada em `tests/domains/architecture.rs`:**
@@ -50,7 +50,7 @@ A premissa original é **tecnicamente sólida e não requer reescrita**. A eros�
 
 ---
 
-### Fase 1 — Integridade de Ciclo de Vida e Fonte Única de Verdade
+### Fase 1 — Integridade de Ciclo de Vida e Fonte Única de Verdade *(Concluída)*
 *Elimina vazamentos de processo, split-brain e estado divergente.*
 
 1. **Guardião único de PGID (`ProcessGroupGuard` em `src/infra/engine/process.rs`):**
@@ -70,7 +70,7 @@ A premissa original é **tecnicamente sólida e não requer reescrita**. A eros�
 
 ---
 
-### Fase 2 — Event Loop 100% Não Bloqueante e Separação Estrita de Camadas
+### Fase 2 — Event Loop 100% Não Bloqueante e Separação Estrita de Camadas *(Concluída — aguardando auditoria de fechamento)*
 *Zera travamentos no `tokio::select!` e remove I/O de `core/` e `ui/`.*
 
 1. **Extrair I/O de `src/core/` e `src/ui/` para `src/infra/`:**
