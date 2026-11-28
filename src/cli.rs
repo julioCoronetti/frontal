@@ -180,6 +180,9 @@ pub async fn run_from_env() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    let user_config = tokio::task::spawn_blocking(crate::infra::config_store::load)
+        .await
+        .unwrap_or_default();
     let mut session_manager = SessionManager::new();
 
     let session_id = if let Some(replay_path) = &args.replay_file {
@@ -187,13 +190,14 @@ pub async fn run_from_env() -> Result<(), Box<dyn std::error::Error>> {
             .create_replay_session(replay_path, ReplayMode::TurnGated)
             .await?
     } else {
-        let mut config = EngineConfig::new();
+        let mut config = EngineConfig::from_user_config(&user_config);
         args.apply_to_config(&mut config);
         session_manager.create_subprocess_session(config).await?
     };
 
     if !args.headless {
-        let mut app = crate::ui::app::App::new(session_manager, session_id.clone());
+        let mut app =
+            crate::ui::app::App::new_with_config(session_manager, session_id.clone(), user_config);
         let mut prompts = args.prompts.into_iter();
         if let Some(first) = prompts.next() {
             match app.session_manager.send_prompt(&session_id, &first).await {

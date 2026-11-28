@@ -69,17 +69,21 @@ pub struct EngineConfig {
 
 impl EngineConfig {
     pub fn new() -> Self {
-        let bin = Self::resolve_agy_binary();
         let user_config = crate::infra::config_store::load();
+        Self::from_user_config(&user_config)
+    }
+
+    pub fn from_user_config(user_config: &crate::config::UserConfig) -> Self {
+        let bin = Self::resolve_agy_binary();
         Self {
             agy_bin: bin,
             opencode_bin: resolve_opencode_binary(),
             backend: user_config.backend,
             conversation_id: None,
             project: None,
-            model: Some(user_config.model),
-            mode: Some(user_config.mode),
-            effort: Some(user_config.effort),
+            model: Some(user_config.model.clone()),
+            mode: Some(user_config.mode.clone()),
+            effort: Some(user_config.effort.clone()),
             cwd: None,
             dangerously_skip_permissions: true,
             extra_args: Vec::new(),

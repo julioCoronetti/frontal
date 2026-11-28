@@ -126,7 +126,7 @@ impl SessionManager {
         })
     }
 
-    pub(super) fn push_closing_handle(&mut self, mut handle: SessionHandle, grace: Duration) {
+    pub(crate) fn push_closing_handle(&mut self, mut handle: SessionHandle, grace: Duration) {
         self.closing_tasks.retain(|h| !h.is_finished());
         if handle.engine.is_none() {
             handle.metadata.status = SessionStatus::Closed;

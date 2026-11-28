@@ -275,18 +275,13 @@ impl PromptHistory {
         if let Some(ref rx) = self.entries_rx {
             let guard = rx.borrow();
             if guard.0 {
+                let prev_len = self.entries.len();
                 self.entries = Self::merge_entries(guard.1.clone(), &self.entries);
-                self.entries_loaded = true;
-                return;
-            }
-        }
-        if let Some(ref tx) = self.write_tx {
-            let (done_tx, done_rx) = sync_channel(1);
-            if tx.send(HistoryCommand::LoadEntries { done_tx }).is_ok() {
-                if let Ok(loaded) = done_rx.recv_timeout(Duration::from_millis(2000)) {
-                    self.entries = Self::merge_entries(loaded, &self.entries);
-                    self.entries_loaded = true;
+                let added = self.entries.len().saturating_sub(prev_len);
+                if let Some(idx) = self.history_idx {
+                    self.history_idx = Some(idx.saturating_add(added));
                 }
+                self.entries_loaded = true;
             }
         }
     }
