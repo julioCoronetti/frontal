@@ -261,12 +261,10 @@ impl ProcessGroupGuard {
         let pgid = pid as i32;
         if pgid > 0 {
             register_child_pgid(pgid);
-            Self { pgid, armed: true }
-        } else {
-            Self {
-                pgid: 0,
-                armed: false,
-            }
+        }
+        Self {
+            pgid: pgid.max(0),
+            armed: pgid > 0,
         }
     }
 
@@ -282,20 +280,24 @@ impl ProcessGroupGuard {
     }
 
     pub fn signal(&self, sig: i32) {
-        if self.armed && self.pgid > 0 {
-            unsafe {
-                libc::killpg(self.pgid, sig);
-            }
+        if self.armed {
+            signal_pgid(self.pgid, sig);
         }
     }
 
     pub fn kill_sigkill_and_disarm(&mut self) {
-        if self.armed && self.pgid > 0 {
-            unsafe {
-                libc::killpg(self.pgid, libc::SIGKILL);
-            }
+        if self.armed {
+            signal_pgid(self.pgid, libc::SIGKILL);
         }
         self.disarm();
+    }
+}
+
+pub fn signal_pgid(pgid: i32, sig: i32) {
+    if pgid > 0 {
+        unsafe {
+            libc::killpg(pgid, sig);
+        }
     }
 }
 
@@ -305,9 +307,7 @@ impl Drop for ProcessGroupGuard {
             return;
         }
         self.armed = false;
-        unsafe {
-            libc::killpg(self.pgid, libc::SIGTERM);
-        }
+        signal_pgid(self.pgid, libc::SIGTERM);
         let deadline = Instant::now() + Duration::from_millis(250);
         if let Some((gen_id, tx)) = reaper_sender() {
             if tx

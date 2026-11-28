@@ -151,13 +151,19 @@ impl OpenCodeEngine {
     }
 
     pub fn interrupt(&mut self) -> Result<(), EngineError> {
-        let guard = self.pgid_guard.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(ref g) = *guard {
-            g.signal(libc::SIGINT);
+        let pgid = self.active_pgid.load(Ordering::SeqCst);
+        if pgid > 0 {
+            crate::infra::engine::process::signal_pgid(pgid, libc::SIGINT);
             Ok(())
         } else {
-            self.pending_interrupt.store(true, Ordering::Release);
-            Err(EngineError::ProcessNotRunning)
+            self.pending_interrupt.store(true, Ordering::SeqCst);
+            let pgid = self.active_pgid.load(Ordering::SeqCst);
+            if pgid > 0 && self.pending_interrupt.swap(false, Ordering::SeqCst) {
+                crate::infra::engine::process::signal_pgid(pgid, libc::SIGINT);
+                Ok(())
+            } else {
+                Err(EngineError::ProcessNotRunning)
+            }
         }
     }
 
@@ -317,13 +323,13 @@ async fn run_opencode_worker(worker: OpenCodeWorker, mut cmd_rx: mpsc::Receiver<
                     guard.disarm();
                     break;
                 }
-                if worker.pending_interrupt.swap(false, Ordering::AcqRel) {
-                    guard.signal(libc::SIGINT);
-                }
                 let pgid = guard.pgid();
-                worker.active_pgid.store(pgid, Ordering::Release);
+                worker.active_pgid.store(pgid, Ordering::SeqCst);
                 if let Ok(mut g) = worker.pgid_guard.lock() {
                     *g = Some(guard);
+                }
+                if worker.pending_interrupt.swap(false, Ordering::SeqCst) {
+                    crate::infra::engine::process::signal_pgid(pgid, libc::SIGINT);
                 }
                 let stdout = child.stdout.take();
                 let stderr = child.stderr.take();
@@ -390,15 +396,15 @@ async fn run_opencode_worker(worker: OpenCodeWorker, mut cmd_rx: mpsc::Receiver<
                         }
                     }
                     let exit_status = child.wait().await;
+                    let cleared = active_pgid
+                        .compare_exchange(pgid, 0, Ordering::SeqCst, Ordering::Relaxed)
+                        .is_ok();
                     if let Some(mut guard) =
                         pgid_guard.lock().unwrap_or_else(|e| e.into_inner()).take()
                     {
                         guard.signal(libc::SIGTERM);
                         guard.disarm();
                     }
-                    let cleared = active_pgid
-                        .compare_exchange(pgid, 0, Ordering::Release, Ordering::Relaxed)
-                        .is_ok();
                     pgid_notify.notify_waiters();
                     let stderr_tail = stderr_task.await.unwrap_or_default();
                     if !cleared || saw_terminal {
