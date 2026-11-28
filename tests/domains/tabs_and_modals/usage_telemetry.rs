@@ -15,7 +15,7 @@ fn test_usage_modal_for_opencode_context_and_cache_telemetry() {
         ..Default::default()
     };
     let modal = UsageModal::for_opencode("opencode-go/deepseek-v4.1-flash", Some(last), acc);
-    let state = modal.state.lock().unwrap();
+    let state = modal.state.borrow();
     let UsageState::Ready(summary) = &*state else {
         panic!("expected ready telemetry")
     };
@@ -39,7 +39,7 @@ fn test_usage_modal_for_opencode_context_and_cache_telemetry() {
         }),
         acc,
     );
-    let state = resolved.state.lock().unwrap();
+    let state = resolved.state.borrow();
     let UsageState::Ready(summary) = &*state else {
         panic!("expected ready telemetry")
     };

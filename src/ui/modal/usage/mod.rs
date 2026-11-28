@@ -7,7 +7,6 @@ mod stats_render;
 
 use std::cell::{Cell, RefCell};
 use std::sync::mpsc::{channel, Receiver};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use ratatui::layout::Rect;
@@ -22,26 +21,24 @@ pub use crate::core::usage::{
 };
 pub use stats_render::build_stats_lines;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct UsageModal {
-    pub state: Arc<Mutex<UsageState>>,
+    pub state: RefCell<UsageState>,
     pub scroll_offset: usize,
     pub max_scroll: Cell<usize>,
     pub allow_network: bool,
     pub allow_stats_cli: bool,
     pub is_opencode: bool,
     pub page: UsagePage,
-    pub stats_state: Arc<Mutex<StatsState>>,
+    pub stats_state: RefCell<StatsState>,
     service: UsageService,
     usage_req_id: u64,
     stats_req_id: u64,
     opencode_fallback: Option<UsageSummary>,
-    rx: Option<SharedResultRx<UsageState>>,
-    stats_rx: Option<SharedResultRx<StatsState>>,
+    rx: RefCell<Option<Receiver<(u64, UsageState)>>>,
+    stats_rx: RefCell<Option<Receiver<(u64, StatsState)>>>,
     body_cache: RefCell<render::UsageBodyCache>,
 }
-
-type SharedResultRx<T> = Arc<Mutex<Receiver<(u64, T)>>>;
 
 impl UsageModal {
     pub fn load(allow_network: bool) -> Self {
@@ -64,40 +61,40 @@ impl UsageModal {
         service.fetch_agy_async(req_id, tx);
 
         Self {
-            state: Arc::new(Mutex::new(UsageState::Loading)),
+            state: RefCell::new(UsageState::Loading),
             scroll_offset: 0,
             max_scroll: Cell::new(0),
             allow_network: true,
             allow_stats_cli: false,
             is_opencode: false,
             page: UsagePage::Main,
-            stats_state: Arc::new(Mutex::new(StatsState::Idle)),
+            stats_state: RefCell::new(StatsState::Idle),
             service,
             usage_req_id: req_id,
             stats_req_id: 0,
             opencode_fallback: None,
-            rx: Some(Arc::new(Mutex::new(rx))),
-            stats_rx: None,
+            rx: RefCell::new(Some(rx)),
+            stats_rx: RefCell::new(None),
             body_cache: Default::default(),
         }
     }
 
     pub fn with_data(summary: UsageSummary) -> Self {
         Self {
-            state: Arc::new(Mutex::new(UsageState::Ready(summary))),
+            state: RefCell::new(UsageState::Ready(summary)),
             scroll_offset: 0,
             max_scroll: Cell::new(0),
             allow_network: false,
             allow_stats_cli: false,
             is_opencode: false,
             page: UsagePage::Main,
-            stats_state: Arc::new(Mutex::new(StatsState::Idle)),
+            stats_state: RefCell::new(StatsState::Idle),
             service: UsageService::new(),
             usage_req_id: 0,
             stats_req_id: 0,
             opencode_fallback: None,
-            rx: None,
-            stats_rx: None,
+            rx: RefCell::new(None),
+            stats_rx: RefCell::new(None),
             body_cache: Default::default(),
         }
     }
@@ -139,20 +136,20 @@ impl UsageModal {
         let req_id = 1;
         service.fetch_opencode_async(fallback.clone(), req_id, tx);
         Self {
-            state: Arc::new(Mutex::new(UsageState::Loading)),
+            state: RefCell::new(UsageState::Loading),
             scroll_offset: 0,
             max_scroll: Cell::new(0),
             allow_network: true,
             allow_stats_cli: true,
             is_opencode: true,
             page: UsagePage::Main,
-            stats_state: Arc::new(Mutex::new(StatsState::Idle)),
+            stats_state: RefCell::new(StatsState::Idle),
             service,
             usage_req_id: req_id,
             stats_req_id: 0,
             opencode_fallback: Some(fallback),
-            rx: Some(Arc::new(Mutex::new(rx))),
-            stats_rx: None,
+            rx: RefCell::new(Some(rx)),
+            stats_rx: RefCell::new(None),
             body_cache: Default::default(),
         }
     }
@@ -258,15 +255,15 @@ impl UsageModal {
                 .clone()
                 .unwrap_or_else(|| Self::local_opencode_summary("", None, Default::default()));
             let (tx, rx) = channel();
-            *self.state.lock().unwrap_or_else(|e| e.into_inner()) = UsageState::Loading;
-            self.rx = Some(Arc::new(Mutex::new(rx)));
+            *self.state.borrow_mut() = UsageState::Loading;
+            *self.rx.borrow_mut() = Some(rx);
             self.service.fetch_opencode_async(fallback, req_id, tx);
             return;
         }
         self.service.clear_agy_cache();
         let (tx, rx) = channel();
-        *self.state.lock().unwrap_or_else(|e| e.into_inner()) = UsageState::Loading;
-        self.rx = Some(Arc::new(Mutex::new(rx)));
+        *self.state.borrow_mut() = UsageState::Loading;
+        *self.rx.borrow_mut() = Some(rx);
         self.service.fetch_agy_async(req_id, tx);
     }
 
@@ -278,19 +275,18 @@ impl UsageModal {
         self.scroll_offset = 0;
         self.max_scroll.set(0);
         let already_loaded = matches!(
-            *self.stats_state.lock().unwrap_or_else(|e| e.into_inner()),
+            *self.stats_state.borrow(),
             StatsState::Ready(_) | StatsState::Loading
         );
         if already_loaded {
             return;
         }
         if let Some(stats) = self.service.cached_stats(Duration::from_secs(60)) {
-            *self.stats_state.lock().unwrap_or_else(|e| e.into_inner()) = StatsState::Ready(stats);
+            *self.stats_state.borrow_mut() = StatsState::Ready(stats);
             return;
         }
         if !self.allow_stats_cli {
-            *self.stats_state.lock().unwrap_or_else(|e| e.into_inner()) =
-                StatsState::Unavailable("Offline mode".to_string());
+            *self.stats_state.borrow_mut() = StatsState::Unavailable("Offline mode".to_string());
             return;
         }
         self.start_stats_fetch();
@@ -300,15 +296,11 @@ impl UsageModal {
         if !self.is_opencode {
             return;
         }
-        if matches!(
-            *self.stats_state.lock().unwrap_or_else(|e| e.into_inner()),
-            StatsState::Loading
-        ) {
+        if matches!(*self.stats_state.borrow(), StatsState::Loading) {
             return;
         }
         if !self.allow_stats_cli {
-            *self.stats_state.lock().unwrap_or_else(|e| e.into_inner()) =
-                StatsState::Unavailable("Offline mode".to_string());
+            *self.stats_state.borrow_mut() = StatsState::Unavailable("Offline mode".to_string());
             return;
         }
         self.service.clear_stats_cache();
@@ -319,45 +311,73 @@ impl UsageModal {
         self.stats_req_id = self.stats_req_id.wrapping_add(1);
         let req_id = self.stats_req_id;
         let (tx, rx) = channel();
-        *self.stats_state.lock().unwrap_or_else(|e| e.into_inner()) = StatsState::Loading;
-        self.stats_rx = Some(Arc::new(Mutex::new(rx)));
+        *self.stats_state.borrow_mut() = StatsState::Loading;
+        *self.stats_rx.borrow_mut() = Some(rx);
         self.service.fetch_stats_async(req_id, tx);
     }
 
     pub fn is_loading(&self) -> bool {
-        let primary_loading = matches!(
-            *self.state.lock().unwrap_or_else(|e| e.into_inner()),
-            UsageState::Loading
-        );
+        let primary_loading = matches!(*self.state.borrow(), UsageState::Loading);
         let stats_loading = self.page == UsagePage::OpenCodeStats
-            && matches!(
-                *self.stats_state.lock().unwrap_or_else(|e| e.into_inner()),
-                StatsState::Loading
-            );
+            && matches!(*self.stats_state.borrow(), StatsState::Loading);
         primary_loading || stats_loading
     }
 
     pub fn poll_rx(&self) -> bool {
         let mut updated = false;
-        if let Some(ref rx_lock) = self.rx {
-            let rx = rx_lock.lock().unwrap_or_else(|e| e.into_inner());
-            while let Ok((req_id, new_state)) = rx.try_recv() {
-                if req_id == self.usage_req_id {
-                    let mut current = self.state.lock().unwrap_or_else(|e| e.into_inner());
-                    *current = new_state;
-                    updated = true;
+        let mut clear_rx = false;
+        if let Some(ref rx) = *self.rx.borrow() {
+            loop {
+                match rx.try_recv() {
+                    Ok((req_id, new_state)) => {
+                        if req_id == self.usage_req_id {
+                            *self.state.borrow_mut() = new_state;
+                            updated = true;
+                            clear_rx = true;
+                        }
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        if matches!(*self.state.borrow(), UsageState::Loading) {
+                            *self.state.borrow_mut() =
+                                UsageState::Unavailable("Usage worker disconnected".to_string());
+                            updated = true;
+                        }
+                        clear_rx = true;
+                        break;
+                    }
                 }
             }
         }
-        if let Some(ref rx_lock) = self.stats_rx {
-            let rx = rx_lock.lock().unwrap_or_else(|e| e.into_inner());
-            while let Ok((req_id, new_stats)) = rx.try_recv() {
-                if req_id == self.stats_req_id {
-                    let mut current = self.stats_state.lock().unwrap_or_else(|e| e.into_inner());
-                    *current = new_stats;
-                    updated = true;
+        if clear_rx {
+            *self.rx.borrow_mut() = None;
+        }
+        let mut clear_stats_rx = false;
+        if let Some(ref rx) = *self.stats_rx.borrow() {
+            loop {
+                match rx.try_recv() {
+                    Ok((req_id, new_stats)) => {
+                        if req_id == self.stats_req_id {
+                            *self.stats_state.borrow_mut() = new_stats;
+                            updated = true;
+                            clear_stats_rx = true;
+                        }
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        if matches!(*self.stats_state.borrow(), StatsState::Loading) {
+                            *self.stats_state.borrow_mut() =
+                                StatsState::Unavailable("Stats worker disconnected".to_string());
+                            updated = true;
+                        }
+                        clear_stats_rx = true;
+                        break;
+                    }
                 }
             }
+        }
+        if clear_stats_rx {
+            *self.stats_rx.borrow_mut() = None;
         }
         if updated {
             self.max_scroll.set(0);

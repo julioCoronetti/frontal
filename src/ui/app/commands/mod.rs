@@ -69,7 +69,7 @@ impl App {
                     !self.history.is_in_memory(),
                 )
             };
-            self.modals.push(Modal::Usage(modal));
+            self.modals.push(Modal::Usage(Box::new(modal)));
             self.dirty = true;
             Some(None)
         } else if trimmed == "/model" || trimmed.starts_with("/model ") {

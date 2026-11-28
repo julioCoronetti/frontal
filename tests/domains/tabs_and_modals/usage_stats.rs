@@ -155,7 +155,7 @@ fn test_parse_opencode_stats_json_and_build_lines() {
     )
     .with_stats_cli(false);
     offline_modal.open_stats_subpage();
-    let offline_state = offline_modal.stats_state.lock().unwrap().clone();
+    let offline_state = offline_modal.stats_state.borrow().clone();
     assert!(matches!(offline_state, StatsState::Unavailable(ref msg) if msg == "Offline mode"));
 }
 
@@ -269,7 +269,7 @@ async fn test_opencode_stats_error_and_command_timeout() {
         }
         std::thread::sleep(Duration::from_millis(20));
     }
-    let state = modal.stats_state.lock().unwrap().clone();
+    let state = modal.stats_state.borrow().clone();
     assert!(matches!(state, StatsState::Unavailable(ref msg) if msg.contains("boom")));
 
     let hang_script = dir.path().join("opencode_hang");
@@ -296,7 +296,7 @@ fn test_usage_modal_for_opencode_enables_stats_cli_by_default_and_validates_toke
 
     let mut offline = default_modal.with_stats_cli(false);
     offline.open_stats_subpage();
-    let offline_state = offline.stats_state.lock().unwrap().clone();
+    let offline_state = offline.stats_state.borrow().clone();
     assert!(matches!(offline_state, StatsState::Unavailable(ref msg) if msg == "Offline mode"));
 
     let bad_tok = frontal::infra::usage::opencode_api::fetch_go_usage("bad\"token\nheader");
@@ -424,7 +424,7 @@ fn test_usage_modal_body_cache_invalidates_on_resize_and_state_change() {
     let narrow_max_scroll = modal.max_scroll.get();
     assert!(narrow_max_scroll > wide_max_scroll);
 
-    *modal.state.lock().unwrap() = UsageState::Unavailable("offline".to_string());
+    *modal.state.borrow_mut() = UsageState::Unavailable("offline".to_string());
     term.draw(|f| modal.render(f, Rect::new(0, 0, 80, 20)))
         .unwrap();
     let buf = term.backend().buffer();
@@ -435,7 +435,7 @@ fn test_usage_modal_body_cache_invalidates_on_resize_and_state_change() {
     assert!(screen.contains("Status: offline"));
 
     modal.page = UsagePage::OpenCodeStats;
-    *modal.stats_state.lock().unwrap() = StatsState::Unavailable("stats err".to_string());
+    *modal.stats_state.borrow_mut() = StatsState::Unavailable("stats err".to_string());
     term.draw(|f| modal.render(f, Rect::new(0, 0, 80, 20)))
         .unwrap();
     let buf2 = term.backend().buffer();

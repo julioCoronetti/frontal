@@ -144,7 +144,7 @@ fn test_multisession_tabs_ui_rendering_on_test_backend() {
 
     app.modals.pop();
     app.modals
-        .push(Modal::Usage(UsageModal::offline_fallback()));
+        .push(Modal::Usage(Box::new(UsageModal::offline_fallback())));
     terminal.draw(|f| app.render(f)).unwrap();
     let buf_usage = terminal.backend().buffer();
     let rendered_usage = buf_usage

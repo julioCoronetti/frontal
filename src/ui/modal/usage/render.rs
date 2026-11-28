@@ -91,7 +91,7 @@ pub fn render_modal(modal: &UsageModal, frame: &mut Frame, area: Rect) {
     let mut cache = modal.body_cache.borrow_mut();
     match modal.page {
         UsagePage::OpenCodeStats => {
-            let stats_state = modal.stats_state.lock().unwrap_or_else(|e| e.into_inner());
+            let stats_state = modal.stats_state.borrow();
             let hit = matches!(
                 cache.key.as_ref(),
                 Some(CachedBodyKey::Stats {
@@ -111,7 +111,7 @@ pub fn render_modal(modal: &UsageModal, frame: &mut Frame, area: Rect) {
             }
         }
         UsagePage::Main => {
-            let current_state = modal.state.lock().unwrap_or_else(|e| e.into_inner());
+            let current_state = modal.state.borrow();
             let hit = matches!(
                 cache.key.as_ref(),
                 Some(CachedBodyKey::Main {

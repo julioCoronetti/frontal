@@ -86,7 +86,7 @@ fn test_usage_modal_sections_and_offline_fallback() {
     let modal = UsageModal::offline_fallback();
     assert!(!modal.allow_network);
 
-    let state = modal.state.lock().unwrap().clone();
+    let state = modal.state.borrow().clone();
     match state {
         UsageState::Ready(summary) => {
             assert!(summary.plan.tier_name.contains("Google AI Pro"));

@@ -45,7 +45,7 @@ pub enum Modal {
     Commands(CommandsModal),
     Select(DialogSelect<ModalAction>),
     DangerConfirmation(DangerConfirmationModal),
-    Usage(UsageModal),
+    Usage(Box<UsageModal>),
 }
 
 impl Modal {

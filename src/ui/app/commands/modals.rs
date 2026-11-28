@@ -165,7 +165,7 @@ impl App {
                                 !self.history.is_in_memory(),
                             )
                         };
-                        self.modals.push(Modal::Usage(modal));
+                        self.modals.push(Modal::Usage(Box::new(modal)));
                         Some(None)
                     }
                     "toggle_sidebar" => {
