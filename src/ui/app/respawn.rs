@@ -1,5 +1,5 @@
 use crate::config::BackendKind;
-use crate::infra::session::{SessionManager, SessionMetadata, SessionStatus};
+use crate::infra::session::{SessionMetadata, SessionStatus};
 use crate::protocol::SessionId;
 use crate::transport::{EngineConfig, EngineError};
 use crate::ui::app::respawn_io::{run_respawn_io, RespawnIoInput, RespawnIoResult};
@@ -138,7 +138,8 @@ impl App {
             None
         };
         let engine_config = (!was_replay).then(|| {
-            let mut config = base_engine_config.unwrap_or_default();
+            let mut config = base_engine_config
+                .unwrap_or_else(|| EngineConfig::from_user_config(&self.user_config));
             config.backend = target_backend;
             config.conversation_id = final_conv_id.clone();
             config.mode = final_mode.clone();
@@ -219,20 +220,18 @@ impl App {
         &mut self,
         plan: RespawnPlan,
         outcome: RespawnIoResult,
-    ) -> Result<SessionId, EngineError> {
+    ) -> Result<Option<SessionId>, EngineError> {
         let Some(tab_idx) = self.tabs.iter().position(|t| {
             t.tab_id == plan.token.tab_id && t.generation_id == plan.token.generation_id
         }) else {
-            if let Some(Ok((_sid, handle))) = outcome.spawned {
-                tokio::spawn(async move {
-                    let _ = SessionManager::shutdown_handle(
-                        handle,
-                        std::time::Duration::from_millis(500),
-                    )
-                    .await;
-                });
+            if plan.shares_active_conv && !self.tabs.iter().any(|t| t.session_id == plan.old_id) {
+                self.session_manager.remove_dormant_metadata(&plan.old_id);
             }
-            return Err(EngineError::ProcessNotRunning);
+            if let Some(Ok((_sid, handle))) = outcome.spawned {
+                self.session_manager
+                    .push_closing_handle(handle, std::time::Duration::from_millis(500));
+            }
+            return Ok(None);
         };
 
         let final_model = outcome.final_model;
@@ -359,7 +358,7 @@ impl App {
             )
         };
         self.dirty = true;
-        Ok(new_id)
+        Ok(Some(new_id))
     }
 
     pub async fn respawn_active_session(
@@ -371,7 +370,8 @@ impl App {
     ) -> Result<SessionId, EngineError> {
         let (plan, io_input) = self.prepare_respawn(conversation_id, model, effort, mode);
         let outcome = run_respawn_io(io_input).await;
-        self.apply_respawn_outcome(plan, outcome)
+        self.apply_respawn_outcome(plan, outcome)?
+            .ok_or(EngineError::ProcessNotRunning)
     }
 
     fn apply_hydrated_session(

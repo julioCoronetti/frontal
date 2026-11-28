@@ -43,6 +43,17 @@ impl TerminalGuard {
         &mut self.terminal
     }
 
+    pub fn write_raw_sequences(&mut self, chunks: &[Vec<u8>]) -> io::Result<()> {
+        if chunks.is_empty() {
+            return Ok(());
+        }
+        let backend = self.terminal.backend_mut();
+        for chunk in chunks {
+            std::io::Write::write_all(backend, chunk)?;
+        }
+        std::io::Write::flush(backend)
+    }
+
     pub fn restore(&self) {
         if !self.restored.swap(true, Ordering::SeqCst) {
             let mut out = stdout();

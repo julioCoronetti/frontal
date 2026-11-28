@@ -1,4 +1,5 @@
 use super::*;
+use crate::infra::session::SessionManager;
 
 fn base_plan(app: &App, old_id: SessionId, was_replay: bool) -> RespawnPlan {
     let tab = app.active_tab();
@@ -105,7 +106,8 @@ fn apply_respawn_outcome_merges_plan_and_io_warnings() {
 
     let new_id = app
         .apply_respawn_outcome(plan, outcome)
-        .expect("replay respawn succeeds");
+        .expect("replay respawn succeeds")
+        .expect("applied session id");
     assert!(app.tabs[0].status_text.contains(&new_id.to_string()));
     assert!(app.tabs[0].status_text.contains("dormant warn; io warn"));
 }
@@ -156,7 +158,40 @@ fn apply_respawn_outcome_discards_stale_generation_token() {
     let plan = base_plan(&app, old_id.clone(), true);
     app.tabs[0].bump_generation();
     let res = app.apply_respawn_outcome(plan, empty_outcome());
-    assert!(matches!(res, Err(EngineError::ProcessNotRunning)));
+    assert!(matches!(res, Ok(None)));
     assert!(!app.dirty);
     assert_eq!(app.tabs[0].session_id, old_id);
+}
+
+#[test]
+fn apply_respawn_outcome_cleans_dormant_metadata_when_tab_closed() {
+    let mut manager = SessionManager::new();
+    let old_id = SessionId::new();
+    let keep_id = SessionId::new();
+    manager.register_mock_session(keep_id.clone());
+    let mut app = App::new_isolated(manager, keep_id.clone());
+    app.add_tab(old_id.clone(), None);
+    app.switch_tab(1);
+
+    let plan = base_plan(&app, old_id.clone(), false);
+    assert!(app.session_manager.save_dormant_metadata(
+        old_id.clone(),
+        SessionMetadata {
+            session_id: old_id.clone(),
+            conversation_id: Some("conv-dormant".to_string()),
+            model: None,
+            mode: None,
+            effort: None,
+            turns: 1,
+            last_prompt: None,
+            status: SessionStatus::Closed,
+        },
+        EngineConfig::default(),
+    ));
+    app.tabs.remove(1);
+    app.active_tab_index = 0;
+
+    let res = app.apply_respawn_outcome(plan, empty_outcome());
+    assert!(matches!(res, Ok(None)));
+    assert!(!app.session_manager.is_dormant(&old_id));
 }

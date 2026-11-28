@@ -3,7 +3,6 @@ mod mouse;
 
 use crossterm::event::Event;
 
-use crate::protocol::SessionId;
 use crate::ui::app::{App, AppAction};
 use crate::ui::autocomplete::AutocompletePopover;
 use crate::ui::clipboard::SavedMediaImage;
@@ -24,12 +23,24 @@ impl App {
         }
     }
 
+    pub fn active_op_token(&self) -> crate::ui::tab::OpToken {
+        let tab = self.active_tab();
+        crate::ui::tab::OpToken {
+            tab_id: tab.tab_id,
+            generation_id: tab.generation_id,
+        }
+    }
+
     pub fn apply_paste_outcome(
         &mut self,
-        session_id: &SessionId,
+        token: crate::ui::tab::OpToken,
         outcome: Result<(Option<SavedMediaImage>, Option<String>), String>,
     ) {
-        let Some(tab_idx) = self.tabs.iter().position(|t| &t.session_id == session_id) else {
+        let Some(tab_idx) = self
+            .tabs
+            .iter()
+            .position(|t| t.tab_id == token.tab_id && t.generation_id == token.generation_id)
+        else {
             return;
         };
         let is_active = tab_idx == self.active_tab_index;
@@ -73,20 +84,20 @@ impl App {
         if !self.clipboard.is_isolated() {
             return Some(AppAction::PasteClipboard);
         }
-        let sid = self.active_session_id().clone();
+        let token = self.active_op_token();
         match self.clipboard.get_image() {
             Ok(Some(saved)) => {
-                self.apply_paste_outcome(&sid, Ok((Some(saved), None)));
+                self.apply_paste_outcome(token, Ok((Some(saved), None)));
                 return None;
             }
             Err(err) => {
-                self.apply_paste_outcome(&sid, Err(err));
+                self.apply_paste_outcome(token, Err(err));
                 return None;
             }
             Ok(None) => {}
         }
         if let Some(text) = self.clipboard.get_text() {
-            self.apply_paste_outcome(&sid, Ok(Self::resolve_pasted_text(text)));
+            self.apply_paste_outcome(token, Ok(Self::resolve_pasted_text(text)));
         }
         None
     }
@@ -102,8 +113,8 @@ impl App {
                 if !self.clipboard.is_isolated() {
                     return Some(AppAction::InspectPastedText(text));
                 }
-                let sid = self.active_session_id().clone();
-                self.apply_paste_outcome(&sid, Ok(Self::resolve_pasted_text(text)));
+                let token = self.active_op_token();
+                self.apply_paste_outcome(token, Ok(Self::resolve_pasted_text(text)));
                 None
             }
             Event::Resize(_, _) => {

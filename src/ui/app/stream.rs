@@ -3,7 +3,6 @@ use crate::protocol::{EngineEvent, SessionEnvelope, StreamEvent};
 use crate::ui::app::App;
 use crate::ui::cache::BlockKind;
 use crate::ui::modal::{DangerConfirmationModal, Modal};
-use crate::ui::notify::emit_sensory_notification;
 use crate::ui::tab::StreamOutcome;
 
 impl App {
@@ -153,9 +152,11 @@ impl App {
                                 .push_back((self.tabs[tab_idx].session_id.clone(), next_prompt));
                         }
                         if (is_result || !is_active) && !self.clipboard.is_isolated() {
-                            emit_sensory_notification(
-                                "Frontal Session Completed",
-                                &format!("Turn completed in {}", self.tabs[tab_idx].title),
+                            self.pending_terminal_writes.push(
+                                crate::ui::notify::sensory_notification_bytes(
+                                    "Frontal Session Completed",
+                                    &format!("Turn completed in {}", self.tabs[tab_idx].title),
+                                ),
                             );
                         }
                     }

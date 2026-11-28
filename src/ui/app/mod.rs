@@ -88,10 +88,23 @@ pub struct App {
     pub last_ctrl_c_at: Option<std::time::Instant>,
     pub pending_engine_prompts:
         std::collections::VecDeque<(crate::protocol::SessionId, crate::protocol::PromptPayload)>,
+    pub pending_terminal_writes: Vec<Vec<u8>>,
 }
 
 impl App {
     pub fn new(session_manager: SessionManager, active_session: SessionId) -> Self {
+        Self::new_with_config(
+            session_manager,
+            active_session,
+            crate::infra::config_store::load(),
+        )
+    }
+
+    pub fn new_with_config(
+        session_manager: SessionManager,
+        active_session: SessionId,
+        user_config: crate::config::UserConfig,
+    ) -> Self {
         let history = crate::infra::history::default_history_path()
             .and_then(|path| PromptHistory::open(&path).ok())
             .unwrap_or_else(|| PromptHistory::open_in_memory().unwrap());
@@ -137,7 +150,7 @@ impl App {
             available_models,
             opencode_models: Vec::new(),
             model_catalog: crate::model_catalog::ModelCatalog::default(),
-            user_config: crate::infra::config_store::load(),
+            user_config,
             sidebar_visible: true,
             viewport_bounds: (0, 0, 80, 20),
             hit_regions: Vec::new(),
@@ -145,6 +158,7 @@ impl App {
             hovered_new_tab: false,
             last_ctrl_c_at: None,
             pending_engine_prompts: std::collections::VecDeque::new(),
+            pending_terminal_writes: Vec::new(),
         }
     }
 
@@ -185,7 +199,12 @@ impl App {
             hovered_new_tab: false,
             last_ctrl_c_at: None,
             pending_engine_prompts: std::collections::VecDeque::new(),
+            pending_terminal_writes: Vec::new(),
         }
+    }
+
+    pub fn take_pending_terminal_writes(&mut self) -> Vec<Vec<u8>> {
+        std::mem::take(&mut self.pending_terminal_writes)
     }
 
     pub fn expire_interrupt_timers(&mut self) -> bool {

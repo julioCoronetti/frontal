@@ -84,8 +84,8 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
             Some(catalog) = catalog_rx.recv() => {
                 app.set_model_catalog(catalog);
             }
-            Some((sid, paste_res)) = paste_rx.recv() => {
-                app.apply_paste_outcome(&sid, paste_res);
+            Some((token, paste_res)) = paste_rx.recv() => {
+                app.apply_paste_outcome(token, paste_res);
             }
             Some(bg_event) = bg_rx.recv() => {
                 while bg_tasks.try_join_next().is_some() {}
@@ -127,18 +127,18 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                             AppAction::PasteClipboard => {
-                                let sid = app.active_session_id().clone();
+                                let token = app.active_op_token();
                                 let cache_dir = app.clipboard.resolve_media_cache_dir();
                                 let tx = paste_tx.clone();
                                 tokio::task::spawn_blocking(move || {
                                     let _ = tx.blocking_send((
-                                        sid,
+                                        token,
                                         resolve_clipboard_paste(cache_dir),
                                     ));
                                 });
                             }
                             AppAction::InspectPastedText(text) => {
-                                let sid = app.active_session_id().clone();
+                                let token = app.active_op_token();
                                 let cache_dir = app.clipboard.resolve_media_cache_dir();
                                 let tx = paste_tx.clone();
                                 tokio::task::spawn_blocking(move || {
@@ -147,7 +147,7 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                                     } else {
                                         Ok(App::resolve_pasted_text(text))
                                     };
-                                    let _ = tx.blocking_send((sid, res));
+                                    let _ = tx.blocking_send((token, res));
                                 });
                             }
                             AppAction::CopyClipboard(text) => {
@@ -177,7 +177,11 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                                 let mut config = app
                                     .session_manager
                                     .get_engine_config(app.active_session_id())
-                                    .unwrap_or_default();
+                                    .unwrap_or_else(|| {
+                                        crate::transport::EngineConfig::from_user_config(
+                                            &app.user_config,
+                                        )
+                                    });
                                 config.conversation_id = None;
                                 config.model = Some(app.active_model_name());
                                 config.effort = Some(app.active_effort_name());
@@ -281,7 +285,14 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
                     }
                     app.dirty = false;
                 }
-                flush_pending_osc52(&mut pending_osc52, &app.clipboard);
+                let mut writes = app.take_pending_terminal_writes();
+                if let Some(osc) = take_pending_osc52_bytes(&mut pending_osc52, &app.clipboard) {
+                    writes.push(osc);
+                }
+                if let Err(err) = guard.write_raw_sequences(&writes) {
+                    run_result = Err(err.into());
+                    break;
+                }
             }
         }
     }
@@ -294,7 +305,11 @@ pub async fn run_tui(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
             &app.clipboard,
         );
     }
-    flush_pending_osc52(&mut pending_osc52, &app.clipboard);
+    let mut final_writes = app.take_pending_terminal_writes();
+    if let Some(osc) = take_pending_osc52_bytes(&mut pending_osc52, &app.clipboard) {
+        final_writes.push(osc);
+    }
+    let _ = guard.write_raw_sequences(&final_writes);
     guard.restore();
     bg_rx.close();
     drop(bg_tx);
@@ -373,11 +388,13 @@ fn handle_bg_event(app: &mut App, event: BgEvent) {
             outcome,
             follow_up_prompt,
         } => {
-            let tab_id = plan.token.tab_id;
+            let token = plan.token;
             match app.apply_respawn_outcome(*plan, *outcome) {
-                Ok(new_id) => {
+                Ok(Some(new_id)) => {
                     if let Some(prompt) = follow_up_prompt {
-                        if let Some(tab) = app.tabs.iter_mut().find(|t| t.tab_id == tab_id) {
+                        if let Some(tab) = app.tabs.iter_mut().find(|t| {
+                            t.tab_id == token.tab_id && t.generation_id == token.generation_id
+                        }) {
                             tab.transition_turn(crate::ui::tab::TurnEvent::Submit);
                             tab.status_text = String::from("Thinking...");
                         }
@@ -388,15 +405,15 @@ fn handle_bg_event(app: &mut App, event: BgEvent) {
                         }
                     }
                 }
+                Ok(None) => {}
                 Err(err) => {
                     if follow_up_prompt.is_some() {
-                        if let Some(tab) = app.tabs.iter().find(|t| t.tab_id == tab_id) {
-                            let sid = tab.session_id.clone();
+                        if let Some(tab_idx) = app.tabs.iter().position(|t| {
+                            t.tab_id == token.tab_id && t.generation_id == token.generation_id
+                        }) {
+                            let sid = app.tabs[tab_idx].session_id.clone();
                             app.handle_prompt_failure(&sid, &err.to_string());
                         }
-                    } else if let Some(tab) = app.tabs.iter_mut().find(|t| t.tab_id == tab_id) {
-                        tab.status_text = format!("Failed to respawn session: {}", err);
-                        app.dirty = true;
                     }
                 }
             }
@@ -417,15 +434,13 @@ fn sync_osc52_watch(
     }
 }
 
-fn flush_pending_osc52(
+fn take_pending_osc52_bytes(
     pending: &mut Option<(u64, String)>,
     clipboard: &clipboard::SystemClipboard,
-) {
-    if let Some((seq, text)) = pending.take() {
-        if seq >= clipboard.last_applied_seq() {
-            clipboard::SystemClipboard::write_osc52_stdout(&text);
-        }
-    }
+) -> Option<Vec<u8>> {
+    let (seq, text) = pending.take()?;
+    (seq >= clipboard.last_applied_seq())
+        .then(|| clipboard::SystemClipboard::format_osc52(&text).into_bytes())
 }
 
 async fn send_bg_or_discard(tx: &tokio::sync::mpsc::Sender<BgEvent>, event: BgEvent) {

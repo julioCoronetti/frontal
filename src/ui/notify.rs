@@ -15,10 +15,18 @@ pub fn osc777_notification(title: &str, message: &str) -> Vec<u8> {
     format!("\x1b]777;notify;{};{}\x07", san_title, san_msg).into_bytes()
 }
 
+pub fn sensory_notification_bytes(title: &str, message: &str) -> Vec<u8> {
+    let osc9 = osc9_notification(message);
+    let osc777 = osc777_notification(title, message);
+    let mut buf = Vec::with_capacity(1 + osc9.len() + osc777.len());
+    buf.extend_from_slice(terminal_bell());
+    buf.extend_from_slice(&osc9);
+    buf.extend_from_slice(&osc777);
+    buf
+}
+
 pub fn emit_sensory_notification(title: &str, message: &str) {
     let mut out = io::stdout();
-    let _ = out.write_all(terminal_bell());
-    let _ = out.write_all(&osc9_notification(message));
-    let _ = out.write_all(&osc777_notification(title, message));
+    let _ = out.write_all(&sensory_notification_bytes(title, message));
     let _ = out.flush();
 }

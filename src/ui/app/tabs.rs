@@ -180,7 +180,9 @@ impl App {
         if was_replay {
             (old_id, None, prev_backend, model, effort, mode)
         } else {
-            let mut config = base_engine_config.unwrap_or_default();
+            let mut config = base_engine_config.unwrap_or_else(|| {
+                crate::transport::EngineConfig::from_user_config(&self.user_config)
+            });
             config.backend = prev_backend;
             config.conversation_id = None;
             config.model = model.clone();
@@ -254,25 +256,15 @@ impl App {
     ) {
         let Some(tab) = self.tabs.get_mut(0) else {
             if let Ok((_sid, handle)) = res {
-                tokio::spawn(async move {
-                    let _ = SessionManager::shutdown_handle(
-                        handle,
-                        std::time::Duration::from_millis(500),
-                    )
-                    .await;
-                });
+                self.session_manager
+                    .push_closing_handle(handle, std::time::Duration::from_millis(500));
             }
             return;
         };
         if tab.op_token() != pending.token {
             if let Ok((_sid, handle)) = res {
-                tokio::spawn(async move {
-                    let _ = SessionManager::shutdown_handle(
-                        handle,
-                        std::time::Duration::from_millis(500),
-                    )
-                    .await;
-                });
+                self.session_manager
+                    .push_closing_handle(handle, std::time::Duration::from_millis(500));
             }
             return;
         }
