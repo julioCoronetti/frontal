@@ -396,15 +396,21 @@ async fn run_opencode_worker(worker: OpenCodeWorker, mut cmd_rx: mpsc::Receiver<
                         }
                     }
                     let exit_status = child.wait().await;
-                    let cleared = active_pgid
-                        .compare_exchange(pgid, 0, Ordering::SeqCst, Ordering::Relaxed)
-                        .is_ok();
-                    if let Some(mut guard) =
-                        pgid_guard.lock().unwrap_or_else(|e| e.into_inner()).take()
-                    {
+                    let taken_guard = {
+                        let mut slot = pgid_guard.lock().unwrap_or_else(|e| e.into_inner());
+                        if slot.as_ref().is_some_and(|g| g.pgid() == pgid) {
+                            slot.take()
+                        } else {
+                            None
+                        }
+                    };
+                    if let Some(mut guard) = taken_guard {
                         guard.signal(libc::SIGTERM);
                         guard.disarm();
                     }
+                    let cleared = active_pgid
+                        .compare_exchange(pgid, 0, Ordering::SeqCst, Ordering::Relaxed)
+                        .is_ok();
                     pgid_notify.notify_waiters();
                     let stderr_tail = stderr_task.await.unwrap_or_default();
                     if !cleared || saw_terminal {

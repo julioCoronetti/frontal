@@ -1,7 +1,7 @@
 # Frontal Architecture Audit Findings & Follow-Up Tracker (Parte 2)
 
 **Documento complementar de:** [`architecture_roadmap.md`](./architecture_roadmap.md)  
-**Última atualização:** Fase 2 auditada e consolidada na `develop` (sobre `9fc79a0`; `quality_gate.sh --full`: 15 unitários + 326 testes de integração aprovados).  
+**Última atualização:** Fase 2 revalidada e consolidada na `develop` (sobre `9b56eeb`; `quality_gate.sh --full` sem override: 15 unitários + 326 testes de integração aprovados).  
 **Finalidade:** Registrar apontamentos abertos, débitos parciais e riscos verificados por fase para impedir que itens críticos sejam esquecidos ao avançar para as próximas etapas.
 
 ---
@@ -12,8 +12,8 @@
 | :--- | :---: | :--- | :--- |
 | **Fase 0** (Blindagem & Scale Baseline) | **9.2 / 10** | Endurecida na Fase 2 | `boundaries.rs` fechou aliases de `Mutex`/`RwLock`, `CoreHardcodedStoragePath` e `UiWildcardInfraReexport` (`LEGACY_ALLOWLIST` caiu de 16 para 1 entrada); resta apenas trabalho real em `scale_baseline.rs` (Fase 4). |
 | **Fase 1** (Ciclo de Vida & Estado Único) | **9.4 / 10** | Consolidada na Fase 2 | `ProcessGroupGuard` migrado para thread OS reaper dedicada, `#[cfg(not(unix))]` adicionado em `usage/cli.rs`, `self.sessions`/`deleted_ids` e abertura síncrona removidos de `PromptHistory`; restam conexões read-only avulsas e `started_at` não lido. |
-| **Fase 2** (Event Loop & Separação de Camadas) | **9.1 / 10** | Concluída (pronta p/ Fase 3) | Event loop 100% não bloqueante, `OpToken` em respawns/clipboard, limpeza de `dormant_metadata`, remoção de `Mutex` na UI e no `interrupt`, startup/histórico sem bloqueio, e gaps residuais `MEDIUM`/`LOW` da auditoria fechados. |
-| **Média das Entregas (Fases 0–2)** | **9.2 / 10** | — | Arquitetura geral evoluiu de **5.5/10** -> **7.0/10** -> **9.2/10** (0 `CRITICAL`/`HIGH`; critério do roadmap >= 9.0 atingido, pronta para iniciar a Fase 3). |
+| **Fase 2** (Event Loop & Separação de Camadas) | **9.6 / 10** | Concluída (pronta p/ Fase 3) | Event loop 100% não bloqueante, `OpToken` em respawns/clipboard, limpeza de `dormant_metadata`, remoção de `Mutex` na UI e no `interrupt`, teardown de `pgid_guard` validado por `pgid` antes de zerar `active_pgid`, startup/histórico sem bloqueio e docs/wiki sincronizados. |
+| **Média das Entregas (Fases 0–2)** | **9.4 / 10** | — | Arquitetura geral evoluiu de **5.5/10** -> **7.0/10** -> **9.4/10** (0 `CRITICAL`/`HIGH`; critério do roadmap >= 9.0 atingido, pronta para iniciar a Fase 3). |
 
 ---
 
